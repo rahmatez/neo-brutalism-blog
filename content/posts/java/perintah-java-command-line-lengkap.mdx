@@ -1,0 +1,1279 @@
+---
+title: "Perintah Java Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Java: java, javac, jar, javadoc, jshell, OpenJDK, classpath, module-path, Maven, Gradle, JVM options, troubleshooting, dan workflow developer."
+date: "2025-06-24"
+category: java
+tags: ["java", "openjdk", "jvm", "cli", "tutorial"]
+featured: true
+---
+
+**Java** di terminal bukan hanya `java HelloWorld` — ekosistem JDK menyediakan toolchain lengkap: **`java`** menjalankan program, **`javac`** mengompilasi, **`jar`** mengemas arsip, **`javadoc`** membuat dokumentasi, dan **`jshell`** sebagai REPL interaktif. Panduan ini merangkum perintah CLI OpenJDK yang paling sering dipakai developer sehari-hari, dari classpath klasik hingga Java Platform Module System (JPMS), plus singkat **Maven** dan **Gradle**.
+
+<Callout type="tip">
+Pastikan JDK (bukan hanya JRE) sudah terpasang. Cek dengan `java -version` dan `javac -version`. Di Mac: `brew install openjdk@21` lalu tambahkan ke PATH, atau pakai **SDKMAN** (`sdk install java 21-tem`). Untuk proyek production, dokumentasi resmi ada di [docs.oracle.com/javase](https://docs.oracle.com/en/java/javase/).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti ekosistem Java di terminal — istilah ini muncul terus di dokumentasi, error message, dan build tool:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **JDK (Java Development Kit)** | Paket lengkap: compiler (`javac`), runtime (`java`), tools (`jar`, `javadoc`, `jshell`) |
+| **JRE (Java Runtime Environment)** | Hanya runtime untuk menjalankan bytecode — tidak ada compiler |
+| **JVM (Java Virtual Machine)** | Mesin virtual yang mengeksekusi bytecode `.class` — HotSpot adalah implementasi umum di OpenJDK |
+| **Bytecode** | Output kompilasi `.java` → `.class` — portable, dijalankan JVM |
+| **Classpath (`-cp`)** | Daftar folder/JAR tempat JVM mencari class — model klasik (pre-Java 9) |
+| **Module path (`--module-path`)** | Daftar modul JPMS (Java 9+) — pengganti/evolusi classpath untuk modular apps |
+| **Main class** | Class dengan method `public static void main(String[] args)` — entry point program |
+| **Manifest (`MANIFEST.MF`)** | Metadata JAR — termasuk `Main-Class` untuk executable JAR |
+| **Fat JAR / Uber JAR** | JAR berisi aplikasi + semua dependensi — satu file runnable |
+| **OpenJDK** | Implementasi open source JDK — referensi komunitas (Temurin, Corretto, dll.) |
+| **LTS** | Long-Term Support — versi stabil untuk production (8, 11, 17, 21, …) |
+
+### Alur dari kode ke eksekusi
+
+```
+Source (.java)  ──javac──►  Bytecode (.class)  ──java──►  JVM mengeksekusi
+                                │
+                                └── jar ──►  .jar (arsip + manifest)
+```
+
+### Perintah informasi dasar
+
+```bash
+java --version              # versi runtime (JVM)
+javac --version             # versi compiler
+java --help                 # opsi java
+javac --help                # opsi javac
+jar --help                  # opsi jar
+jshell --help               # opsi jshell
+```
+
+- **`java -version`**: cek JVM yang aktif di PATH — langkah pertama troubleshooting.
+- **`javac -version`**: pastikan compiler tersedia — tanpa ini Anda tidak bisa build dari source.
+- **`--help`**: referensi cepat tanpa buka browser — setiap tool JDK punya daftar opsi sendiri.
+
+---
+
+## Instalasi & Verifikasi
+
+### `java -version` — Cek Versi Runtime
+
+`java -version` menampilkan versi JVM, vendor, dan runtime environment yang sedang dipakai.
+
+Kapan dipakai: setup mesin baru, verifikasi versi sebelum deploy, atau debug mismatch antara IDE dan terminal.
+
+```bash
+java -version
+java --version              # sama (long option)
+
+# Output contoh (OpenJDK 21):
+# openjdk version "21.0.3" 2024-04-16
+# OpenJDK Runtime Environment Temurin-21.0.3+9 (build 21.0.3+9-LTS)
+# OpenJDK 64-Bit Server VM Temurin-21.0.3+9 (build 21.0.3+9-LTS, mixed mode, sharing)
+```
+
+- **`openjdk` vs `Oracle JDK`**: keduanya kompatibel — perhatikan vendor di baris kedua.
+- **`Server VM`**: mode server JIT — default di desktop/server modern.
+- Bandingkan dengan `javac -version` — keduanya harus dari JDK yang sama.
+
+---
+
+### `javac -version` — Cek Versi Compiler
+
+`javac -version` menampilkan versi Java compiler — memastikan JDK (bukan hanya JRE) terinstal.
+
+Kapan dipakai: setelah install JDK, atau saat build gagal dengan "command not found: javac".
+
+```bash
+javac -version
+javac --version
+
+# Output contoh:
+# javac 21.0.3
+```
+
+- Jika `java` ada tapi `javac` tidak: kemungkinan hanya JRE terpasang, atau PATH tidak include `bin/` JDK.
+- Di Mac dengan Homebrew: `export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"`.
+
+---
+
+### `java -XshowSettings` — Info JVM Detail
+
+`java -XshowSettings` menampilkan property JVM, locale, dan VM settings — audit lingkungan runtime.
+
+Kapan dipakai: investigasi classpath default, locale, atau properti sistem yang mempengaruhi aplikasi.
+
+```bash
+java -XshowSettings:properties -version   # semua system properties
+java -XshowSettings:vm -version           # VM flags & mode
+java -XshowSettings:locale -version       # locale & encoding
+java -XshowSettings:all -version          # gabungan semua
+```
+
+- **`:properties`**: output panjang — pipe ke `grep` untuk filter: `java -XshowSettings:properties -version 2>&1 | grep user.dir`.
+- Berguna saat aplikasi berperilaku berbeda di terminal vs IDE — bandingkan property yang sama.
+
+---
+
+## Menjalankan Program: `java`
+
+### `java` — Jalankan Main Class
+
+`java` meluncurkan JVM dan memuat class dengan method `main` sebagai entry point program.
+
+Kapan dipakai: menjalankan program hasil kompilasi manual, quick test, atau mengeksekusi utility class.
+
+```bash
+# Dari folder yang berisi struktur package
+java com.example.app.Main
+
+# Dengan argument ke main
+java com.example.app.Main arg1 arg2
+
+# Specify classpath
+java -cp bin com.example.app.Main
+java -classpath "lib/*:bin" com.example.app.Main    # Mac/Linux
+java -classpath "lib/*;bin" com.example.app.Main    # Windows
+
+# Jalankan dari JAR lain di classpath
+java -cp "myapp.jar:lib/*" com.example.Launcher
+```
+
+- **Nama class**: gunakan fully qualified name (`com.example.Main`), bukan path file.
+- **`-cp` / `-classpath`**: pisahkan entry dengan `:` (Mac/Linux) atau `;` (Windows).
+- **`lib/*`**: wildcard untuk semua JAR di folder — praktis untuk dependensi.
+
+---
+
+### `java -jar` — Jalankan Executable JAR
+
+`java -jar` menjalankan JAR yang manifest-nya mendefinisikan `Main-Class` — cara standar distribusi aplikasi Java.
+
+Kapan dipakai: menjalankan aplikasi yang sudah di-package, tool CLI berbasis Java, atau hasil build Maven/Gradle.
+
+```bash
+java -jar myapp.jar
+java -jar myapp.jar --spring.config.location=application.yml
+java -jar myapp.jar server config.yml              # contoh dengan argumen
+
+# Dengan JVM options (harus SEBELUM -jar)
+java -Xmx512m -jar myapp.jar
+java -Dapp.env=prod -jar myapp.jar
+```
+
+- **Urutan penting**: JVM options (`-Xmx`, `-D`) harus **sebelum** `-jar`; argument aplikasi **setelah** nama JAR.
+- **`-jar` mengabaikan `-cp`**: classpath ditentukan oleh manifest JAR (`Class-Path` entry) atau fat JAR.
+- Jika error "no main manifest attribute": JAR bukan executable — tambahkan `Main-Class` di manifest atau jalankan dengan `-cp`.
+
+<Callout type="warning">
+`java -jar app.jar -cp extra.jar` **tidak** menambahkan classpath seperti yang diharapkan — `-jar` membuat `-cp` diabaikan. Untuk classpath custom, gunakan `java -cp "app.jar:extra.jar" com.example.Main` tanpa flag `-jar`.
+</Callout>
+
+---
+
+### `java --module` / `-m` — Jalankan Modul (JPMS)
+
+`java --module` menjalankan class main dari modul Java Platform Module System — model modular Java 9+.
+
+Kapan dipakai: aplikasi modular, library yang di-package sebagai module, atau eksplorasi JPMS.
+
+```bash
+# Sintaks: --module <module>/<main-class>
+java --module com.example.app/com.example.app.Main
+java -m com.example.app/com.example.app.Main    # short form
+
+# Dengan module path
+java --module-path mods --module com.example.app/com.example.app.Main
+
+# Jalankan module tanpa specify main (jika module-info exports main)
+java --module-path mods -m com.example.app
+```
+
+- **`module-path`**: analog classpath untuk modul — berisi folder/JAR modular.
+- **`module-info.java`**: mendefinisikan nama modul, exports, requires — wajib untuk JPMS.
+- Banyak proyek legacy masih non-modular — classpath tetap lebih umum di praktik.
+
+---
+
+### `java` dengan JVM Options & System Properties
+
+Flag `-D`, `-X`, dan `-XX` mengatur perilaku JVM — memory, GC, debugging, dan konfigurasi aplikasi.
+
+Kapan dipakai: tuning production, set environment variable ke aplikasi, atau enable remote debugging.
+
+```bash
+# System properties (-D)
+java -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Jakarta com.example.Main
+java -Dspring.profiles.active=dev -jar app.jar
+java -Dlog.level=DEBUG com.example.Main
+
+# Memory (lihat section JVM Options untuk detail)
+java -Xms256m -Xmx1g com.example.Main
+java -Xmx2g -jar heavy-app.jar
+
+# Enable assertions
+java -ea com.example.Main              # enable semua
+java -da com.example.pkg.*             # disable per package
+
+# Remote debugging (development)
+java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -jar app.jar
+```
+
+- **`-Dkey=value`**: system property — bisa dibaca di kode via `System.getProperty("key")`.
+- **`-X`**: non-standard tapi stabil — memory, stack size.
+- **`-XX`**: advanced VM options — GC tuning, experimental flags.
+
+---
+
+## Kompilasi: `javac`
+
+### `javac` — Kompilasi File Java
+
+`javac` mengubah source code `.java` menjadi bytecode `.class` — langkah wajib sebelum menjalankan program (kecuali pakai build tool).
+
+Kapan dipakai: build manual, belajar Java tanpa IDE, atau compile utility kecil tanpa Maven/Gradle.
+
+```bash
+# Kompilasi satu file
+javac HelloWorld.java
+
+# Output ke folder tertentu
+javac -d bin src/com/example/Main.java
+
+# Kompilasi banyak file
+javac -d bin src/com/example/*.java
+javac -d bin $(find src -name "*.java")       # Mac/Linux
+
+# Dengan classpath (dependensi)
+javac -cp "lib/*" -d bin src/com/example/Main.java
+
+# Kompilasi dengan module path
+javac --module-path libs -d out -m com.example.app
+```
+
+- **`-d <dir>`**: output `.class` mengikuti struktur package di dalam folder target.
+- Tanpa `-d`: `.class` muncul di folder yang sama dengan `.java` — berantakan untuk proyek besar.
+- Error kompilasi: baca pesan `error:` dengan nomor baris — perbaiki satu per satu dari atas.
+
+---
+
+### `javac` — Opsi Kompilasi Berguna
+
+Opsi tambahan `javac` untuk release target, encoding, warning, dan annotation processing.
+
+Kapan dipakai: compile untuk versi Java tertentu, CI/CD, atau proyek dengan Lombok/MapStruct.
+
+```bash
+# Target versi bytecode (cross-compile)
+javac --release 17 -d bin src/**/*.java
+javac -source 17 -target 17 -d bin src/**/*.java   # legacy style
+
+# Encoding source file
+javac -encoding UTF-8 -d bin src/**/*.java
+
+# Tampilkan warning detail
+javac -Xlint:all -d bin src/**/*.java
+javac -Xlint:deprecation -d bin src/**/*.java
+
+# Include hanya file yang berubah (dengan script)
+javac -d bin @sources.txt                        # daftar file dari argfile
+
+# Annotation processor path (Lombok, dll.)
+javac -processorpath lombok.jar -cp lombok.jar -d bin src/**/*.java
+```
+
+- **`--release N`**: cara modern cross-compile — otomatis set API yang tersedia; prefer ini daripada `-source`/`-target` terpisah.
+- **`-encoding UTF-8`**: wajib jika source berisi karakter non-ASCII dan default platform bukan UTF-8.
+- **`@sources.txt`**: argfile berisi daftar path — hindari "command line too long" di proyek besar.
+
+---
+
+### Struktur Package & Kompilasi
+
+Memahami hubungan folder, package declaration, dan perintah `javac`/`java`.
+
+Kapan dipakai: error "cannot find symbol", "wrong name", atau class tidak ditemukan saat runtime.
+
+```bash
+# File: src/com/example/app/Main.java
+# Isi: package com.example.app; public class Main { ... }
+
+javac -d bin src/com/example/app/Main.java
+java -cp bin com.example.app.Main
+
+# Salah umum: java Main (tanpa package)
+# Benar: java com.example.app.Main dengan -cp menunjuk ke root output (bin/)
+```
+
+| Error | Penyebab umum |
+| --- | --- |
+| **cannot find symbol** | Typo, import salah, atau dependensi tidak di classpath |
+| **class X is public, should be in file X.java** | Nama file tidak cocok dengan nama public class |
+| **package does not exist** | Struktur folder tidak match package declaration |
+| **Could not find or load main class** | Classpath salah atau fully qualified name typo |
+
+---
+
+## Classpath
+
+### `-cp` / `-classpath` — Set Classpath
+
+Classpath memberitahu JVM dan compiler di mana mencari class dan resource — fondasi ekosistem Java klasik.
+
+Kapan dipakai: hampir setiap build manual, menjalankan program dengan dependensi JAR, atau menjalankan test utility.
+
+```bash
+# Satu folder
+java -cp bin com.example.Main
+
+# Banyak entry (pisah dengan : di Mac/Linux, ; di Windows)
+java -cp "bin:lib/gson.jar:lib/commons.jar" com.example.Main
+
+# Wildcard semua JAR di folder
+java -cp "bin:lib/*" com.example.Main
+
+# Classpath saat compile DAN run harus konsisten
+javac -cp "lib/*" -d bin src/com/example/Main.java
+java -cp "bin:lib/*" com.example.Main
+```
+
+- **Wildcard `*`**: hanya cocok untuk JAR di **satu level** folder — tidak recursive ke subfolder.
+- **Urutan classpath**: JVM mencari dari kiri ke kanan — class pertama yang ditemukan menang (shadowing).
+- **Current directory**: `.` kadang perlu eksplisit: `-cp ".:lib/*"`.
+
+<Callout type="info">
+`CLASSPATH` environment variable juga didukung, tapi **tidak disarankan** — mudah bentrok antar proyek. Prefer flag `-cp` eksplisit di script atau perintah terminal.
+</Callout>
+
+---
+
+### Classpath vs Module Path
+
+Perbandingan dua model loading class di Java modern.
+
+Kapan dipakai: migrasi ke Java 9+, memahami error "module not found", atau memilih strategi packaging.
+
+```bash
+# Classpath (klasik) — semua JAR di satu "soup"
+java -cp "app.jar:lib/*" com.example.Main
+
+# Module path (JPMS) — modul eksplisit dengan boundary
+java --module-path "mods:libs" --module com.example.app/com.example.Main
+
+# Hybrid (unnamed module + named modules) — advanced
+java --module-path mods -cp extra.jar com.example.LegacyMain
+```
+
+| Aspek | Classpath | Module Path |
+| --- | --- | --- |
+| **Sejak** | Java 1.0 | Java 9+ |
+| **Visibility** | Semua public class accessible | Hanya exported package |
+| **Konfigurasi** | `-cp` | `--module-path`, `module-info.java` |
+| **Umum di** | Legacy, Spring Boot, Android tools | Library modular, jlink images |
+
+---
+
+## Module Path (JPMS)
+
+### `module-info.java` — Definisi Modul
+
+File `module-info.java` mendeklarasikan modul, dependensi (`requires`), dan API yang diekspos (`exports`).
+
+Kapan dipakai: membuat library modular, aplikasi yang di-package dengan `jlink`, atau mempelajari JPMS.
+
+```java
+// module-info.java
+module com.example.app {
+    requires java.sql;
+    requires com.google.gson;
+    exports com.example.app.api;
+}
+```
+
+```bash
+# Compile module
+javac -d out --module-source-path src $(find src -name "*.java")
+
+# Run
+java --module-path out --module com.example.app/com.example.app.Main
+```
+
+- **`requires`**: modul lain yang dibutuhkan — harus ada di module path.
+- **`exports`**: package yang bisa diakses modul lain — tanpa exports, package internal tersembunyi.
+- **`requires transitive`**: dependensi yang ikut tersedia untuk consumer modul Anda.
+
+---
+
+### `jlink` — Custom Runtime Image (Singkat)
+
+`jlink` membuat JVM image minimal hanya dengan modul yang dibutuhkan — mengurangi ukuran distribusi.
+
+Kapan dipakai: distribusi desktop app, container minimal, atau deployment tanpa full JDK.
+
+```bash
+# Buat custom runtime (butuh JDK modular)
+jlink --module-path $JAVA_HOME/jmods:mods \
+      --add-modules com.example.app \
+      --output myruntime \
+      --strip-debug \
+      --compress=2
+
+# Jalankan dengan runtime custom
+./myruntime/bin/java -m com.example.app/com.example.app.Main
+```
+
+- **`jmods`**: modul sistem JDK di `$JAVA_HOME/jmods`.
+- Hasil image hanya berisi modul yang diperlukan — bisa jauh lebih kecil dari full JDK.
+
+---
+
+## JAR: `jar`
+
+### `jar cf` — Buat JAR Archive
+
+`jar` mengemas file `.class`, resource, dan manifest ke dalam arsip JAR — format distribusi standar Java.
+
+Kapan dipakai: packaging manual, membuat executable JAR, atau menyertakan resource (properties, XML).
+
+```bash
+# Buat JAR dari folder bin/
+jar cf myapp.jar -C bin .
+
+# Buat JAR dengan manifest custom
+echo "Main-Class: com.example.Main" > manifest.txt
+jar cfm myapp.jar manifest.txt -C bin .
+
+# JAR dengan entry Class-Path di manifest (dependensi)
+cat > manifest.txt << 'EOF'
+Main-Class: com.example.Main
+Class-Path: lib/gson.jar lib/commons-lang3.jar
+
+EOF
+jar cfm myapp.jar manifest.txt -C bin .
+
+# Verbose (tampilkan file yang ditambahkan)
+jar cvf myapp.jar -C bin .
+```
+
+- **`c`**: create — **`f`**: file — **`m`**: manifest — **`v`**: verbose.
+- **`-C bin .`**: masuk ke folder `bin`, tambahkan isinya ke root JAR (struktur package terjaga).
+- **`Main-Class`**: wajib untuk `java -jar` — satu fully qualified class name.
+
+---
+
+### `jar tf` / `jar xf` — Lihat & Ekstrak JAR
+
+Perintah inspeksi dan ekstraksi isi arsip JAR tanpa menjalankannya.
+
+Kapan dipakai: debug "class not found", audit isi JAR dari dependensi, atau ekstrak resource.
+
+```bash
+# List isi JAR
+jar tf myapp.jar
+jar tf myapp.jar | grep Main.class
+
+# Detail manifest
+jar xf myapp.jar META-INF/MANIFEST.MF
+cat META-INF/MANIFEST.MF
+
+# Ekstrak semua
+jar xf myapp.jar
+
+# Ekstrak file tertentu
+jar xf myapp.jar com/example/config.properties
+
+# Update JAR (tambah/replace file)
+jar uf myapp.jar -C resources config.xml
+```
+
+- **`t`**: table/list — **`x`**: extract — **`u`**: update.
+- **`META-INF/MANIFEST.MF`**: metadata JAR — cek `Main-Class` dan `Class-Path` saat troubleshooting.
+- Jangan commit folder hasil extract ke Git — gunakan sementara untuk inspeksi.
+
+---
+
+### Fat JAR Manual (Uber JAR)
+
+Menggabungkan aplikasi dan dependensi ke satu JAR runnable — alternatif sebelum Maven Shade / Gradle Shadow.
+
+Kapan dipakai: distribusi sederhana tanpa build tool, atau memahami apa yang dilakukan plugin shade.
+
+```bash
+# 1. Extract semua dependensi ke satu folder
+mkdir -p build/uber
+cd build/uber
+jar xf ../../myapp.jar
+for j in ../../lib/*.jar; do jar xf "$j"; done
+
+# 2. Hapus duplicate signature (penting!)
+rm -rf META-INF/*.SF META-INF/*.DSA META-INF/*.RSA
+
+# 3. Buat uber JAR
+echo "Main-Class: com.example.Main" > manifest.txt
+jar cfm ../uber-app.jar manifest.txt .
+```
+
+<Callout type="warning">
+Merge JAR manual bisa menyebabkan konflik file `META-INF/services`, duplicate class, atau signature invalid. Untuk production, gunakan **Maven Shade Plugin** atau **Gradle Shadow Plugin** yang menangani merge dengan benar.
+</Callout>
+
+---
+
+## Dokumentasi: `javadoc`
+
+### `javadoc` — Generate API Documentation
+
+`javadoc` menghasilkan dokumentasi HTML dari komentar Javadoc (`/** ... */`) di source code.
+
+Kapan dipakai: publish API library, dokumentasi internal tim, atau CI yang generate docs otomatis.
+
+```bash
+# Dokumentasi dasar
+javadoc -d docs -sourcepath src -subpackages com.example
+
+# Dengan classpath (referensi class eksternal)
+javadoc -d docs -sourcepath src -classpath "lib/*" com.example.app
+
+# Custom title & header
+javadoc -d docs -sourcepath src \
+        -windowtitle "My API" \
+        -doctitle "<h1>My Application API</h1>" \
+        com.example.app
+
+# Link ke Java SE docs
+javadoc -d docs -sourcepath src \
+        -link https://docs.oracle.com/en/java/javase/21/docs/api/ \
+        com.example.app
+```
+
+- **`-d docs`**: folder output HTML.
+- **`-subpackages`**: include semua subpackage di bawah prefix.
+- **`@param`, `@return`, `@throws`**: tag standar di komentar — javadoc mem-parsing dan menampilkan.
+
+---
+
+### Komentar Javadoc — Contoh
+
+Format komentar yang di-parse `javadoc` — best practice untuk API public.
+
+Kapan dipakai: menulis library, REST client SDK, atau kode yang akan dipakai tim lain.
+
+```java
+/**
+ * Menghitung total harga setelah diskon.
+ *
+ * @param price harga awal dalam rupiah
+ * @param discountPercent persentase diskon (0–100)
+ * @return harga akhir setelah diskon
+ * @throws IllegalArgumentException jika price negatif atau discount di luar range
+ * @since 1.2
+ */
+public static long calculateFinalPrice(long price, int discountPercent) {
+    // ...
+}
+```
+
+- Hanya komentar **`/**`** (bukan `/*`) yang dianggap Javadoc.
+- **`{@link ClassName}`**: hyperlink ke class lain di docs generated.
+- Buka `docs/index.html` di browser setelah generate.
+
+---
+
+## REPL Interaktif: `jshell`
+
+### `jshell` — Java Shell (REPL)
+
+`jshell` mengevaluasi pernyataan Java secara interaktif tanpa file `.java` — cocok eksperimen cepat.
+
+Kapan dipakai: uji snippet, eksplorasi API baru, belajar Java, atau prototipe algoritma.
+
+```bash
+jshell
+# jshell> int x = 10;
+# x ==> 10
+# jshell> System.out.println("Hello, " + x);
+# Hello, 10
+
+# Keluar
+# jshell> /exit
+
+# Jalankan script file
+jshell script.jsh
+
+# Startup script (import otomatis)
+jshell --startup DEFAULT
+```
+
+Perintah internal `jshell` (diawali `/`):
+
+```text
+/list          # daftar snippet yang sudah didefinisikan
+/vars          # variabel aktif
+/methods       # method yang didefinisikan
+/classes       # class yang didefinisikan
+/save file.jsh # simpan session
+/open file.jsh # muat session
+/edit          # buka editor untuk snippet
+/help          # bantuan
+```
+
+- **`jshell`** tersedia sejak Java 9 — bagian JDK, tidak perlu install terpisah.
+- Snippet bisa berupa expression, statement, class, method — jshell compile on-the-fly.
+- **`/save`** berguna untuk mengubah eksperimen REPL menjadi script yang bisa diulang.
+
+---
+
+### `jshell` — Mode Non-Interaktif
+
+Menjalankan jshell dari script atau pipe — integrasi CI, tutorial, atau automation.
+
+Kapan dipakai: demo otomatis, verifikasi snippet di dokumentasi, atau quick assertion.
+
+```bash
+# Eksekusi satu baris
+jshell <<< 'System.out.println(2 + 2);'
+
+# Dari file
+echo 'var list = List.of("a", "b", "c"); list.forEach(System.out::println);' > demo.jsh
+jshell demo.jsh
+
+# Dengan classpath (akses library)
+jshell --class-path "lib/gson.jar" myscript.jsh
+```
+
+- **`--class-path`**: akses class dari JAR saat REPL — sama konsepnya dengan `java -cp`.
+- Output langsung ke stdout — cocok di pipeline dengan `grep` atau redirect ke file.
+
+---
+
+## JVM Options: Memory & Tuning
+
+### `-Xms` dan `-Xmx` — Heap Memory
+
+`-Xms` set ukuran heap awal; `-Xmx` set ukuran heap maksimum — parameter paling sering di-tune di production.
+
+Kapan dipakai: aplikasi memory-heavy, OutOfMemoryError, container/Kubernetes limit, atau tuning server.
+
+```bash
+# Heap minimum 256MB, maksimum 1GB
+java -Xms256m -Xmx1g -jar app.jar
+
+# Sama ukuran min dan max (hindari resize heap saat runtime)
+java -Xms2g -Xmx2g -jar app.jar
+
+# Dengan satuan
+java -Xms512m -Xmx4096m com.example.Main    # m = megabyte
+java -Xms1g -Xmx8g com.example.Main         # g = gigabyte
+```
+
+| Flag | Arti | Default (umum) |
+| --- | --- | --- |
+| **`-Xms`** | Initial heap size | ~1/64 physical RAM |
+| **`-Xmx`** | Maximum heap size | ~1/4 physical RAM |
+| **`-Xss`** | Thread stack size | ~1MB per thread |
+| **`-XX:MetaspaceSize`** | Metaspace awal (Java 8+: mengganti PermGen) | platform-dependent |
+
+- **`-Xmx` terlalu kecil**: `java.lang.OutOfMemoryError: Java heap space`.
+- **`-Xms` = `-Xmx`**: mengurangi pause saat heap grow — umum di server production.
+- Di container: set `-Xmx` **di bawah** memory limit container (sisakan untuk metaspace, thread stack, native memory).
+
+<Callout type="tip">
+Rule of thumb di Kubernetes: set `-Xmx` sekitar **70–75%** memory limit pod. Contoh: limit 1Gi → `-Xmx768m`. Monitor GC dan sesuaikan dengan metrik aktual.
+</Callout>
+
+---
+
+### GC & JVM Options Lanjutan
+
+Opsi garbage collector dan diagnostic — untuk tuning performa dan troubleshooting production.
+
+Kapan dipakai: latency-sensitive app, high-throughput batch, atau investigasi GC pause.
+
+```bash
+# Pilih garbage collector (Java 11+)
+java -XX:+UseG1GC -jar app.jar                    # G1 (default di server modern)
+java -XX:+UseZGC -jar app.jar                     # ZGC (low latency, Java 15+)
+java -XX:+UseParallelGC -jar app.jar               # Parallel (throughput)
+
+# GC logging (Java 9+ unified logging)
+java -Xlog:gc*:file=gc.log:time,uptime,level -jar app.jar
+
+# Heap dump saat OOM
+java -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heap.hprof -jar app.jar
+
+# Print flags yang aktif
+java -XX:+PrintFlagsFinal -version 2>&1 | grep HeapSize
+```
+
+- **G1GC**: default balance latency/throughput — cocok untuk kebanyakan aplikasi server.
+- **ZGC / Shenandoah**: target pause sub-millisecond — butuh Java versi dan workload tertentu.
+- **Heap dump**: buka dengan VisualVM, Eclipse MAT, atau `jhat` untuk analisis memory leak.
+
+---
+
+### `-XX:+Print...` & Diagnostic
+
+Flag diagnostic untuk memahami perilaku JVM saat development dan staging.
+
+Kapan dipakai: debug class loading, verifikasi JIT, atau audit VM configuration sebelum production.
+
+```bash
+# Versi + VM info
+java -version -verbose:class 2>&1 | head -50      # class loading (sangat verbose)
+
+# Flight Recorder (profiling bawaan JDK)
+java -XX:StartFlightRecording=duration=60s,filename=recording.jfr -jar app.jar
+
+# Native memory tracking
+java -XX:NativeMemoryTracking=summary -jar app.jar
+# Lalu: jcmd <pid> VM.native_memory summary
+```
+
+- **JFR (`.jfr`)**: buka di JDK Mission Control — profiling CPU, allocation, lock tanpa agent eksternal.
+- **`jcmd`**: Swiss army knife untuk attach ke JVM running — GC, thread dump, VM flags.
+
+---
+
+## Tool Diagnostic JDK
+
+### `jps` — Java Process Status
+
+`jps` menampilkan daftar proses Java yang sedang berjalan beserta PID dan main class/JAR.
+
+Kapan dipakai: cari PID untuk `jstack`/`jcmd`, audit proses Java di server, atau script monitoring.
+
+```bash
+jps                         # PID + main class
+jps -l                      # PID + fully qualified main class / JAR path
+jps -v                      # PID + JVM arguments
+jps -m                      # PID + arguments main method
+```
+
+- Hanya proses **dari user yang sama** yang tampil default — di server mungkin butuh sudo.
+- Output kosong: tidak ada JVM running, atau `jps` tidak di PATH.
+
+---
+
+### `jstack` — Thread Dump
+
+`jstack` mencetak stack trace semua thread JVM — diagnosis deadlock, hang, atau high CPU.
+
+Kapan dipakai: aplikasi freeze, thread pool exhausted, atau investigasi deadlock di production.
+
+```bash
+jstack <pid>
+jstack -l <pid>               # dengan info lock (deadlock detection)
+
+# Alternatif modern
+jcmd <pid> Thread.print
+```
+
+- Cari **`Found one Java-level deadlock`** di output — JVM mendeteksi deadlock siklik.
+- Ambil beberapa dump berjarak (mis. 30 detik) untuk melihat thread yang stuck konsisten.
+- Thread dalam state **`BLOCKED`** atau **`WAITING`** terlalu lama — indikasi contention.
+
+---
+
+### `jcmd` — Diagnostic Command
+
+`jcmd` mengirim perintah diagnostic ke JVM — pengganti modern beberapa tool legacy.
+
+Kapan dipakai: production troubleshooting tanpa restart — GC, heap, profiling, VM flags.
+
+```bash
+jcmd                          # daftar JVM + PID
+jcmd <pid> help               # perintah tersedia untuk proses itu
+jcmd <pid> VM.flags           # flags JVM aktif
+jcmd <pid> GC.heap_info       # info heap
+jcmd <pid> GC.run             # suggest GC (tidak paksa)
+jcmd <pid> Thread.print       # thread dump
+jcmd <pid> JFR.start duration=30s filename=out.jfr
+```
+
+- **`jcmd` unified**: satu tool untuk banyak operasi yang dulu tersebar di `jmap`, `jinfo`.
+- Butuh permission yang sama dengan owner proses — di container, exec ke pod dulu.
+
+---
+
+### `jmap` & `jstat` — Memory & GC Stats
+
+`jmap` untuk heap histogram dan dump; `jstat` untuk statistik GC real-time.
+
+Kapan dipakai: analisis memory usage, deteksi class yang boros, atau monitor GC di server.
+
+```bash
+# Histogram object heap (live objects)
+jmap -histo:live <pid> | head -30
+
+# Heap dump
+jmap -dump:live,format=b,file=heap.hprof <pid>
+
+# GC statistics setiap 1 detik, 10 sample
+jstat -gc <pid> 1000 10
+jstat -gcutil <pid> 1000 10     # persentase utilization
+```
+
+- **`-histo:live`**: trigger full GC dulu — angka lebih akurat untuk object yang benar-benar live.
+- **`jstat`**: monitor tanpa attach berat — cocok untuk observasi tren GC over time.
+
+---
+
+## Maven: `mvn` (Singkat)
+
+### `mvn` — Build Lifecycle
+
+**Maven** mengotomasi compile, test, package, dan dependency management lewat `pom.xml` — standar industri Java.
+
+Kapan dipakai: hampir semua proyek Java modern — Spring Boot, library open source, microservice.
+
+```bash
+# Lifecycle dasar
+mvn compile                   # compile source
+mvn test                      # jalankan unit test
+mvn package                   # compile + test + JAR/WAR
+mvn install                   # package + install ke local repo (~/.m2)
+mvn clean                     # hapus folder target/
+
+# Kombinasi umum
+mvn clean package             # build fresh dari nol
+mvn clean install -DskipTests # build tanpa test (hati-hati di CI)
+mvn clean verify              # package + integration test
+
+# Jalankan Spring Boot
+mvn spring-boot:run
+java -jar target/myapp-1.0.0.jar
+```
+
+- **`pom.xml`**: Project Object Model — koordinat artifact, dependensi, plugin, profile.
+- **Local repo**: `~/.m2/repository` — cache dependensi yang di-download.
+- **`mvnw`**: Maven Wrapper — commit ke repo, tidak perlu Maven global terinstal.
+
+---
+
+### `mvn` — Dependency & Info
+
+Perintah Maven untuk mengelola dependensi dan inspeksi proyek.
+
+Kapan dipakai: resolve conflict versi, update dependensi, atau debug classpath Maven.
+
+```bash
+mvn dependency:tree             # pohon dependensi (deteksi conflict)
+mvn dependency:tree -Dverbose     # include conflict detail
+mvn versions:display-dependency-updates   # cek update tersedia (butuh plugin)
+
+mvn help:effective-pom            # POM final setelah inheritance & profile
+mvn help:active-profiles          # profile yang aktif
+
+# Download dependensi tanpa build
+mvn dependency:resolve
+
+# Jalankan class main tertentu
+mvn exec:java -Dexec.mainClass="com.example.Main"
+```
+
+- **`dependency:tree`**: temukan dependensi duplikat atau versi bentrok — sumber umum `NoSuchMethodError`.
+- **Effective POM**: lihat konfigurasi final — plugin, properties, parent POM merged.
+
+---
+
+## Gradle: `gradle` (Singkat)
+
+### `gradle` / `./gradlew` — Build Tasks
+
+**Gradle** build tool fleksibel berbasis Groovy/Kotlin DSL — populer di Android dan proyek yang butuh custom task.
+
+Kapan dipakai: proyek Android, Kotlin multiplatform, atau tim yang prefer DSL programmatic.
+
+```bash
+# Tasks dasar
+./gradlew build                 # compile + test + package
+./gradlew clean                 # hapus build/
+./gradlew test                  # unit test
+./gradlew bootRun               # Spring Boot (dengan plugin)
+
+# List semua task
+./gradlew tasks
+./gradlew tasks --all
+
+# Build dengan info
+./gradlew build --info
+./gradlew build -x test         # skip test
+```
+
+- **`gradlew`**: Gradle Wrapper — sama konsep `mvnw`; selalu gunakan wrapper di CI.
+- **`build.gradle` / `build.gradle.kts`**: konfigurasi build — plugins, dependencies, tasks.
+- Gradle incremental build — rebuild hanya yang berubah; biasanya lebih cepat di proyek besar.
+
+---
+
+### `gradle` — Dependency & JAR
+
+Inspeksi dependensi dan output build Gradle.
+
+Kapan dipakai: debug classpath, cek versi library, atau jalankan JAR hasil build.
+
+```bash
+./gradlew dependencies            # pohon dependensi per configuration
+./gradlew dependencies --configuration compileClasspath
+
+# Lokasi JAR hasil build
+./gradlew jar
+ls build/libs/
+
+# Jalankan
+java -jar build/libs/myapp-0.0.1-SNAPSHOT.jar
+
+# Custom task
+./gradlew run                     # jika application plugin dikonfigurasi
+```
+
+- **Configuration**: `implementation`, `api`, `compileOnly`, `runtimeOnly` — pahami scope dependensi.
+- **Shadow JAR**: plugin `com.github.johnrengelman.shadow` untuk fat JAR — setara Maven Shade.
+
+---
+
+## OpenJDK & Manajemen Versi
+
+### SDKMAN — Ganti Versi Java
+
+**SDKMAN** mengelola multiple versi JDK di satu mesin — switch per proyek atau per terminal.
+
+Kapan dipakai: proyek legacy Java 8 + modern Java 21 di laptop yang sama, atau uji kompatibilitas.
+
+```bash
+# Install SDKMAN (sekali)
+curl -s "https://get.sdkman.io" | bash
+
+sdk list java                     # daftar distribusi tersedia
+sdk install java 21.0.3-tem       # install Temurin 21
+sdk install java 17.0.11-tem
+sdk use java 21.0.3-tem           # aktif di shell saat ini
+sdk default java 21.0.3-tem       # default semua shell baru
+
+java -version                     # verifikasi
+```
+
+- **Distribusi populer**: Temurin (Adoptium), Corretto (Amazon), Zulu (Azul), Oracle.
+- **`.sdkmanrc`**: file di root proyek — auto-switch saat `cd` (enable dengan `sdk env install`).
+
+---
+
+### `JAVA_HOME` — Environment Variable
+
+`JAVA_HOME` menunjuk ke root instalasi JDK — dibutuhkan Maven, Gradle, IDE, dan banyak tool.
+
+Kapan dipakai: setup development environment, CI pipeline, atau tool error "JAVA_HOME not set".
+
+```bash
+# Mac (Homebrew OpenJDK 21)
+export JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Linux
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+export PATH=$JAVA_HOME/bin:$PATH
+
+# Verifikasi
+echo $JAVA_HOME
+java -version
+javac -version
+```
+
+- **`$JAVA_HOME/bin`**: harus ada `java`, `javac`, `jar` — bukan folder `bin` itu sendiri sebagai JAVA_HOME.
+- Tambahkan ke `~/.zshrc` atau `~/.bashrc` agar persisten antar session.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Proyek Java manual (tanpa build tool)
+
+```bash
+mkdir -p src/com/example/app bin
+# tulis src/com/example/app/Main.java
+
+javac -d bin -encoding UTF-8 src/com/example/app/Main.java
+java -cp bin com.example.app.Main
+
+# Dengan dependensi
+javac -cp "lib/*" -d bin src/com/example/app/*.java
+java -cp "bin:lib/*" com.example.app.Main
+```
+
+### Proyek Maven — dari clone sampai run
+
+```bash
+git clone git@github.com:user/my-java-app.git
+cd my-java-app
+java -version                    # pastikan versi sesuai README
+
+mvn clean package
+mvn test
+java -jar target/my-java-app-1.0.0-SNAPSHOT.jar
+
+# Development dengan Spring Boot
+mvn spring-boot:run
+```
+
+### Proyek Gradle
+
+```bash
+git clone git@github.com:user/gradle-app.git
+cd gradle-app
+./gradlew build
+./gradlew test
+java -jar build/libs/gradle-app-1.0.0.jar
+```
+
+### Debug di terminal
+
+```bash
+# Compile dengan debug info (default javac)
+javac -g -d bin src/com/example/Main.java
+
+# Run dengan remote debug port
+java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005 \
+     -cp bin com.example.Main
+# Attach dari IDE ke localhost:5005
+```
+
+### Quick experiment tanpa file
+
+```bash
+jshell
+# atau satu liner
+java -e 'System.out.println("deprecated in Java 11+")' 2>/dev/null || \
+  jshell <<< 'System.out.println("Hello");'
+```
+
+---
+
+## Troubleshooting Umum
+
+### `Could not find or load main class`
+
+```bash
+# Cek struktur class
+find bin -name "Main.class"
+# Harus: bin/com/example/Main.class untuk class com.example.Main
+
+# Jalankan dengan classpath benar
+java -cp bin com.example.Main        # BENAR
+java -cp bin/com/example com.example.Main   # SALAH (classpath ke subfolder)
+
+# Untuk JAR
+jar xf app.jar META-INF/MANIFEST.MF
+cat META-INF/MANIFEST.MF             # cek Main-Class
+java -jar app.jar
+```
+
+### `UnsupportedClassVersionError`
+
+```bash
+java -version                        # versi runtime
+javap -verbose MyClass.class | grep "major"   # versi bytecode class
+
+# major version reference:
+# 52 = Java 8, 55 = 11, 61 = 17, 65 = 21
+```
+
+- **Penyebab**: class dikompilasi dengan JDK lebih baru dari JVM yang menjalankan.
+- **Solusi**: upgrade runtime, atau recompile dengan `--release` ke versi target.
+
+---
+
+### `java.lang.OutOfMemoryError`
+
+```bash
+# Tambah heap
+java -Xmx2g -jar app.jar
+
+# Heap dump untuk analisis
+java -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./heap.hprof -jar app.jar
+
+# Monitor GC
+java -Xlog:gc*:file=gc.log -jar app.jar
+```
+
+| Jenis OOM | Arti umum |
+| --- | --- |
+| **Java heap space** | Object terlalu banyak / `-Xmx` terlalu kecil |
+| **Metaspace** | Terlalu banyak class loaded (reflection, dynamic proxy) |
+| **Unable to create native thread** | Terlalu banyak thread — kurangi pool atau naikkan ulimit |
+| **GC overhead limit exceeded** | GC menghabiskan >98% waktu — heap hampir penuh terus |
+
+---
+
+### `NoClassDefFoundError` vs `ClassNotFoundException`
+
+```bash
+# ClassNotFoundException: class tidak ada di classpath saat Class.forName / load
+# NoClassDefFoundError: class ada saat compile, hilang/tidak bisa di-init saat runtime
+
+# Debug: jalankan dengan verbose class loading
+java -verbose:class -cp "bin:lib/*" com.example.Main 2>&1 | grep MissingClass
+```
+
+- **`NoClassDefFoundError`**: sering karena static initializer gagal, atau dependensi runtime tidak di classpath.
+- **Maven/Gradle**: cek `mvn dependency:tree` / `./gradlew dependencies` — dependensi `compileOnly` tidak masuk runtime.
+
+---
+
+### Encoding & locale issues
+
+```bash
+# Paksa UTF-8
+java -Dfile.encoding=UTF-8 -jar app.jar
+javac -encoding UTF-8 -d bin src/**/*.java
+
+# Cek encoding default
+java -XshowSettings:properties -version 2>&1 | grep file.encoding
+```
+
+- **Mojibake** di output: mismatch encoding source file vs compiler vs runtime.
+- Set **UTF-8** konsisten di compiler, runtime, dan IDE.
+
+---
+
+### Port already in use (Spring Boot / embedded server)
+
+```bash
+# Cari proses di port 8080
+lsof -i :8080                        # Mac/Linux
+jps -l | grep -i boot
+
+# Ganti port
+java -jar app.jar --server.port=8081
+# atau
+java -Dserver.port=8081 -jar app.jar
+```
+
+---
+
+### Permission denied / `jar` / script wrapper
+
+```bash
+chmod +x mvnw gradlew               # wrapper script
+./mvnw clean package                # jalankan dengan ./
+
+# JAR tidak executable (bukan masalah — JAR dibuka dengan java)
+java -jar app.jar                   # BENAR
+./app.jar                           # hanya jika shebang + chmod +x + manifest
+```
+
+<Callout type="info">
+Error JVM sering disertai **"Caused by:"** chain di stack trace — scroll ke **paling bawah** untuk root cause sebenarnya, bukan hanya exception terluar.
+</Callout>
+
+---
+
+## Perintah Tambahan JDK
+
+### `javap` — Disassemble Bytecode
+
+`javap` menampilkan informasi class file — signature method, bytecode, constant pool.
+
+Kapan dipakai: verifikasi versi class, inspect API tanpa source, atau belajar bytecode.
+
+```bash
+javap com.example.Main
+javap -c com.example.Main           # bytecode disassembly
+javap -verbose com.example.Main     # detail lengkap + constant pool
+javap -classpath bin com.example.Main
+```
+
+---
+
+### `keytool` — Keystore & Sertifikat
+
+`keytool` mengelola keystore, generate key pair, dan sertifikat — HTTPS, signing JAR.
+
+Kapan dipakai: setup SSL development, sign JAR untuk deployment, atau truststore custom.
+
+```bash
+# Generate keystore self-signed
+keytool -genkeypair -alias myapp -keyalg RSA -keysize 2048 \
+        -keystore keystore.jks -validity 365 \
+        -dname "CN=localhost, OU=Dev, O=MyOrg, L=Jakarta, ST=JK, C=ID"
+
+# List isi keystore
+keytool -list -keystore keystore.jks
+
+# Export sertifikat
+keytool -exportcert -alias myapp -keystore keystore.jks -file myapp.cer
+```
+
+- **Password keystore**: jangan commit `keystore.jks` ke Git — gunakan secret management di production.
+- Spring Boot: `server.ssl.key-store=classpath:keystore.jks` di `application.properties`.
+
+---
+
+### `serialver` — Serial Version UID
+
+`serialver` menghitung `serialVersionUID` untuk class yang implement `Serializable`.
+
+Kapan dipakai: class serialization error `InvalidClassException`, atau definisi eksplisit `serialVersionUID`.
+
+```bash
+serialver com.example.MySerializableClass
+# com.example.MySerializableClass: static final long serialVersionUID = 123456789L;
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah / Tool Utama |
+| --- | --- |
+| **Runtime** | `java`, `java -jar`, `java -m` |
+| **Compile** | `javac`, `--release`, `-encoding UTF-8` |
+| **Package** | `jar cf`, `jar tf`, `jar xf` |
+| **Docs** | `javadoc` |
+| **REPL** | `jshell` |
+| **Classpath** | `-cp`, `-classpath`, hindari `CLASSPATH` env |
+| **Modules** | `--module-path`, `module-info.java`, `jlink` |
+| **Memory** | `-Xms`, `-Xmx`, `-XX:MetaspaceSize` |
+| **Diagnostic** | `jps`, `jstack`, `jcmd`, `jmap`, `jstat` |
+| **Build** | `mvn clean package`, `./gradlew build` |
+| **Versi** | `java -version`, `javac -version`, SDKMAN, `JAVA_HOME` |
+
+### Cheat sheet satu halaman
+
+```bash
+# Verifikasi
+java -version && javac -version
+
+# Compile & run manual
+javac -d bin -encoding UTF-8 src/com/example/Main.java
+java -cp bin com.example.Main
+
+# JAR executable
+echo "Main-Class: com.example.Main" > MANIFEST.MF
+jar cfm app.jar MANIFEST.MF -C bin .
+java -jar app.jar
+
+# Dengan dependensi
+javac -cp "lib/*" -d bin src/com/example/*.java
+java -cp "bin:lib/*" com.example.Main
+
+# Memory
+java -Xms512m -Xmx2g -jar app.jar
+
+# Maven / Gradle
+mvn clean package && java -jar target/*.jar
+./gradlew build && java -jar build/libs/*.jar
+
+# Debug proses
+jps -lv
+jcmd <pid> Thread.print
+```
+
+---
+
+## Penutup
+
+Enam perintah inti JDK untuk developer Java: **`java`**, **`javac`**, **`jar`**, **`javadoc`**, **`jshell`**, dan **`java -version`**. Dengan kuasai classpath, executable JAR, dan opsi memory (`-Xms`/`-Xmx`), Anda sudah bisa build, package, dan menjalankan aplikasi dari terminal tanpa IDE.
+
+Langkah berikutnya: dalami **Maven** atau **Gradle** untuk proyek nyata, pelajari **`jcmd`/`jstack`** untuk troubleshooting production, dan eksplorasi **module system** jika menarget Java 17+ LTS. Referensi resmi: [Oracle Java Documentation](https://docs.oracle.com/en/java/) dan [OpenJDK](https://openjdk.org/) — versi flag bisa sedikit berbeda antar distribusi; selalu cek `java --help` di JDK yang terpasang.

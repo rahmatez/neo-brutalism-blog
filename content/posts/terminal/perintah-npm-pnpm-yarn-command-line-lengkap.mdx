@@ -1,0 +1,1089 @@
+---
+title: "Perintah npm, pnpm & yarn Command Line Lengkap"
+description: "Panduan lengkap perintah CLI npm, pnpm, dan yarn: install, add, remove, update, run, npx/pnpm dlx/yarn dlx, workspace, audit, cache, publish, dan workflow sehari-hari developer Node.js."
+date: "2025-06-24"
+category: terminal
+tags: ["npm", "pnpm", "yarn", "nodejs", "cli", "tutorial"]
+featured: true
+---
+
+**npm**, **pnpm**, dan **yarn** adalah tiga package manager paling populer di ekosistem Node.js. Ketiganya mengelola dependensi lewat `package.json`, mengunduh package dari registry npm, dan menjalankan script — tapi cara mereka menyimpan `node_modules`, mengunci versi, dan menangani monorepo berbeda.
+
+<Callout type="tip">
+Pastikan Node.js sudah terpasang (`node --version`). npm ikut terinstal bersama Node.js. Untuk pnpm: `corepack enable && corepack prepare pnpm@latest --activate`, atau `brew install pnpm`. Untuk Yarn (Berry/modern): `corepack enable && corepack prepare yarn@stable --activate`. Cek versi: `npm --version`, `pnpm --version`, `yarn --version`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi yang dipakai ketiga tool ini — istilah ini muncul terus di dokumentasi, lockfile, dan output terminal:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **package.json** | Manifest proyek — nama, versi, dependensi, script, dan metadata lain |
+| **Lockfile** | File yang mengunci versi exact setiap dependensi agar instalasi reproducible |
+| **node_modules** | Folder tempat package terinstal di disk — struktur isinya berbeda per tool |
+| **Registry** | Server yang menyimpan package (default: `https://registry.npmjs.org`) |
+| **Dependency** | Package yang dibutuhkan saat runtime (`dependencies`) |
+| **DevDependency** | Package hanya untuk development — test, lint, build tool (`devDependencies`) |
+| **Peer dependency** | Package yang diharapkan disediakan oleh consumer — umum di library |
+| **Semver** | Semantic versioning — `^1.2.3`, `~1.2.3`, `1.2.3` menentukan range update |
+| **Workspace** | Monorepo — banyak package dalam satu repo, dikelola bersama |
+| **Hoisting** | Dependensi dinaikkan ke `node_modules` root — bisa menyebabkan phantom dependency |
+| **Content-addressable store** | Cache global berbasis hash konten — dipakai pnpm dan Yarn Berry |
+
+### Lockfile per package manager
+
+| Tool | Lockfile | Catatan |
+| --- | --- | --- |
+| **npm** | `package-lock.json` | Format JSON; `lockfileVersion` 2/3 |
+| **pnpm** | `pnpm-lock.yaml` | Format YAML; mendukung workspace lock tunggal |
+| **yarn (Classic v1)** | `yarn.lock` | Format proprietary text |
+| **yarn (Berry v2+)** | `yarn.lock` | Plus `.yarnrc.yml`, `.pnp.cjs` jika Plug'n'Play aktif |
+
+### Struktur node_modules
+
+```
+npm / Yarn Classic (hoisted):
+  node_modules/
+    react/          ← dependensi langsung
+    lodash/         ← dependensi transitif (bisa di-import meski tidak di package.json)
+
+pnpm (isolated via symlink):
+  node_modules/
+    .pnpm/          ← store terisolasi
+    react → .pnpm/react@18.x/node_modules/react
+  node_modules/.bin/  ← executable CLI
+
+Yarn Berry (Plug'n'Play):
+  .pnp.cjs          ← map resolusi tanpa node_modules penuh (opsional)
+```
+
+### Perintah informasi dasar
+
+```bash
+npm --version              # versi npm
+pnpm --version             # versi pnpm
+yarn --version             # versi yarn
+
+npm help                   # daftar perintah npm
+pnpm help                  # daftar perintah pnpm
+yarn help                  # daftar perintah yarn
+
+npm help install           # bantuan detail satu perintah
+pnpm install --help
+yarn install --help
+```
+
+---
+
+## Perbandingan npm vs pnpm vs yarn
+
+Tabel referensi cepat — pilih tool sesuai kebutuhan proyek atau tim:
+
+| Aspek | **npm** | **pnpm** | **yarn** |
+| --- | --- | --- | --- |
+| **Instalasi** | Bundled dengan Node.js | `corepack`, `npm i -g pnpm`, Homebrew | `corepack`, `npm i -g yarn` |
+| **Kecepatan install** | Sedang (membaik di v7+) | Sangat cepat (parallel + hard link) | Cepat (Berry: cache agresif) |
+| **Disk usage** | Duplikasi antar proyek | Efisien — satu store global | Efisien (Berry + PnP) |
+| **node_modules** | Hoisted flat | Symlink terisolasi | Hoisted (Classic) / PnP (Berry) |
+| **Lockfile** | `package-lock.json` | `pnpm-lock.yaml` | `yarn.lock` |
+| **Monorepo** | Workspaces (v7+) | Workspaces native, filter kuat | Workspaces (Classic & Berry) |
+| **Jalankan CLI tanpa global** | `npx` | `pnpm dlx` / `pnpm exec` | `yarn dlx` / `yarn run` |
+| **Phantom dependency** | Rentan (hoisting) | Dikurangi (isolated) | Classic: rentan; Berry PnP: ketat |
+| **Kompatibilitas** | Standar de facto | Drop-in untuk kebanyakan proyek | Classic kompatibel; Berry butuh adaptasi |
+| **Audit keamanan** | `npm audit` | `pnpm audit` | `yarn npm audit` (Berry) |
+
+<Callout type="info">
+**npm** adalah default dan paling universal. **pnpm** populer di monorepo dan CI karena hemat disk serta instalasi cepat. **Yarn Berry (v2+)** menawarkan Plug'n'Play dan fitur lanjutan — banyak proyek masih memakai Yarn Classic (v1) karena kompatibilitas.
+</Callout>
+
+---
+
+## `install` — Instal Dependensi
+
+Perintah `install` membaca `package.json` (dan lockfile jika ada), lalu mengunduh serta menautkan semua dependensi ke `node_modules`.
+
+Kapan dipakai: pertama kali clone proyek, setelah pull yang mengubah lockfile, atau setelah switch branch dengan dependensi berbeda.
+
+```bash
+# npm
+npm install                     # instal semua (alias: npm i)
+npm install --production        # hanya dependencies, tanpa devDependencies
+npm install --omit=dev          # sama dengan --production (npm v7+)
+npm ci                          # CI: instal strict dari package-lock.json
+npm install --frozen-lockfile   # gagal jika lockfile perlu diubah (npm v8+)
+npm install --ignore-scripts    # skip lifecycle scripts (postinstall, dll.)
+npm install --force             # abaikan cache/conflict, unduh ulang
+npm install --dry-run           # simulasi tanpa mengubah disk
+
+# pnpm
+pnpm install                    # instal semua (alias: pnpm i)
+pnpm install --prod             # hanya production dependencies
+pnpm install --frozen-lockfile  # CI: gagal jika lockfile tidak sinkron
+pnpm install --ignore-scripts   # skip scripts
+pnpm install --force            # reinstall paksa
+pnpm install --offline          # hanya dari store lokal (tanpa network)
+
+# yarn
+yarn install                    # instal semua (alias: yarn)
+yarn install --production       # tanpa devDependencies (Classic)
+yarn install --immutable        # CI: gagal jika lockfile berubah (Berry)
+yarn install --immutable-cache    # + gagal jika cache miss (Berry)
+yarn install --check-cache      # verifikasi integritas cache (Berry)
+yarn install --mode=skip-build  # skip build scripts native (Berry)
+```
+
+Penjelasan flag penting:
+
+- **`npm ci` / `--frozen-lockfile` / `--immutable`**: wajib di CI/CD — memastikan build reproducible; lockfile tidak boleh berubah tanpa sengaja.
+- **`--production` / `--prod` / `--omit=dev`**: deploy production — tidak instal test runner, linter, dll.
+- **`--ignore-scripts`**: mencegah eksekusi script dari package pihak ketiga — berguna di environment ketat atau audit keamanan.
+- **`--force`**: abaikan conflict dan cache — troubleshooting saat `node_modules` korup.
+- **`pnpm install --offline`**: instal dari store global tanpa network — berguna di mesin tanpa internet setelah sync.
+
+---
+
+## `add` — Tambah Package
+
+Perintah `add` menambahkan dependensi baru ke `package.json` **dan** langsung menginstalnya ke `node_modules` (atau store).
+
+Kapan dipakai: butuh library baru, menambah dev tool, atau mengunci versi dependency transitif.
+
+```bash
+# npm
+npm install lodash              # tambah ke dependencies (npm install = npm add)
+npm install react react-dom     # beberapa package sekaligus
+npm install -D vitest           # devDependency (-D = --save-dev)
+npm install -O sharp            # optionalDependency
+npm install --save-peer react   # peerDependency
+npm install -E lodash           # exact version: "4.17.21" bukan "^4.17.21"
+npm install lodash@^4.17.0      # versi dengan range semver
+npm install -g typescript       # instal global
+npm install --no-save           # instal tanpa ubah package.json
+
+# pnpm
+pnpm add lodash                 # tambah ke dependencies (alias: pnpm i lodash)
+pnpm add react react-dom
+pnpm add -D vitest              # devDependency
+pnpm add -O sharp               # optional
+pnpm add --save-peer react      # peer dependency
+pnpm add -E lodash              # exact version
+pnpm add lodash@^4.17.0
+pnpm add -g typescript          # global
+pnpm add --save-dev @types/node # type definitions
+
+# yarn
+yarn add lodash                 # dependencies
+yarn add react react-dom
+yarn add -D vitest              # devDependency
+yarn add -O sharp               # optional (Classic)
+yarn add --peer react           # peer dependency
+yarn add --exact lodash         # exact version (Berry)
+yarn add lodash@^4.17.0
+yarn global add typescript      # global (Classic)
+yarn add -W lodash              # tambah ke workspace root (monorepo)
+```
+
+Penjelasan flag penting:
+
+- **`-D` / `--dev`**: tool development — test runner, linter, bundler, type definitions.
+- **`-O` / `--optional`**: tidak gagal instal jika package tidak support platform (mis. native binding).
+- **`--save-peer` / `--peer`**: saat membuat library yang mengharapkan consumer menyediakan React, dll.
+- **`-E` / `--exact`**: kunci versi ketat — berguna di library atau proyek sensitif breaking change.
+- **`--no-save` (npm)**: instal sementara tanpa ubah manifest — debugging atau uji coba.
+- **`-W` (yarn workspace)**: tambah dependency di root monorepo, bukan package anak.
+
+---
+
+## `remove` — Hapus Package
+
+Perintah `remove` menghapus package dari `package.json`, `node_modules`, dan memperbarui lockfile.
+
+Kapan dipakai: library tidak dipakai lagi, mengganti package alternatif, atau membersihkan devDependency usang.
+
+```bash
+# npm
+npm uninstall lodash            # hapus satu package (alias: npm rm, npm r)
+npm uninstall react react-dom   # hapus beberapa sekaligus
+npm uninstall -g typescript     # hapus global
+npm prune                       # hapus package di node_modules yang tidak di package.json
+
+# pnpm
+pnpm remove lodash              # hapus (alias: pnpm rm, pnpm un)
+pnpm remove react react-dom
+pnpm remove -g typescript
+pnpm prune                      # bersihkan extraneous packages
+
+# yarn
+yarn remove lodash              # hapus dari dependencies
+yarn remove react react-dom
+yarn global remove typescript   # global (Classic)
+yarn workspaces focus --production  # instal hanya prod deps untuk workspace tertentu (Berry)
+```
+
+- **`npm prune` / `pnpm prune`**: hapus package "yatim" di `node_modules` yang tidak tercantum di `package.json` — berguna setelah manual edit atau merge conflict.
+- Setelah `remove`, lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`) diperbarui otomatis.
+
+---
+
+## `update` — Perbarui Package
+
+Perintah `update` memperbarui dependensi ke versi terbaru **dalam range semver** di `package.json` (mis. `^4.0.0` → `4.5.2`, bukan `5.0.0`).
+
+Kapan dipakai: rutinitas maintenance, patch security, atau sebelum rilis minor.
+
+```bash
+# npm
+npm update                      # update semua dalam range semver
+npm update lodash               # update satu package
+npm update --save               # tulis versi baru ke package.json
+npm outdated                    # lihat dulu apa yang outdated (sebelum update)
+
+# pnpm
+pnpm update                     # update semua (alias: pnpm up)
+pnpm update lodash              # satu package
+pnpm update --latest            # abaikan range, ambil versi terbaru
+pnpm update -r                  # recursive — semua workspace packages
+pnpm update --interactive       # pilih package secara interaktif
+
+# yarn
+yarn upgrade                    # update dalam range (Classic)
+yarn upgrade lodash
+yarn upgrade --latest           # versi terbaru, abaikan range (Classic)
+yarn up                         # update (Berry)
+yarn up lodash
+yarn up lodash --exact          # update + tulis exact ke package.json (Berry)
+```
+
+- **`npm update` / `pnpm update` / `yarn upgrade`**: aman untuk rutinitas — menghormati semver range di manifest.
+- **`--latest`**: agresif — bisa introduce breaking change; baca changelog dan jalankan test dulu.
+- **`pnpm update -r`**: update di seluruh workspace monorepo sekaligus.
+- **`--interactive` (pnpm)**: UI terminal untuk memilih package mana yang di-update.
+
+---
+
+## `outdated` — Cek Versi Usang
+
+Menampilkan tabel package yang versi terinstalnya sudah ketinggalan dibanding registry npm.
+
+Kapan dipakai: sebelum `update`, audit rutin, atau evaluasi debt teknis dependensi.
+
+```bash
+# npm
+npm outdated                    # tabel: current, wanted, latest
+npm outdated --json             # output JSON (untuk script)
+npm outdated lodash             # satu package saja
+
+# pnpm
+pnpm outdated                   # tabel outdated
+pnpm outdated --recursive       # semua workspace
+pnpm outdated --format list     # format alternatif
+
+# yarn
+yarn outdated                   # Classic: tabel outdated
+yarn npm outdated               # Berry: via npm registry protocol
+```
+
+Kolom output umum:
+
+| Kolom | Arti |
+| --- | --- |
+| **Current** | Versi yang terinstal saat ini |
+| **Wanted** | Versi tertinggi dalam range semver di `package.json` |
+| **Latest** | Versi terbaru di registry (bisa major baru) |
+
+Jalankan `outdated` sebelum `update --latest` untuk melihat dampak potensial.
+
+---
+
+## `run` — Jalankan Script
+
+Perintah `run` menjalankan script yang didefinisikan di `package.json` bagian `"scripts"`.
+
+Kapan dipakai: workflow sehari-hari — `dev`, `build`, `test`, `lint`, dan sejenisnya.
+
+```bash
+# npm
+npm run dev                     # jalankan script "dev"
+npm run build
+npm run test -- --watch         # pass argumen ke script (setelah --)
+npm start                       # shorthand untuk script "start"
+npm test                        # shorthand untuk script "test"
+npm run                         # daftar semua script tersedia
+
+# pnpm
+pnpm run dev                    # jalankan script (alias: pnpm dev)
+pnpm build                      # "run" boleh dihilangkan
+pnpm test -- --watch            # pass argumen
+pnpm run                        # daftar script
+
+# yarn
+yarn run dev                    # jalankan script (alias: yarn dev)
+yarn build
+yarn test --watch               # yarn meneruskan argumen tanpa -- tambahan
+yarn run                        # daftar script
+```
+
+Penjelasan:
+
+- **Shorthand**: `npm start`, `npm test`, `pnpm dev`, `yarn build` — kata `run` boleh dihilangkan untuk script umum.
+- **`--` (npm/pnpm)**: argumen setelah `--` diteruskan ke perintah dalam script, bukan ke npm/pnpm.
+- **`pnpm <script>`**: pnpm mengizinkan `pnpm dev` langsung tanpa `run`.
+
+### Opsi run di monorepo
+
+```bash
+# npm
+npm run build --workspaces       # jalankan di semua workspace
+npm run test -w packages/api     # workspace tertentu (-w = --workspace)
+npm run build --workspaces --if-present  # skip jika script tidak ada
+
+# pnpm
+pnpm run build --recursive       # semua workspace (alias: -r)
+pnpm run build --filter "pkg-*"  # filter by nama
+pnpm run build --filter "./packages/api"  # filter by path
+pnpm run build --filter "...api" # api + dependensinya
+pnpm run -r --parallel build   # paralel di semua workspace
+
+# yarn
+yarn workspaces run build        # Classic: semua workspace
+yarn workspace api run build     # workspace tertentu by nama
+yarn workspaces foreach run build  # Berry: loop semua workspace
+yarn workspaces foreach -A run test  # Berry: semua termasuk nested
+```
+
+- **`--workspaces` / `-r` / `workspaces foreach`**: target semua package di monorepo.
+- **`--filter` (pnpm)**: filter paling fleksibel — by nama, path, glob, atau dependensi (`...`).
+- **`--parallel`**: jalankan bersamaan — lebih cepat di CI.
+
+---
+
+## `exec` / `npx` / `dlx` — Jalankan CLI Tanpa Instal Global
+
+Menjalankan executable dari package npm **tanpa instal global** — package diunduh ke cache lalu langsung dijalankan.
+
+Kapan dipakai: tool sekali pakai (`create-*`), migrasi database, formatter, generator scaffold.
+
+```bash
+# npm — npx
+npx prettier --write .          # format semua file
+npx prisma migrate dev          # jalankan Prisma CLI
+npx create-next-app my-app      # scaffold proyek
+npx --yes cowsay "Hello"        # auto-confirm instal (non-interaktif)
+npx --no-install eslint .       # gagal jika belum terinstal
+npx -p @angular/cli ng new app  # binary "ng" dari package @angular/cli
+npx --package=typescript tsc --version  # jalankan binary dari package tertentu
+
+# pnpm — dlx / exec
+pnpm dlx prettier --write .     # setara npx (download + run)
+pnpm dlx create-next-app my-app
+pnpm exec prettier --write .    # jalankan dari node_modules lokal jika ada
+pnpm exec -- tsx script.ts      # jalankan binary lokal
+
+# yarn — dlx (Berry) / run (Classic)
+yarn dlx prettier --write .     # Berry: setara npx
+yarn dlx create-next-app my-app
+yarn create next-app my-app     # shortcut resmi untuk create-* (Berry)
+yarn run prettier --write .     # dari node_modules lokal
+```
+
+| Tool | Perintah | Perilaku |
+| --- | --- | --- |
+| **npm** | `npx <cmd>` | Unduh ke cache npm jika belum ada, lalu jalankan |
+| **pnpm** | `pnpm dlx <cmd>` | Unduh sementara, tidak mengotori `node_modules` proyek |
+| **pnpm** | `pnpm exec <cmd>` | Jalankan dari dependensi lokal proyek |
+| **yarn** | `yarn dlx <cmd>` | Berry: unduh + jalankan sekali pakai |
+| **yarn** | `yarn create <pkg>` | Berry: alias untuk `yarn dlx create-<pkg>` |
+
+- **`npx --yes`**: skip prompt konfirmasi — penting di CI/script.
+- **`--no-install`**: hanya jalankan jika sudah ada di `node_modules` atau global.
+- **`-p` / `--package`**: tentukan package saat nama binary berbeda dari nama package.
+
+---
+
+## `init` — Inisialisasi Proyek Baru
+
+Membuat `package.json` baru dan struktur dasar proyek Node.js.
+
+Kapan dipakai: memulai proyek dari nol, menambah `package.json` ke folder yang sudah ada.
+
+```bash
+# npm
+npm init                        # mode interaktif — tanya nama, versi, entry, dll.
+npm init -y                     # terima semua default (--yes)
+npm init -y --scope=@myorg      # scoped package @myorg/nama-folder
+npm init react-app my-app       # deprecated — pakai npx create-react-app
+npx create-next-app@latest my-app  # scaffold modern via npx
+
+# pnpm
+pnpm init                       # interaktif
+pnpm init -y                    # default tanpa prompt
+pnpm create next-app my-app     # alias untuk pnpm dlx create-next-app
+
+# yarn
+yarn init                       # interaktif (Classic & Berry)
+yarn init -y                    # default
+yarn init -y --private          # private package (tidak publish)
+yarn create next-app my-app     # scaffold via create-* (Berry)
+```
+
+- **`-y` / `--yes`**: cocok untuk automation/script — tidak ada pertanyaan interaktif.
+- **`pnpm create` / `yarn create`**: cara modern scaffold proyek — di balik layar memanggil `dlx`/`npx` ke package `create-*`.
+- **`--scope`**: untuk monorepo atau organisasi — nama package jadi `@org/nama`.
+
+---
+
+## `publish` — Publish ke npm Registry
+
+Mempublish package Anda ke npm registry (npmjs.com atau registry privat).
+
+Kapan dipakai: merilis library open source, mempublish package internal ke registry privat.
+
+```bash
+# npm
+npm publish                     # publish versi di package.json
+npm publish --dry-run           # simulasi — buat tarball tanpa upload
+npm publish --access public     # wajib untuk scoped package (@org/name) pertama kali
+npm publish --tag beta          # publish dengan dist-tag "beta" (bukan "latest")
+npm version patch               # bump versi 1.0.0 → 1.0.1 lalu git tag
+npm version minor --no-git-tag-version  # bump tanpa git tag
+
+# pnpm
+pnpm publish                    # publish package
+pnpm publish --dry-run
+pnpm publish --access public
+pnpm publish --no-git-check     # skip verifikasi working tree bersih
+
+# yarn
+yarn publish                    # Classic
+yarn npm publish                # Berry — publish via npm protocol
+yarn npm publish --access public
+yarn version patch              # bump versi (Berry)
+```
+
+Persiapan sebelum publish:
+
+```bash
+# Login ke registry (berlaku untuk ketiga tool via .npmrc)
+npm login
+npm whoami
+npm logout
+
+# .npmrc — token untuk CI
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+<Callout type="warning">
+Jangan publish package dengan nama yang sudah dipakai orang lain. Cek dulu: `npm view <nama>`. Untuk scoped package (`@org/pkg`), set `"publishConfig": { "access": "public" }` di `package.json` jika ingin open source.
+</Callout>
+
+---
+
+## `audit` — Cek Kerentanan Keamanan
+
+Memindai dependensi terinstal terhadap database advisory keamanan npm.
+
+Kapan dipakai: rutinitas CI, setelah `install`, sebelum deploy production, atau respons terhadap security alert.
+
+```bash
+# npm
+npm audit                       # laporan kerentanan
+npm audit --json                # output JSON
+npm audit fix                     # perbaiki otomatis (patch/minor)
+npm audit fix --force             # termasuk breaking change — hati-hati
+npm audit --production            # hanya production dependencies
+
+# pnpm
+pnpm audit                      # laporan kerentanan
+pnpm audit --fix                # perbaiki jika memungkinkan
+pnpm audit --prod               # hanya production deps
+
+# yarn
+yarn npm audit                  # Berry: audit via npm advisory
+yarn npm audit --all            # termasuk devDependencies
+yarn npm audit --recursive      # semua workspace
+```
+
+- **`audit fix`**: otomatis update ke versi aman dalam range semver — review diff sebelum commit.
+- **`audit fix --force`**: bisa upgrade major — risiko breaking change tinggi.
+- Severity umum: **low**, **moderate**, **high**, **critical** — prioritaskan critical/high di production.
+
+---
+
+## `cache` — Kelola Cache
+
+Package manager menyimpan unduhan di cache global agar instal ulang lebih cepat.
+
+Kapan dipakai: troubleshooting instal gagal, membersihkan disk, atau verifikasi integritas cache.
+
+```bash
+# npm
+npm cache verify                # verifikasi dan rapikan cache
+npm cache clean --force         # hapus seluruh cache npm
+npm cache ls                    # daftar isi cache (npm v9+)
+npm cache add lodash@4.17.21    # tambah package ke cache manual
+
+# pnpm
+pnpm store path                 # lokasi store global
+pnpm store status               # cek integritas store
+pnpm store prune                # hapus package tidak terpakai dari store
+pnpm store add lodash@4.17.21   # tambah ke store
+
+# yarn
+yarn cache clean                # hapus cache (Classic)
+yarn cache clean --all          # Berry: hapus semua cache
+yarn cache dir                  # lokasi folder cache
+```
+
+Lokasi cache umum:
+
+| Tool | Lokasi default (macOS/Linux) |
+| --- | --- |
+| **npm** | `~/.npm` |
+| **pnpm** | `~/.local/share/pnpm/store` (Linux), `~/Library/pnpm/store` (macOS) |
+| **yarn** | `~/.yarn/berry/cache` (Berry), `~/Library/Caches/Yarn` (Classic) |
+
+<Callout type="warning">
+`npm cache clean --force` dan `pnpm store prune` bisa membuat instal berikutnya lebih lambat karena harus unduh ulang. Gunakan saat cache korup atau butuh ruang disk.
+</Callout>
+
+---
+
+## `link` — Package Lokal
+
+Menghubungkan package lokal yang sedang dikembangkan ke proyek lain **tanpa publish** ke npm.
+
+Kapan dipakai: develop library dan test langsung di aplikasi consumer tanpa `publish` berulang.
+
+```bash
+# npm
+cd ./my-local-package
+npm link                        # register package global
+
+cd ../my-app
+npm link my-local-package       # pakai versi lokal
+
+npm unlink my-local-package     # putuskan di consumer
+cd ./my-local-package && npm unlink  # hapus registrasi global
+
+# pnpm
+cd ./my-local-package
+pnpm link --global              # register global
+
+cd ../my-app
+pnpm link --global my-local-package
+
+pnpm unlink --global my-local-package
+
+# yarn
+cd ./my-local-package
+yarn link                       # Classic: register
+
+cd ../my-app
+yarn link my-local-package
+
+yarn unlink my-local-package
+```
+
+- **`npm link`**: buat symlink global di `node_modules` global → proyek consumer symlink ke sana.
+- **`pnpm link --global`**: pendekatan serupa dengan store terisolasi pnpm.
+- **Alternatif modern**: `pnpm pack` / `npm pack` + install tarball lokal — lebih dekat ke production.
+
+---
+
+## Workspace & Filter — Monorepo
+
+Workspace memungkinkan banyak package dalam satu repo — share lockfile, hoist tooling, dan jalankan script lintas package.
+
+Kapan dipakai: monorepo (turborepo, Nx, Lerna-style), design system + apps, atau library internal.
+
+### Konfigurasi workspace
+
+```json
+// package.json (root) — npm / yarn / pnpm
+{
+  "name": "my-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}
+```
+
+```yaml
+# pnpm-workspace.yaml (pnpm)
+packages:
+  - "packages/*"
+  - "apps/*"
+```
+
+### Perintah workspace
+
+```bash
+# npm
+npm install                     # instal semua workspace sekaligus
+npm run build --workspaces
+npm run test -w @myorg/api
+npm ls --workspaces
+
+# pnpm
+pnpm install                    # baca pnpm-workspace.yaml
+pnpm -r run build               # recursive: semua workspace
+pnpm --filter @myorg/api run build
+pnpm --filter "./packages/*" run test
+pnpm --filter "...web" run build  # web + semua dependensinya
+pnpm add react --filter web     # tambah dep ke workspace "web"
+pnpm -r exec pwd                # jalankan perintah di tiap workspace
+
+# yarn
+yarn install                    # instal semua workspace
+yarn workspaces run build       # Classic
+yarn workspace api run build    # Classic: satu workspace
+yarn workspaces foreach run build     # Berry
+yarn workspaces foreach -pt run build # Berry: parallel + topological
+yarn workspace api add lodash   # Classic: tambah dep ke workspace
+```
+
+Filter pnpm yang sering dipakai:
+
+| Filter | Arti |
+| --- | --- |
+| `web` | Hanya package bernama `web` |
+| `"@myorg/*"` | Semua scoped package organisasi |
+| `"./packages/api"` | By path |
+| `"...web"` | `web` dan semua package yang bergantung padanya |
+| `"web..."` | `web` dan semua dependensinya (transitif) |
+| `"!web"` | Semua kecuali `web` |
+
+---
+
+## Perintah Tambahan Berguna
+
+### `npm ls` / `pnpm list` / `yarn list` — Lihat Pohon Dependensi
+
+```bash
+npm ls                          # pohon dependensi
+npm ls --depth=0                # hanya dependensi langsung
+npm ls lodash                   # cek apakah lodash terinstal
+pnpm list --depth=1
+pnpm why react                  # lacak mengapa react terinstal
+yarn why react                  # Classic & Berry
+```
+
+### `npm view` / `pnpm view` / `yarn info` — Info Package di Registry
+
+```bash
+npm view react version          # versi terbaru
+npm view react versions --json  # semua versi
+npm view lodash dependencies
+pnpm view react
+yarn npm info react             # Berry
+yarn info react                 # Classic
+```
+
+### `npm pkg` — Edit package.json dari CLI (npm v7.20+)
+
+```bash
+npm pkg get name                # baca field
+npm pkg set description="My app"
+npm pkg delete scripts.old
+npm pkg fix                     # perbaiki field yang tidak valid
+```
+
+### `npm dedupe` / `pnpm dedupe`
+
+```bash
+npm dedupe                      # kurangi duplikasi di node_modules
+pnpm dedupe                     # optimalkan versi di lockfile
+```
+
+### `npm shrinkwrap` / `npm pack`
+
+```bash
+npm pack                        # buat tarball .tgz dari package lokal
+npm shrinkwrap                  # buat npm-shrinkwrap.json (lockfile untuk publish)
+```
+
+---
+
+## package.json — Scripts & Field Penting
+
+Struktur `package.json` yang sering dipakai:
+
+```json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest",
+    "lint": "eslint .",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "react": "^18.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
+```
+
+Lifecycle scripts otomatis:
+
+| Script | Kapan dijalankan |
+| --- | --- |
+| **`preinstall`** | Sebelum `install` |
+| **`postinstall`** | Setelah `install` selesai |
+| **`prepare`** | Sebelum `pack`/`publish`, dan setelah `install` di git dep |
+| **`prepublishOnly`** | Sebelum `publish` |
+
+<Callout type="info">
+Gunakan `"packageManager": "pnpm@9.1.0"` di `package.json` (dengan Corepack) agar seluruh tim memakai versi package manager yang sama — mencegah lockfile conflict.
+</Callout>
+
+---
+
+## .npmrc — Konfigurasi Registry & Proxy
+
+File `.npmrc` mengatur registry, auth token, hoisting, dan perilaku install.
+
+```ini
+# .npmrc — contoh umum
+registry=https://registry.npmjs.org/
+
+# Scoped registry privat
+@myorg:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+
+# pnpm
+shamefully-hoist=true           # hoist semua (kompatibilitas legacy)
+strict-peer-dependencies=false
+auto-install-peers=true
+
+# npm
+save-exact=true
+engine-strict=true
+
+# yarn Berry
+nodeLinker=node-modules         # default: node_modules (bukan PnP)
+```
+
+- **`engine-strict=true`**: gagal instal jika versi Node.js tidak memenuhi `engines` di `package.json`.
+- **`shamefully-hoist` (pnpm)**: buat struktur flat seperti npm — untuk proyek yang belum kompatibel isolated.
+- **`nodeLinker=node-modules` (Yarn Berry)**: nonaktifkan Plug'n'Play jika tool tidak support.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek baru
+
+```bash
+# Buat proyek
+npx create-next-app@latest my-app
+cd my-app
+
+# Atau dengan pnpm/yarn
+pnpm create next-app my-app
+yarn create next-app my-app
+
+# Instal dependensi (jika belum otomatis)
+npm install        # atau: pnpm install / yarn install
+
+# Development
+npm run dev        # atau: pnpm dev / yarn dev
+```
+
+### Clone proyek existing
+
+```bash
+git clone git@github.com:user/repo.git
+cd repo
+
+# Pilih sesuai lockfile di repo
+npm ci             # jika ada package-lock.json
+pnpm install --frozen-lockfile   # jika ada pnpm-lock.yaml
+yarn install --immutable         # jika ada yarn.lock (Berry)
+
+npm run dev
+```
+
+### Menambah & menghapus dependency
+
+```bash
+# Tambah
+npm install axios
+pnpm add -D @types/node
+yarn add zod
+
+# Hapus
+npm uninstall lodash
+pnpm remove lodash
+yarn remove lodash
+
+# Cek outdated → update
+npm outdated && npm update
+pnpm outdated && pnpm update --interactive
+```
+
+### Sebelum commit
+
+```bash
+npm run lint
+npm run test
+npm run build
+
+# Cek keamanan
+npm audit
+```
+
+### CI/CD pipeline (contoh)
+
+```bash
+# Install reproducible
+npm ci --ignore-scripts
+# atau
+pnpm install --frozen-lockfile --ignore-scripts
+
+# Build & test
+npm run build
+npm run test -- --coverage
+
+# Audit (fail on high+)
+npm audit --audit-level=high
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# npm
+alias ni='npm install'
+alias nid='npm install --save-dev'
+alias nig='npm install -g'
+alias nr='npm run'
+alias nrb='npm run build'
+alias nrd='npm run dev'
+alias nrt='npm run test'
+
+# pnpm
+alias pi='pnpm install'
+alias pa='pnpm add'
+alias pr='pnpm remove'
+alias pd='pnpm dev'
+alias pb='pnpm build'
+alias px='pnpm dlx'
+
+# yarn
+alias yi='yarn install'
+alias ya='yarn add'
+alias yrm='yarn remove'
+alias yd='yarn dev'
+alias yb='yarn build'
+alias yx='yarn dlx'
+
+# Umum — deteksi lockfile
+alias install-deps='if [ -f pnpm-lock.yaml ]; then pnpm install; elif [ -f yarn.lock ]; then yarn install; else npm ci; fi'
+```
+
+Atau pakai **Corepack** untuk enforce package manager per proyek:
+
+```bash
+corepack enable
+corepack prepare pnpm@9.1.0 --activate
+corepack prepare yarn@4.2.0 --activate
+```
+
+---
+
+## Troubleshooting Umum
+
+### `EACCES` / permission error saat instal global
+
+```bash
+# Jangan sudo npm install -g — ubah ownership folder npm global
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+# Tambahkan ke PATH di ~/.zshrc:
+# export PATH=~/.npm-global/bin:$PATH
+
+# Atau pakai nvm/fnm untuk kelola Node.js tanpa sudo
+```
+
+### Lockfile conflict setelah merge
+
+```bash
+# Hapus node_modules + lockfile, instal ulang
+rm -rf node_modules
+# Edit package.json jika ada conflict — jangan edit lockfile manual
+npm install          # regenerate package-lock.json
+# atau
+pnpm install
+yarn install
+```
+
+### Phantom dependency / module not found
+
+```bash
+# Gejala: import package yang tidak di package.json tapi "kebetulan" ada
+# Penyebab: hoisting npm/Yarn Classic
+
+# Solusi: tambahkan explicit ke package.json
+npm install missing-package
+
+# Atau migrasi ke pnpm (isolated) / Yarn PnP
+```
+
+### `ERESOLVE` — conflict peer dependency (npm)
+
+```bash
+npm install --legacy-peer-deps    # abaikan peer conflict (sementara)
+npm install --force               # paksa instal
+
+# Solusi proper: sesuaikan versi react/plugin agar peer terpenuhi
+```
+
+### pnpm: script build native gagal
+
+```bash
+# Izinkan build script untuk package tertentu
+pnpm approve-builds
+
+# Atau di .npmrc
+# onlyBuiltDependencies[]=sharp
+```
+
+### Yarn Berry: tool tidak kompatibel PnP
+
+```bash
+# Gunakan node_modules linker
+yarn config set nodeLinker node-modules
+
+# Atau pakai unplugged untuk package bermasalah
+# .yarnrc.yml: pnpMode: loose
+```
+
+### Cache korup / instal aneh
+
+```bash
+rm -rf node_modules
+npm cache clean --force && npm install
+# atau
+pnpm store prune && pnpm install
+# atau
+yarn cache clean --all && yarn install
+```
+
+### Versi Node.js tidak cocok
+
+```bash
+node --version
+# Pakai nvm/fnm/volta
+nvm install 20
+nvm use 20
+
+# Enforce di package.json
+# "engines": { "node": ">=20" }
+# + .npmrc: engine-strict=true
+```
+
+### Registry timeout / proxy
+
+```ini
+# .npmrc
+registry=https://registry.npmjs.org/
+fetch-timeout=60000
+fetch-retries=5
+# proxy=http://proxy.company.com:8080
+# https-proxy=http://proxy.company.com:8080
+```
+
+---
+
+## Migrasi Antar Package Manager
+
+### npm → pnpm
+
+```bash
+# Di root proyek
+rm -rf node_modules package-lock.json
+pnpm import                      # konversi package-lock.json (jika masih ada)
+pnpm install
+
+# Tambahkan ke package.json
+# "packageManager": "pnpm@9.x"
+```
+
+### npm → yarn (Berry)
+
+```bash
+rm -rf node_modules package-lock.json
+yarn set version stable
+yarn install
+# Cek .yarnrc.yml dan yarn.lock baru
+```
+
+### yarn Classic → Berry
+
+```bash
+yarn set version berry
+yarn install
+# Evaluasi: nodeLinker node-modules vs PnP
+```
+
+<Callout type="warning">
+Jangan campur lockfile (`package-lock.json` + `pnpm-lock.yaml` + `yarn.lock`) dalam satu repo. Pilih satu package manager per proyek dan commit hanya lockfile yang sesuai.
+</Callout>
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | npm | pnpm | yarn |
+| --- | --- | --- | --- |
+| **Instal semua** | `npm install` / `npm ci` | `pnpm install` | `yarn install` |
+| **Tambah package** | `npm install pkg` | `pnpm add pkg` | `yarn add pkg` |
+| **Hapus** | `npm uninstall pkg` | `pnpm remove pkg` | `yarn remove pkg` |
+| **Update** | `npm update` | `pnpm update` | `yarn up` (Berry) |
+| **Outdated** | `npm outdated` | `pnpm outdated` | `yarn npm outdated` |
+| **Jalankan script** | `npm run dev` | `pnpm dev` | `yarn dev` |
+| **CLI sekali pakai** | `npx` | `pnpm dlx` | `yarn dlx` |
+| **Init** | `npm init -y` | `pnpm init -y` | `yarn init -y` |
+| **Publish** | `npm publish` | `pnpm publish` | `yarn npm publish` |
+| **Audit** | `npm audit` | `pnpm audit` | `yarn npm audit` |
+| **Cache** | `npm cache verify` | `pnpm store prune` | `yarn cache clean` |
+| **Link lokal** | `npm link` | `pnpm link --global` | `yarn link` |
+| **Monorepo** | `--workspaces` | `--filter` / `-r` | `workspaces foreach` |
+
+| Kategori umum | Perintah utama |
+| --- | --- |
+| **Setup** | `init`, `install`, `ci` |
+| **Dependensi** | `add`, `remove`, `update`, `outdated` |
+| **Eksekusi** | `run`, `npx`/`dlx`/`exec` |
+| **Keamanan** | `audit`, `audit fix` |
+| **Registry** | `login`, `publish`, `view` |
+| **Monorepo** | `workspaces`, `--filter`, `-r` |
+| **Debug** | `ls`, `why`, `list` |
+| **Maintenance** | `cache`, `dedupe`, `prune` |
+
+---
+
+## Penutup
+
+Enam perintah inti yang sama di ketiga tool: **`install`**, **`add`** (via install), **`run`**, **`npx`/`dlx`**, **`update`**, dan **`audit`**. Dengan keenamnya, Anda sudah menutup workflow Node.js sehari-hari — dari scaffold proyek hingga deploy.
+
+Pilih **npm** untuk kompatibilitas universal, **pnpm** untuk monorepo dan efisiensi disk, **yarn** jika tim sudah standarisasi Berry atau butuh fitur lanjutan. Yang terpenting: **satu lockfile, satu package manager per repo** — dan manfaatkan `npm help`, [dokumentasi pnpm](https://pnpm.io/cli/add), serta [dokumentasi Yarn](https://yarnpkg.com/cli) sebagai referensi terbaru.

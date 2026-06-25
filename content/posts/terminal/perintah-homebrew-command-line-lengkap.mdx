@@ -1,0 +1,947 @@
+---
+title: "Perintah Homebrew Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Homebrew di macOS: install, update, tap, cask, services, Brewfile, troubleshooting, dan workflow sehari-hari developer."
+date: "2025-06-24"
+category: terminal
+tags: ["homebrew", "macos", "cli", "terminal", "tutorial"]
+featured: true
+---
+
+**Homebrew** adalah package manager paling populer di macOS. Dengan satu perintah `brew`, Anda bisa menginstal CLI tools, library, dan aplikasi GUI tanpa mengunduh installer manual dari situs web.
+
+<Callout type="tip">
+Pastikan Homebrew sudah terpasang. Cek dengan `brew --version`. Jika belum, instal lewat [brew.sh](https://brew.sh) atau jalankan perintah instalasi resmi di situs tersebut.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti Homebrew — istilah ini muncul terus di dokumentasi dan output terminal:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Formula** | Definisi package CLI/library (mis. `node`, `git`, `wget`) — diinstal ke Cellar dan di-link ke PATH |
+| **Cask** | Package aplikasi GUI macOS (mis. `firefox`, `visual-studio-code`) — diinstal ke `/Applications` |
+| **Tap** | Repositori tambahan berisi formula/cask ekstra di luar repo utama Homebrew |
+| **Cellar** | Folder penyimpanan instalasi Homebrew (`/opt/homebrew/Cellar` di Apple Silicon) |
+| **Keg** | Satu instalasi formula di dalam Cellar — tiap versi formula punya folder keg sendiri |
+| **Brewfile** | File deklaratif daftar package (seperti `package.json` untuk brew) |
+| **Bottle** | Binary pre-compiled agar instalasi lebih cepat — tidak perlu compile dari source |
+
+### Perintah informasi dasar
+
+Perintah ini membantu Anda memverifikasi instalasi, melihat bantuan, dan memahami konfigurasi sistem Homebrew di Mac Anda.
+
+```bash
+brew --version          # tampilkan versi Homebrew yang terinstal
+brew help               # daftar semua perintah yang tersedia
+brew help install       # bantuan detail untuk satu perintah, mis. brew install --help
+brew config             # konfigurasi & path penting (prefix, Cellar, cache, user)
+```
+
+- **`brew --version`**: langkah pertama saat troubleshooting — pastikan Homebrew tidak terlalu usang.
+- **`brew help <command>`**: referensi cepat tanpa buka browser; setiap subcommand punya opsi sendiri.
+- **`brew config`**: menampilkan lokasi prefix, Cellar, cache, dan environment variables aktif.
+
+---
+
+## Instalasi Package
+
+Bagian ini mencakup cara menginstal formula (CLI/library) dan cask (aplikasi GUI) — dua jenis package utama di Homebrew.
+
+### `brew install` — Instal Formula (CLI)
+
+`brew install` adalah perintah paling sering dipakai. Fungsinya mengunduh, compile (jika perlu), dan menginstal formula ke Cellar, lalu membuat symlink ke PATH agar binary bisa dijalankan dari terminal.
+
+```bash
+brew install git                    # instal satu formula
+brew install node                   # instal Node.js
+brew install python@3.12            # versi spesifik (format formula@versi)
+brew install wget curl jq           # instal beberapa formula sekaligus
+brew install --HEAD neovim            # build dari source (branch utama repo)
+brew install --build-from-source redis   # paksa compile dari source, abaikan bottle
+brew install --force-bottle nginx   # paksa pakai bottle pre-compiled jika tersedia
+```
+
+Kapan dipakai: saat butuh CLI tool, runtime (Node, Python, Ruby), database server, atau library development yang belum ada di Mac.
+
+- **`formula@versi`**: Homebrew mendukung banyak versi paralel — mis. `python@3.12` dan `python@3.11` bisa coexist.
+- **`--HEAD`**: instal versi development terbaru dari repository — berguna untuk fitur bleeding-edge, tapi kurang stabil.
+- **`--build-from-source`**: compile manual — dipakai saat bottle tidak tersedia untuk arsitektur Anda atau butuh opsi compile khusus.
+- **`--force-bottle`**: paksa bottle meski kondisi tidak ideal — mempercepat instalasi jika bottle kompatibel.
+
+Opsi tambahan yang berguna saat debugging atau instalasi khusus:
+
+```bash
+brew install -v git                 # verbose — tampilkan log build/download detail
+brew install --dry-run node         # simulasi — tampilkan apa yang akan dilakukan tanpa instal
+brew install --ignore-dependencies wget  # instal tanpa dependensi otomatis (hati-hati!)
+```
+
+- **`-v` / `--verbose`**: wajib saat instalasi gagal — log lengkap membantu diagnosa error compile atau download.
+- **`--dry-run`**: cek dependensi dan langkah instalasi sebelum benar-benar menjalankan.
+- **`--ignore-dependencies`**: jarang dipakai — hanya jika Anda tahu dependensi sudah terpenuhi manual.
+
+---
+
+### `brew install --cask` — Instal Aplikasi GUI
+
+Cask menginstal aplikasi macOS lengkap — browser, editor, terminal, dan tool GUI lainnya — langsung ke folder Applications tanpa drag-and-drop dari DMG.
+
+```bash
+brew install --cask firefox                 # browser
+brew install --cask visual-studio-code        # code editor
+brew install --cask google-chrome             # browser alternatif
+brew install --cask iterm2                    # terminal emulator
+brew install --cask docker                    # Docker Desktop (aplikasi GUI)
+```
+
+Kapan dipakai: setup mesin baru, dokumentasi environment tim, atau instal aplikasi yang tersedia di Homebrew Cask tanpa buka situs vendor.
+
+Opsi cask untuk kontrol lokasi instalasi dan keamanan:
+
+```bash
+brew install --cask --no-quarantine firefox   # skip quarantine Gatekeeper
+brew install --cask --appdir=/Applications firefox   # tentukan folder aplikasi
+brew install --cask --font "font-fira-code-nerd-font"   # instal font via cask
+```
+
+- **`--cask`**: wajib untuk aplikasi GUI — tanpa flag ini, Homebrew mencari formula CLI dengan nama yang sama.
+- **`--no-quarantine`**: melewati atribut quarantine macOS — hanya untuk sumber yang Anda percaya.
+- **`--appdir`**: custom lokasi instalasi — default biasanya `/Applications`.
+- **`--font`**: shortcut untuk instal font dari tap `homebrew/cask-fonts`.
+
+<Callout type="warning">
+Flag `--no-quarantine` melewati pemeriksaan keamanan macOS. Gunakan hanya jika Anda yakin sumber package-nya aman.
+</Callout>
+
+---
+
+### `brew reinstall` — Instal Ulang
+
+Menghapus dan menginstal ulang formula atau cask — setara reset ke keadaan bersih tanpa menghapus konfigurasi sistem secara manual.
+
+```bash
+brew reinstall node                           # reinstall formula
+brew reinstall --cask visual-studio-code      # reinstall aplikasi GUI
+```
+
+Kapan dipakai: instalasi rusak, binary corrupt, upgrade gagal setengah jalan, atau ingin memastikan package dalam kondisi fresh.
+
+- **`reinstall`**: lebih aman daripada `uninstall` + `install` manual — Homebrew menangani urutan langkah dengan benar.
+- **`--cask`**: untuk aplikasi GUI — sering memperbaiki masalah launch atau permission setelah update macOS.
+
+---
+
+## Mencari & Melihat Info Package
+
+Sebelum menginstal, biasanya Anda perlu mencari nama package yang tepat dan memeriksa versi, dependensi, serta lokasi instalasinya.
+
+### `brew search` — Cari Package
+
+Mencari formula dan cask yang cocok dengan kata kunci — setara pencarian di katalog Homebrew.
+
+```bash
+brew search node                  # cari formula & cask yang mengandung "node"
+brew search /^node/               # pencarian dengan regex (awali dengan "node")
+brew search --cask browser        # cari hanya di cask (aplikasi GUI)
+brew search --formula json        # cari hanya di formula (CLI/library)
+```
+
+Kapan dipakai: tidak yakin nama exact package, ingin bandingkan opsi serupa, atau cek apakah tool tersedia di Homebrew sebelum cari installer manual.
+
+- **Regex (`/^node/`)**: filter lebih presisi — berguna saat nama package panjang atau ambigu.
+- **`--cask` vs `--formula`**: pisahkan hasil antara aplikasi GUI dan CLI tool.
+
+---
+
+### `brew info` — Detail Package
+
+Menampilkan metadata lengkap satu formula atau cask: versi, dependensi, URL homepage, lokasi instalasi, dan opsi yang tersedia.
+
+```bash
+brew info node                    # detail formula node
+brew info --cask firefox          # detail cask firefox
+brew info --json=v2 node          # output JSON (untuk scripting/automation)
+brew info --installed git         # tampilkan info hanya jika sudah terinstal
+```
+
+Kapan dipakai: sebelum `brew install` — cek versi default, dependensi yang akan ikut terinstal, atau path binary setelah instalasi.
+
+- **`--json=v2`**: format terstruktur untuk script CI atau tooling otomatis.
+- **`--installed`**: gagal diam-diam jika belum terinstal — berguna di script yang cek keberadaan package.
+
+Menampilkan versi, dependensi, URL, dan lokasi instalasi.
+
+---
+
+### `brew list` — Daftar Package Terinstal
+
+Menampilkan semua formula atau cask yang sudah terinstal di sistem — atau file individual dari satu formula.
+
+```bash
+brew list                         # semua formula terinstal
+brew list --cask                  # semua cask terinstal
+brew list node                    # file yang diinstal oleh satu formula
+brew list --versions              # tampilkan versi tiap formula
+brew list --formula -1            # satu formula per baris (mudah di-pipe ke script)
+```
+
+Kapan dipakai: audit apa yang terinstal, cek versi paralel, atau investigasi file yang dibawa satu package.
+
+- **`brew list <formula>`**: daftar lengkap file di Cellar untuk formula tersebut — berguna saat debug PATH atau konflik binary.
+- **`--versions`**: lihat banyak versi formula yang coexist — mis. `node@20` dan `node@22`.
+- **`-1`**: satu item per baris — ideal untuk `brew list | wc -l` atau filter dengan `grep`.
+
+---
+
+### `brew which` — Lokasi Binary
+
+Menunjukkan path absolut binary yang disediakan Homebrew untuk formula tertentu — mengatasi kebingungan `which` vs versi sistem.
+
+```bash
+brew which node                   # path binary node dari Homebrew
+brew which git
+# Output contoh: /opt/homebrew/bin/node
+```
+
+Kapan dipakai: saat `which node` menunjukkan versi sistem (`/usr/bin/node`) bukan Homebrew, atau saat debug konflik PATH.
+
+- **`brew which`**: selalu resolve ke keg Homebrew — lebih reliable daripada `which` saat ada banyak instalasi.
+
+---
+
+### `brew --prefix` — Path Instalasi
+
+Menampilkan prefix Homebrew atau path instalasi formula tertentu di Cellar.
+
+```bash
+brew --prefix                     # prefix root Homebrew (mis. /opt/homebrew)
+brew --prefix node                # path instalasi formula node
+brew --prefix openssl@3           # path openssl — sering dibutuhkan saat compile native module
+```
+
+Kapan dipakai: konfigurasi build tool, set `LDFLAGS`/`CPPFLAGS`, atau script yang perlu path absolut ke library Homebrew.
+
+- **`brew --prefix`**: tanpa argumen = lokasi root Homebrew — penting untuk `eval "$(brew shellenv)"`.
+- **`brew --prefix <formula>`**: path ke keg aktif — sering dipakai di `configure` script atau Makefile.
+
+---
+
+## Update & Upgrade
+
+Homebrew memisahkan **update** (fetch metadata) dan **upgrade** (instal versi baru) — jangan dicampur aduk seperti npm yang satu perintah.
+
+### `brew update` — Perbarui Homebrew & Tap
+
+Mengambil definisi formula/cask terbaru dari remote repository — **tanpa** mengubah package yang sudah terinstal di Mac Anda.
+
+```bash
+brew update                       # fetch metadata terbaru dari semua tap
+brew update --auto-update         # paksa auto-update (default di macOS baru)
+brew update --verbose             # tampilkan detail proses fetch
+```
+
+Kapan dipakai: sebelum `brew outdated` atau `brew upgrade` — pastikan katalog Homebrew sudah sinkron dengan upstream.
+
+- **`brew update`**: hanya refresh definisi — versi terinstal di Cellar tidak berubah.
+- **`--auto-update`**: Homebrew modern sering auto-update saat `install` — flag ini memaksa update eksplisit.
+- **`--verbose`**: lihat tap mana yang di-fetch dan apakah ada error jaringan.
+
+`brew update` **tidak** meng-upgrade package yang sudah terinstal — hanya memperbarui definisi formula/cask.
+
+---
+
+### `brew outdated` — Lihat Package Usang
+
+Membandingkan versi terinstal dengan versi terbaru di tap — setara `bun outdated` atau `apt list --upgradable`.
+
+```bash
+brew outdated                     # semua formula & cask yang punya versi lebih baru
+brew outdated --greedy            # termasuk cask dengan auto-update (Chrome, dll.)
+brew outdated --formula           # hanya formula CLI
+brew outdated --cask              # hanya cask aplikasi
+```
+
+Kapan dipakai: rutinitas mingguan sebelum `brew upgrade` — review dulu apa yang akan berubah.
+
+- **`--greedy`**: cask seperti Chrome punya mekanisme auto-update sendiri — `--greedy` tetap tampilkan mereka sebagai outdated.
+- **`--formula` / `--cask`**: fokus audit ke satu jenis package saja.
+
+---
+
+### `brew upgrade` — Upgrade Package
+
+Menginstal versi terbaru untuk formula atau cask yang outdated — ini yang benar-benar mengubah software di Mac Anda.
+
+```bash
+brew upgrade                      # upgrade semua formula outdated sekaligus
+brew upgrade node                 # upgrade satu formula saja
+brew upgrade node python git      # upgrade beberapa formula sekaligus
+brew upgrade --cask               # upgrade semua cask outdated
+brew upgrade --cask firefox       # upgrade satu cask saja
+brew upgrade --greedy             # upgrade cask termasuk yang auto-update
+```
+
+Kapan dipakai: setelah `brew update` + `brew outdated` — rutinitas pemeliharaan mingguan atau sebelum mulai proyek baru.
+
+- **`brew upgrade` tanpa argumen**: upgrade semua formula — bisa memakan waktu lama; pertimbangkan upgrade selektif di mesin produksi.
+- **`--cask`**: terpisah dari formula — aplikasi GUI punya lifecycle upgrade sendiri.
+- **`--greedy`**: sinkronkan juga cask yang biasanya di-skip karena auto-update internal.
+
+---
+
+### `brew pin` & `brew unpin` — Kunci Versi
+
+Mencegah formula tertentu di-upgrade saat menjalankan `brew upgrade` — berguna untuk proyek yang bergantung pada versi spesifik.
+
+```bash
+brew pin node                     # kunci node — tidak ikut brew upgrade
+brew unpin node                   # hapus pin — node bisa di-upgrade lagi
+brew list --pinned                # daftar semua package yang sedang di-pin
+```
+
+Kapan dipakai: proyek legacy butuh Node 18, database production mirror butuh PostgreSQL versi tetap, atau hindari breaking change sementara.
+
+- **`brew pin`**: formula tetap terinstal di versi saat ini — `brew upgrade` melewatinya.
+- **`brew list --pinned`**: audit package yang sengaja ditahan — dokumentasikan alasan pin di tim.
+
+---
+
+## Menghapus Package
+
+Membersihkan package yang tidak dibutuhkan, dependensi yatim, dan cache lama — penting untuk menghemat disk dan menjaga sistem rapi.
+
+### `brew uninstall` — Hapus Formula
+
+Menghapus formula dari Cellar dan symlink di PATH — dependensi yang tidak dipakai formula lain biasanya tetap ada (gunakan `autoremove`).
+
+```bash
+brew uninstall wget                         # hapus satu formula
+brew uninstall node python                  # hapus beberapa sekaligus
+brew uninstall --ignore-dependencies node     # hapus meski ada formula lain yang depend
+brew uninstall --zap --cask firefox         # hapus cask + file konfigurasi/preferences
+```
+
+Kapan dipakai: tool tidak dipakai lagi, ganti ke alternatif, atau bersihkan setelah eksperimen.
+
+- **`--ignore-dependencies`**: paksa hapus meski formula lain masih depend — bisa rusak dependensi; gunakan dengan sadar.
+- **`--zap` (cask)**: hapus juga preference, cache, dan support files — lebih bersih daripada uninstall biasa.
+
+---
+
+### `brew autoremove` — Hapus Dependensi Tidak Terpakai
+
+Menghapus formula yang hanya terinstal sebagai dependensi otomatis dan tidak lagi dibutuhkan formula top-level manapun.
+
+```bash
+brew autoremove                   # hapus dependensi yatim
+brew autoremove --dry-run         # simulasi — tampilkan yang akan dihapus
+```
+
+Kapan dipakai: setelah `brew uninstall` beberapa package — bersihkan sisa dependensi yang menganggur.
+
+- **`--dry-run`**: preview sebelum hapus — amankan jika ragu ada formula yang masih dibutuhkan secara tidak langsung.
+
+---
+
+### `brew cleanup` — Bersihkan Cache & Versi Lama
+
+Menghapus versi lama formula di Cellar, cache unduhan, dan artifact build — mengembalikan ruang disk yang terpakai Homebrew.
+
+```bash
+brew cleanup                      # hapus versi lama & cache yang aman dibersihkan
+brew cleanup node                 # cleanup hanya untuk satu formula
+brew cleanup -n                   # dry-run — tampilkan yang akan dihapus
+brew cleanup -s                   # hapus semua cache unduhan (bottle/source)
+brew cleanup --prune=all          # prune agresif — hapus semua cache
+```
+
+Kapan dipakai: disk penuh, setelah banyak upgrade, atau rutinitas mingguan bersama `brew upgrade`.
+
+- **`-n` / `--dry-run`**: lihat berapa GB yang bisa dibebaskan tanpa menghapus apapun.
+- **`-s`**: hapus cache unduhan — instal ulang nanti akan download lagi dari awal.
+- **`--prune=all`**: paling agresif — gunakan saat troubleshooting atau reset cache.
+
+---
+
+## Tap — Repositori Tambahan
+
+Tap memperluas katalog package di luar repo utama Homebrew — font, versi alternatif aplikasi, dan formula dari vendor pihak ketiga.
+
+### `brew tap` — Tambah Repositori
+
+Mendaftarkan repositori GitHub tambahan sebagai sumber formula/cask baru.
+
+```bash
+brew tap                          # daftar semua tap aktif di sistem
+brew tap homebrew/cask-fonts      # tap resmi: koleksi font
+brew tap homebrew/cask-versions   # tap resmi: versi alternatif aplikasi (Firefox ESR, dll.)
+brew tap mongodb/brew             # contoh tap pihak ketiga: MongoDB
+brew tap --list-official          # daftar tap resmi Homebrew
+```
+
+Kapan dipakai: butuh package yang tidak ada di core tap — font Nerd Font, MongoDB, versi lama aplikasi, atau formula komunitas.
+
+- **`brew tap` tanpa argumen**: audit tap terinstal — tap yang tidak dipakai bisa di-`untap` untuk mempercepat `brew update`.
+- **`homebrew/cask-fonts`**: hampir wajib untuk developer — ribuan font programming tersedia via cask.
+- **`--list-official`**: tap yang di-maintain tim Homebrew — lebih aman daripada tap random.
+
+---
+
+### `brew untap` — Hapus Repositori
+
+Menghapus tap dari sistem — formula dari tap tersebut tidak lagi tersedia untuk instal baru.
+
+```bash
+brew untap homebrew/cask-fonts    # hapus tap font (jika tidak dipakai)
+brew untap mongodb/brew           # hapus tap MongoDB
+```
+
+Kapan dipakai: bersihkan tap yang tidak terpakai — mempercepat `brew update` dan mengurangi kompleksitas.
+
+- Pastikan tidak ada formula terinstal dari tap tersebut sebelum `untap` — atau uninstall dulu package-nya.
+
+---
+
+### Tap populer untuk developer
+
+Kombinasi tap yang sering dipasang di mesin development macOS:
+
+```bash
+brew tap homebrew/cask-fonts      # font untuk terminal & editor
+brew tap homebrew/cask-versions   # versi alternatif: firefox@esr, google-chrome@beta, dll.
+brew tap homebrew/services        # kelola launchd services (sering sudah built-in)
+brew tap homebrew/bundle          # Brewfile support (sering sudah built-in)
+```
+
+Kapan dipakai: setup mesin baru — jalankan sekali di awal, lalu instal package dari tap tersebut sepanjang lifecycle mesin.
+
+---
+
+## Services — Jalankan Daemon di Background
+
+Homebrew bisa mengelola service macOS (`launchd`) untuk formula seperti database, cache server, atau web server — tanpa konfigurasi `launchctl` manual.
+
+### Perintah services
+
+```bash
+brew services list                # daftar semua service dan statusnya (started/stopped)
+brew services start postgresql@16 # jalankan PostgreSQL di background via launchd
+brew services stop redis          # hentikan Redis
+brew services restart nginx       # restart Nginx (stop lalu start)
+brew services run mysql           # jalankan di foreground — tanpa launchd, untuk debug
+```
+
+Kapan dipakai: development lokal butuh database (PostgreSQL, MySQL), cache (Redis), atau web server (Nginx) yang jalan otomatis saat login.
+
+- **`start`**: daftarkan ke launchd — service jalan di background dan restart saat reboot (tergantung konfigurasi).
+- **`stop`**: hentikan dan unregister dari launchd.
+- **`restart`**: praktis setelah ubah config — tidak perlu stop/start manual.
+- **`run`**: foreground mode — log langsung ke terminal, cocok untuk debug; `Ctrl+C` untuk hentikan.
+
+Contoh workflow database lokal:
+
+```bash
+brew install postgresql@16        # instal PostgreSQL versi 16
+brew services start postgresql@16 # jalankan sebagai daemon
+brew services info postgresql@16  # cek status, path plist, dan PID
+```
+
+- **`brew services info`**: diagnosa cepat — apakah service benar-benar running, di mana file plist-nya.
+
+<Callout type="info">
+`brew services` membutuhkan tap `homebrew/services` — biasanya sudah tersedia secara default di instalasi Homebrew modern.
+</Callout>
+
+---
+
+## Dependensi & Relasi Package
+
+Memahami graf dependensi membantu menghindari uninstall yang merusak toolchain, atau mendiagnosa mengapa package tertentu terinstal tanpa Anda minta.
+
+### `brew deps` — Lihat Dependensi
+
+Menampilkan formula yang dibutuhkan sebagai dependensi oleh package target.
+
+```bash
+brew deps node                    # dependensi langsung node
+brew deps --tree node             # pohon dependensi (visual hierarki)
+brew deps --include-build node    # sertakan build-only dependency
+brew deps --installed node        # hanya dependensi yang sudah terinstal di sistem
+```
+
+Kapan dipakai: sebelum uninstall — cek apa yang ikut terpengaruh; atau saat debug kenapa disk terpakai banyak setelah satu `install`.
+
+- **`--tree`**: gambaran hierarki — mudah dipahami untuk formula dengan banyak dependensi transitif.
+- **`--include-build`**: dependensi hanya untuk compile — tidak selalu runtime dependency.
+- **`--installed`**: filter ke realitas sistem Anda — abaikan yang belum terinstal.
+
+---
+
+### `brew uses` — Siapa yang Bergantung pada Package
+
+Kebalikan dari `deps` — menampilkan formula mana yang membutuhkan package tertentu.
+
+```bash
+brew uses openssl@3               # formula apa saja yang depend ke openssl@3
+brew uses --installed openssl@3   # hanya yang terinstal dan aktif memakai openssl
+brew uses --recursive node          # termasuk dependensi tidak langsung
+```
+
+Kapan dipakai: sebelum `brew uninstall openssl@3` — pastikan tidak ada formula penting yang bergantung; atau audit keamanan library shared.
+
+- **`--recursive`**: rantai lengkap — berguna untuk library fundamental seperti `openssl` atau `icu4c`.
+
+---
+
+### `brew leaves` — Formula Top-Level
+
+Menampilkan formula yang Anda instal secara eksplisit — bukan yang terinstal otomatis sebagai dependensi package lain.
+
+```bash
+brew leaves                       # daftar formula "daun" — yang Anda instal sendiri
+```
+
+Kapan dipakai: audit instalasi — "apa saja yang benar-benar saya pasang?" vs kebisingan dependensi otomatis.
+
+- Output `brew leaves` adalah kandidat aman untuk review — formula di sini biasanya yang Anda kenal dan kelola.
+
+---
+
+## Link & Versi
+
+Homebrew bisa menyimpan banyak versi formula paralel di Cellar — perintah link mengontrol versi mana yang aktif di PATH.
+
+### `brew link` & `brew unlink`
+
+Membuat atau menghapus symlink dari Cellar ke prefix Homebrew (`/opt/homebrew/bin`) — mengontrol versi mana yang dieksekusi saat Anda ketik perintah di terminal.
+
+```bash
+brew link node                    # symlink binary node ke PATH
+brew unlink node                  # hapus symlink — perintah 'node' tidak lagi dari Homebrew
+brew link --overwrite python@3.12 # timpa symlink yang bentrok dengan versi lain
+```
+
+Kapan dipakai: konflik versi setelah instal `python@3.12` dan `python@3.11`, atau switch antara `node@20` dan `node@22`.
+
+- **`brew link`**: aktifkan versi di PATH — tanpa link, binary ada di Cellar tapi tidak bisa dipanggil by name.
+- **`brew unlink`**: nonaktifkan sementara tanpa uninstall — berguna untuk tes versi sistem vs Homebrew.
+- **`--overwrite`**: selesaikan konflik symlink — Homebrew tanya interaktif tanpa flag ini.
+
+Berguna saat ada konflik versi atau setelah instal manual.
+
+---
+
+### `brew switch` — Ganti Versi (Legacy)
+
+```bash
+# Perintah ini sudah deprecated di Homebrew modern.
+# Gunakan pola: brew install formula@version lalu brew link --overwrite
+brew install node@20              # instal versi yang diinginkan
+brew link --overwrite node@20     # jadikan node@20 yang aktif di PATH
+```
+
+Kapan dipakai: migrasi dari dokumentasi lama — di Homebrew modern, gunakan `install` + `link --overwrite` sebagai pengganti `switch`.
+
+- **`node@20` format**: versi dipisah dengan `@` — banyak formula populer punya varian versi (postgresql, python, node).
+
+---
+
+## Brewfile — Manajemen Package Deklaratif
+
+`brew bundle` mengelola daftar package lewat file `Brewfile` — ideal untuk setup mesin baru, onboarding tim, atau dokumentasi environment development yang reproducible.
+
+### Buat Brewfile dari mesin saat ini
+
+Mengekspor semua tap, formula, dan cask terinstal ke file `Brewfile` — snapshot environment Anda saat ini.
+
+```bash
+brew bundle dump                  # buat Brewfile di direktori saat ini
+brew bundle dump --force          # timpa Brewfile yang sudah ada
+brew bundle dump --describe       # tambahkan komentar deskripsi tiap package
+brew bundle dump --file=~/Brewfile   # simpan ke path custom
+```
+
+Kapan dipakai: setelah setup mesin selesai — commit `Brewfile` ke dotfiles repo agar mesin baru bisa direplikasi dengan satu perintah.
+
+- **`--force`**: overwrite tanpa konfirmasi — hati-hati jika Brewfile sudah diedit manual.
+- **`--describe`**: komentar otomatis di Brewfile — memudahkan tim paham fungsi tiap package.
+
+Contoh `Brewfile`:
+
+```ruby
+tap "homebrew/cask-fonts"         # tap untuk font
+
+brew "git"                        # version control
+brew "node"                       # JavaScript runtime
+brew "jq"                         # JSON processor di CLI
+brew "postgresql@16"              # database lokal
+
+cask "visual-studio-code"         # editor
+cask "iterm2"                     # terminal
+cask "firefox"                    # browser
+
+mas "Xcode"                       # Mac App Store (butuh mas-cli terinstal)
+```
+
+- **`brew`**: formula CLI; **`cask`**: aplikasi GUI; **`mas`**: Mac App Store — butuh `mas-cli` (`brew install mas`).
+- **`tap`**: deklarasikan tap di awal file sebelum package dari tap tersebut.
+
+---
+
+### Instal dari Brewfile
+
+Menginstal semua package yang didefinisikan di Brewfile — seperti `bun install` untuk environment Mac.
+
+```bash
+brew bundle install               # instal semua isi Brewfile di direktori saat ini
+brew bundle install --file=~/Brewfile   # instal dari path custom
+brew bundle check                 # cek apakah semua package di Brewfile sudah terinstal
+brew bundle list                  # tampilkan isi Brewfile tanpa instal
+brew bundle cleanup               # uninstall package yang TIDAK ada di Brewfile
+brew bundle cleanup --force       # cleanup tanpa konfirmasi
+```
+
+Kapan dipakai: mesin baru, reinstall macOS, atau sinkronkan laptop dengan konfigurasi tim.
+
+- **`brew bundle check`**: exit code non-zero jika ada yang belum terinstal — cocok untuk script verifikasi environment.
+- **`brew bundle cleanup`**: bersihkan drift — hapus package terinstal manual yang tidak ada di Brewfile (hati-hati!).
+
+---
+
+## Diagnostik & Pemeliharaan
+
+Perintah ini menjaga instalasi Homebrew tetap sehat — jalankan secara berkala, terutama setelah update macOS atau migrasi mesin.
+
+### `brew doctor` — Cek Kesehatan Instalasi
+
+Memindai masalah umum: permission salah, PATH tidak lengkap, konflik dengan tools sistem, atau konfigurasi deprecated.
+
+```bash
+brew doctor                       # diagnosa standar
+brew doctor --verbose             # output lebih detail untuk setiap pemeriksaan
+```
+
+Kapan dipakai: setelah update macOS, error aneh saat install, atau rutinitas bulanan pemeliharaan.
+
+- **`brew doctor`**: titik awal troubleshooting — banyak masalah PATH/permission terdeteksi di sini.
+- **`--verbose`**: penjelasan per-check — berguna jika output standar tidak cukup jelas.
+
+Menampilkan peringatan soal permission, PATH, atau konfigurasi yang bermasalah. Jalankan secara berkala.
+
+---
+
+### `brew config` — Lihat Konfigurasi
+
+Menampilkan ringkasan environment Homebrew: prefix, Cellar, cache, user, CPU, macOS version, dan env vars aktif.
+
+```bash
+brew config                       # snapshot konfigurasi lengkap
+```
+
+Kapan dipakai: lapor bug ke Homebrew, debug path issue, atau verifikasi instalasi Apple Silicon vs Intel.
+
+Menampilkan prefix, Cellar, cache, user, dan environment variables.
+
+---
+
+### `brew shellenv` — Setup PATH di Shell
+
+Mencetak perintah shell untuk menambahkan Homebrew ke PATH — wajib di mesin baru agar `brew` dan binary terinstal bisa diakses.
+
+```bash
+brew shellenv
+# Tambahkan ke ~/.zshrc:
+# eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+Kapan dipakai: instalasi Homebrew baru, shell tidak mengenali `brew`, atau setelah migrasi dari Intel ke Apple Silicon.
+
+- **`eval "$(/opt/homebrew/bin/brew shellenv)"`**: set `PATH`, `MANPATH`, dan `INFOPATH` — tanpa ini, binary Homebrew tidak ketemu.
+- Path `/opt/homebrew` untuk Apple Silicon; `/usr/local` untuk Intel — `brew shellenv` otomatis resolve yang benar.
+
+Pastikan baris ini ada di `~/.zshrc` agar perintah `brew` dan binary terinstal bisa diakses.
+
+---
+
+## Perintah Lanjutan
+
+Perintah untuk kontributor, debugging mendalam, atau workflow khusus — jarang dipakai sehari-hari tapi berguna saat dibutuhkan.
+
+### `brew fetch` — Unduh Source/Bottle Tanpa Instal
+
+Mengunduh archive source atau bottle ke cache tanpa menjalankan instalasi — persiapan offline atau inspeksi.
+
+```bash
+brew fetch node                   # unduh bottle/source node ke cache
+brew fetch --force wget           # unduh ulang meski sudah ada di cache
+```
+
+Kapan dipakai: persiapan instalasi offline, mirror internal, atau debug download issue.
+
+- **`--force`**: abaikan cache existing — unduh fresh dari upstream.
+
+---
+
+### `brew edit` — Edit Formula Lokal
+
+Membuka file formula di editor default untuk modifikasi lokal — perubahan hanya berlaku di mesin Anda.
+
+```bash
+brew edit node                    # buka formula node di $EDITOR
+```
+
+Kapan dipakai: patch sementara formula yang buggy, eksperimen opsi compile, atau belajar struktur formula sebelum kontribusi ke Homebrew.
+
+- Perubahan lokal **tidak** di-commit ke upstream — untuk kontribusi resmi, fork dan pull request ke homebrew-core.
+
+---
+
+### `brew sh` — Shell dengan Environment Homebrew
+
+Membuka subshell dengan environment variables Homebrew sudah diset — isolasi untuk debug build.
+
+```bash
+brew sh                           # masuk ke subshell dengan env Homebrew
+brew sh -c "echo $HOMEBREW_PREFIX"   # jalankan satu perintah dalam env Homebrew
+```
+
+Kapan dipakai: debug formula build, tes script yang bergantung pada `HOMEBREW_PREFIX`, atau reproduksi environment compile.
+
+---
+
+### `brew create` — Buat Formula Baru
+
+Membuat skeleton formula baru dari URL archive — titik awal kontribusi package ke tap custom.
+
+```bash
+brew create https://example.com/archive-1.0.tar.gz --tap user/tap
+```
+
+Kapan dipakai: package belum ada di Homebrew dan Anda ingin menambahkannya ke tap pribadi atau organisasi.
+
+- **`--tap user/tap`**: target tap custom — formula tidak langsung masuk homebrew-core.
+
+---
+
+### `brew analytics` — Telemetry
+
+Mengelola pengiriman data anonim penggunaan ke Homebrew — untuk privasi atau kebijakan perusahaan.
+
+```bash
+brew analytics                    # cek status analytics (on/off)
+brew analytics off                # nonaktifkan pengiriman data
+brew analytics on                 # aktifkan kembali
+```
+
+Kapan dipakai: kebijakan privasi perusahaan, atau preferensi pribadi tidak ingin telemetry.
+
+- Data bersifat anonim dan membantu tim Homebrew prioritas package — tidak ada informasi pribadi.
+
+---
+
+## Environment Variables Penting
+
+Variabel ini mengontrol perilaku Homebrew secara global — set di `~/.zshrc` atau `~/.zprofile` untuk persist.
+
+| Variabel | Fungsi |
+| --- | --- |
+| `HOMEBREW_PREFIX` | Path instalasi Homebrew (`/opt/homebrew` atau `/usr/local`) |
+| `HOMEBREW_CELLAR` | Lokasi Cellar — penyimpanan semua keg |
+| `HOMEBREW_CACHE` | Folder cache unduhan bottle dan source |
+| `HOMEBREW_NO_AUTO_UPDATE` | Nonaktifkan auto-update saat `brew install` |
+| `HOMEBREW_NO_INSTALL_CLEANUP` | Nonaktifkan cleanup otomatis setelah instal |
+| `HOMEBREW_CASK_OPTS` | Opsi default untuk semua perintah cask |
+
+Contoh di `~/.zshrc`:
+
+```bash
+export HOMEBREW_NO_AUTO_UPDATE=1              # jangan auto-update saat brew install (lebih cepat)
+export HOMEBREW_CASK_OPTS="--appdir=/Applications"   # default folder aplikasi cask
+```
+
+- **`HOMEBREW_NO_AUTO_UPDATE=1`**: populer di developer yang ingin kontrol manual kapan `brew update` jalan.
+- **`HOMEBREW_CASK_OPTS`**: hindari ketik `--appdir` berulang di setiap `brew install --cask`.
+
+---
+
+## Troubleshooting Umum
+
+Solusi cepat untuk masalah yang paling sering dialami developer macOS dengan Homebrew.
+
+### Command not found setelah instal
+
+Binary terinstal tapi shell tidak menemukannya — biasanya masalah link atau PATH.
+
+```bash
+brew link --overwrite node        # pastikan symlink aktif
+echo $PATH                        # cek apakah /opt/homebrew/bin ada di PATH
+eval "$(/opt/homebrew/bin/brew shellenv)"   # load env Homebrew di sesi saat ini
+```
+
+- **`brew link --overwrite`**: sering menyelesaikan "command not found" setelah instal versi baru.
+- **`echo $PATH`**: `/opt/homebrew/bin` harus ada di awal PATH di Apple Silicon.
+
+---
+
+### Permission denied
+
+Homebrew seharusnya tidak butuh `sudo` untuk operasi normal — error permission biasanya karena ownership folder salah.
+
+```bash
+sudo chown -R $(whoami) /opt/homebrew/*   # perbaiki ownership (Apple Silicon)
+brew doctor                       # verifikasi tidak ada masalah lain
+```
+
+- Jangan jalankan `brew` dengan `sudo` — bisa merusak permission dan ownership file.
+
+---
+
+### Konflik versi Python/Node
+
+Banyak versi terinstal paralel — shell mungkin resolve ke versi yang salah.
+
+```bash
+brew info python@3.12             # cek versi dan path python@3.12
+brew unlink python@3.11           # nonaktifkan versi lama dari PATH
+brew link python@3.12             # aktifkan versi yang diinginkan
+which python3                     # verifikasi binary yang dipakai shell
+```
+
+- **`brew info`**: tunjukkan semua versi terinstal dan cara link yang disarankan.
+- **`which` vs `brew which`**: bandingkan keduanya untuk deteksi override PATH.
+
+---
+
+### Instalasi gagal — coba ulang dengan log verbose
+
+Error compile atau download sering butuh log lengkap untuk diagnosa.
+
+```bash
+brew install -v node              # verbose log
+brew install --debug node         # debug mode — lebih detail lagi, interaktif
+```
+
+- **`--debug`**: masuk ke shell debug Homebrew — untuk kasus kompleks; tekan Enter untuk lanjut tiap step.
+
+---
+
+### Reset cache
+
+Cache corrupt atau disk penuh — bersihkan dan coba instal ulang.
+
+```bash
+brew cleanup -s                   # hapus semua cache unduhan
+rm -rf "$(brew --cache)"          # hapus folder cache secara manual (langkah agresif)
+```
+
+- Setelah reset cache, instal ulang berikutnya akan download ulang dari upstream.
+
+---
+
+### Apple Silicon vs Intel
+
+Lokasi default Homebrew berbeda per arsitektur — penting untuk script dan dokumentasi tim.
+
+| Arsitektur | Prefix default |
+| --- | --- |
+| Apple Silicon (M1/M2/M3/M4) | `/opt/homebrew` |
+| Intel | `/usr/local` |
+
+- Jangan hardcode path di script tim — gunakan `$(brew --prefix)` agar portable.
+
+---
+
+## Workflow Harian Developer
+
+### Setup mesin baru
+
+Urutan langkah dari nol hingga environment development siap — bisa diotomasi dengan Brewfile di akhir.
+
+```bash
+# 1. Instal Homebrew (dari brew.sh)
+# 2. Setup PATH
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
+source ~/.zshrc
+
+# 3. Instal tools dasar CLI
+brew install git node jq wget
+
+# 4. Instal aplikasi GUI
+brew install --cask visual-studio-code iterm2 firefox
+
+# 5. (Opsional) Simpan ke Brewfile untuk replikasi
+brew bundle dump --describe
+```
+
+---
+
+### Rutinitas mingguan
+
+Pemeliharaan berkala menjaga package up-to-date dan disk tetap bersih.
+
+```bash
+brew update                       # refresh definisi formula/cask
+brew outdated                     # review apa yang akan di-upgrade
+brew upgrade                      # upgrade package outdated
+brew cleanup                      # bebaskan ruang disk
+brew doctor                       # cek kesehatan instalasi
+brew autoremove                   # hapus dependensi yatim
+```
+
+---
+
+### Cek apa yang memakan disk
+
+Homebrew bisa mengumpulkan banyak versi lama dan cache — audit rutin mencegah disk penuh mendadak.
+
+```bash
+brew list --versions              # lihat semua versi terinstal
+du -sh "$(brew --cellar)"         # ukuran total Cellar
+du -sh "$(brew --cache)"          # ukuran cache unduhan
+brew cleanup -n                   # preview berapa yang bisa dibersihkan
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc` untuk mempercepat ketikan perintah yang sering dipakai:
+
+```bash
+alias bi='brew install'                       # instal formula
+alias bic='brew install --cask'               # instal aplikasi GUI
+alias bu='brew update && brew upgrade'         # update + upgrade sekaligus
+alias bup='brew update && brew upgrade && brew cleanup'   # full maintenance
+alias bl='brew list'                          # daftar terinstal
+alias bs='brew search'                        # cari package
+alias bo='brew outdated'                      # cek yang usang
+alias bd='brew doctor'                        # diagnosa kesehatan
+alias bc='brew cleanup'                       # bersihkan cache
+alias bci='brew info'                         # info package
+alias bsr='brew services restart'             # restart service daemon
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Instal** | `install`, `install --cask`, `reinstall` |
+| **Cari & info** | `search`, `info`, `list`, `which`, `--prefix` |
+| **Update** | `update`, `outdated`, `upgrade`, `pin`/`unpin` |
+| **Hapus** | `uninstall`, `autoremove`, `cleanup` |
+| **Tap** | `tap`, `untap` |
+| **Service** | `services start/stop/restart/list` |
+| **Dependensi** | `deps`, `uses`, `leaves` |
+| **Brewfile** | `bundle dump`, `bundle install`, `bundle check` |
+| **Diagnostik** | `doctor`, `config`, `shellenv` |
+
+---
+
+## Penutup
+
+Empat perintah yang paling sering dipakai sehari-hari: **`brew install`**, **`brew update`**, **`brew upgrade`**, dan **`brew search`**. Dengan keempatnya, Anda sudah bisa mengelola hampir semua kebutuhan development di Mac.
+
+Langkah berikutnya: kenali **`brew bundle`** untuk dokumentasi environment yang reproducible, **`brew services`** untuk database dan daemon lokal, dan **`brew doctor`** untuk menjaga instalasi tetap sehat. Homebrew dirancang konsisten — saat ragu, jalankan `brew help` atau `brew <command> --help` sebagai referensi terbaru.

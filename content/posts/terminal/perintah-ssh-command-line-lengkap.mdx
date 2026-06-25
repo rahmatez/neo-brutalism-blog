@@ -1,0 +1,1338 @@
+---
+title: "Perintah SSH Command Line Lengkap"
+description: "Panduan lengkap perintah CLI SSH: koneksi remote, ssh-keygen, ssh-copy-id, config, ssh-agent, scp, sftp, rsync, port forwarding, tunnel, troubleshooting, dan keamanan."
+date: "2025-06-24"
+category: terminal
+tags: ["ssh", "cli", "devops", "server", "tutorial"]
+featured: true
+---
+
+**SSH (Secure Shell)** adalah protokol standar untuk mengakses server remote secara aman lewat terminal. Dengan perintah `ssh` dan turunannya (`scp`, `sftp`, `rsync`), Anda bisa login ke VPS, deploy aplikasi, transfer file, dan membuat tunnel jaringan — semuanya terenkripsi.
+
+<Callout type="tip">
+SSH sudah terpasang di Mac secara default. Cek dengan `ssh -V`. Jika perlu versi terbaru: `brew install openssh`. Di server Linux biasanya paket `openssh-server` (Ubuntu/Debian: `sudo apt install openssh-server`).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami komponen inti SSH — istilah ini muncul terus di dokumentasi, log, dan troubleshooting:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Client** | Program di mesin lokal (`ssh`, `scp`, `sftp`) yang memulai koneksi |
+| **Server (sshd)** | Daemon di mesin remote yang menerima koneksi masuk (port 22 default) |
+| **Host key** | Kunci publik server — identitas mesin remote, dicek saat pertama kali connect |
+| **Key pair** | Pasangan kunci privat + publik untuk autentikasi tanpa password |
+| **Known hosts** | File `~/.ssh/known_hosts` — daftar fingerprint host yang pernah Anda hubungi |
+| **Authorized keys** | File `~/.ssh/authorized_keys` di server — daftar kunci publik yang boleh login |
+| **Agent** | `ssh-agent` — proses yang menyimpan kunci privat di memori agar tidak ketik passphrase berulang |
+| **Config** | File `~/.ssh/config` — alias host, port, user, dan opsi default per host |
+| **Tunnel** | Koneksi SSH yang meneruskan traffic port lain lewat saluran terenkripsi |
+
+### Arsitektur koneksi SSH
+
+```
+[Laptop Mac]  ──ssh (port 22)──►  [Server VPS]
+     │                                  │
+  ~/.ssh/id_ed25519              ~/.ssh/authorized_keys
+  ~/.ssh/config                  /etc/ssh/sshd_config
+  ssh-agent (Keychain)           sshd daemon
+```
+
+### Perintah informasi dasar
+
+```bash
+ssh -V                    # versi OpenSSH client
+ssh -Q cipher             # daftar cipher yang didukung
+ssh -Q kex                # daftar key exchange
+ssh -Q key                # daftar tipe key
+man ssh                   # manual lengkap
+man ssh_config            # dokumentasi file config
+man sshd_config           # dokumentasi server (di server)
+```
+
+- **`ssh -V`**: langkah pertama saat troubleshooting — pastikan client tidak terlalu usang.
+- **`ssh -Q`**: cek algoritma yang didukung — berguna saat server menolak cipher tertentu.
+- **`man ssh_config`**: referensi lengkap semua opsi di `~/.ssh/config`.
+
+---
+
+## Koneksi SSH Dasar
+
+### `ssh` — Login ke Server Remote
+
+Perintah `ssh` membuka sesi shell interaktif di mesin remote — fondasi semua operasi SSH lainnya.
+
+Kapan dipakai: pertama kali akses VPS baru, maintenance server, deploy manual, atau debug production.
+
+```bash
+ssh user@192.168.1.100
+ssh user@example.com
+ssh -p 2222 user@example.com          # port custom (bukan 22)
+ssh -l user example.com               # set user dengan flag -l
+ssh user@example.com 'ls -la'         # jalankan satu perintah, lalu keluar
+ssh -t user@example.com 'sudo reboot' # alokasikan pseudo-TTY (-t)
+```
+
+- **`user@host`**: format standar — `user` adalah akun di server, `host` bisa IP atau domain.
+- **`-p 2222`**: connect ke port selain 22 — umum di server yang mengubah port default demi keamanan.
+- **`'ls -la'`**: eksekusi remote command tanpa masuk shell interaktif — cocok untuk script.
+- **`-t`**: paksa alokasi TTY — diperlukan untuk `sudo`, `vim`, atau program interaktif lewat remote command.
+
+Contoh sesi pertama kali connect:
+
+```bash
+$ ssh deploy@staging.example.com
+The authenticity of host 'staging.example.com (203.0.113.10)' can't be established.
+ED25519 key fingerprint is SHA256:abc123...
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'staging.example.com' (ED25519) to the list of known hosts.
+deploy@staging.example.com's password:
+```
+
+- **Host key prompt**: normal saat pertama kali — verifikasi fingerprint dengan admin/server provider sebelum ketik `yes`.
+- **Password prompt**: muncul jika belum setup key-based auth — langkah berikutnya: `ssh-keygen` + `ssh-copy-id`.
+
+---
+
+### Opsi koneksi yang sering dipakai
+
+```bash
+ssh -v user@host                      # verbose level 1 (debug)
+ssh -vvv user@host                    # verbose level 3 (sangat detail)
+ssh -o ConnectTimeout=10 user@host    # timeout 10 detik
+ssh -o ServerAliveInterval=60 user@host   # kirim keepalive tiap 60 detik
+ssh -o StrictHostKeyChecking=accept-new user@host  # auto-add host key baru
+ssh -4 user@host                      # paksa IPv4
+ssh -6 user@host                      # paksa IPv6
+ssh -C user@host                      # kompresi (berguna di koneksi lambat)
+ssh -N user@host                      # tidak buka shell (untuk tunnel saja)
+ssh -f user@host                      # background setelah auth
+```
+
+- **`-v` / `-vvv`**: debug koneksi — lihat proses negosiasi cipher, auth method, dan error detail.
+- **`ConnectTimeout`**: gagal cepat jika server tidak merespons — hindari hang lama.
+- **`ServerAliveInterval`**: cegah koneksi putus karena firewall/NAT idle timeout — penting untuk sesi panjang.
+- **`StrictHostKeyChecking=accept-new`**: tambahkan host baru ke known_hosts, tapi tetap tolak jika key berubah.
+- **`-N` + `-f`**: kombinasi standar untuk port forwarding di background.
+
+<Callout type="info">
+Di Mac, tambahkan `ServerAliveInterval 60` di `~/.ssh/config` global agar koneksi SSH tidak putus saat Anda switch aplikasi atau Mac masuk sleep singkat.
+</Callout>
+
+---
+
+### Keluar dan mengelola sesi
+
+```bash
+exit                                  # keluar dari shell remote
+logout                                # sama dengan exit
+~.                                    # escape sequence: putus koneksi (dari dalam ssh)
+~#                                    # daftar escape sequence
+Ctrl+D                                # EOF — keluar dari shell
+```
+
+- **`exit`**: cara paling umum menutup sesi SSH.
+- **`~.`**: ketik Enter lalu `~.` jika sesi hang — memutus koneksi dari sisi client.
+- **Jangan tutup terminal Mac** tanpa `exit` jika ada proses penting — gunakan `tmux` atau `screen` di server.
+
+---
+
+## Autentikasi dengan Kunci (Key-Based Auth)
+
+Password saja rentan brute-force. Best practice modern: autentikasi dengan key pair — lebih aman dan praktis untuk workflow harian.
+
+### `ssh-keygen` — Buat Key Pair
+
+`ssh-keygen` menghasilkan pasangan kunci privat dan publik untuk autentikasi SSH tanpa password.
+
+Kapan dipakai: setup mesin development baru, rotasi kunci berkala, atau buat kunci terpisah per layanan (GitHub, staging, production).
+
+```bash
+ssh-keygen -t ed25519 -C "rahmat@macbook-pro"
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_github -C "github"
+ssh-keygen -t rsa -b 4096 -C "legacy-server"    # jika server lama tidak support ed25519
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_deploy  # tanpa passphrase (untuk CI/automation)
+```
+
+- **`-t ed25519`**: algoritma modern — lebih cepat dan aman daripada RSA; pilihan default 2024+.
+- **`-C "comment"`**: label di akhir file publik — membantu identifikasi kunci di `authorized_keys`.
+- **`-f path`**: lokasi custom — berguna untuk multiple keys (satu per server/layanan).
+- **`-N ""`**: passphrase kosong — hanya untuk automation/CI; jangan pakai di laptop pribadi.
+
+Proses interaktif standar:
+
+```bash
+$ ssh-keygen -t ed25519 -C "rahmat@macbook-pro"
+Generating public/private ed25519 key pair.
+Enter file in which to save the key (/Users/rahmat/.ssh/id_ed25519):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /Users/rahmat/.ssh/id_ed25519
+Your public key has been saved in /Users/rahmat/.ssh/id_ed25519.pub
+```
+
+File yang dihasilkan:
+
+| File | Izin | Fungsi |
+| --- | --- | --- |
+| `id_ed25519` | `600` | Kunci **privat** — jangan pernah dibagikan atau di-commit |
+| `id_ed25519.pub` | `644` | Kunci **publik** — dikopi ke server atau layanan (GitHub, GitLab) |
+
+```bash
+# Set permission yang benar (jika perlu)
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+```
+
+- **`chmod 700 ~/.ssh`**: SSH menolak koneksi jika folder `.ssh` permission-nya terlalu terbuka.
+- **Kunci privat `600`**: hanya owner yang boleh baca/tulis — wajib.
+
+---
+
+### `ssh-copy-id` — Salin Kunci Publik ke Server
+
+`ssh-copy-id` menginstal kunci publik Anda ke `~/.ssh/authorized_keys` di server remote — mengaktifkan login tanpa password.
+
+Kapan dipakai: setup pertama kali akses server, onboarding mesin baru, atau setelah `ssh-keygen`.
+
+```bash
+ssh-copy-id user@example.com
+ssh-copy-id -i ~/.ssh/id_ed25519.pub user@example.com
+ssh-copy-id -p 2222 user@example.com
+ssh-copy-id -i ~/.ssh/id_ed25519_github.pub git@github.com
+```
+
+- **Tanpa `-i`**: default memakai `~/.ssh/id_ed25519.pub` atau `~/.ssh/id_rsa.pub`.
+- **`-i`**: tentukan file publik spesifik — wajib jika punya multiple keys.
+- **`-p`**: port custom — sama seperti `ssh -p`.
+
+Alternatif manual (jika `ssh-copy-id` tidak tersedia):
+
+```bash
+cat ~/.ssh/id_ed25519.pub | ssh user@host 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
+```
+
+- **`mkdir -p ~/.ssh`**: buat folder jika belum ada.
+- **`chmod 600 authorized_keys`**: permission wajib — sshd menolak jika terlalu permisif.
+
+<Callout type="warning">
+Jangan pernah copy kunci **privat** (`id_ed25519`) ke server. Hanya file `.pub` yang dikirim ke `authorized_keys`.
+</Callout>
+
+---
+
+### Login dengan kunci spesifik
+
+```bash
+ssh -i ~/.ssh/id_ed25519_github git@github.com
+ssh -i ~/.ssh/id_deploy deploy@production.example.com
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_staging deploy@staging.example.com
+```
+
+- **`-i`**: pakai kunci privat tertentu — override default.
+- **`IdentitiesOnly=yes`**: hanya kirim kunci yang ditentukan — mencegah SSH mencoba semua kunci di agent (sering bikin GitHub rate-limit).
+
+---
+
+## `~/.ssh/config` — Konfigurasi Host
+
+File config menyimpan alias, user default, port, key file, dan opsi per host — menghilangkan kebutuhan mengetik parameter panjang setiap kali.
+
+Kapan dipakai: akses rutin ke banyak server, tim dengan environment berbeda (staging/production), atau integrasi Git + server deploy.
+
+```bash
+# Buat/edit config
+nano ~/.ssh/config
+chmod 600 ~/.ssh/config
+```
+
+Contoh config lengkap:
+
+```ssh-config
+# Default untuk semua host
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentitiesOnly yes
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# Server staging
+Host staging
+  HostName staging.example.com
+  User deploy
+  Port 22
+  IdentityFile ~/.ssh/id_ed25519
+
+# Server production
+Host prod
+  HostName 203.0.113.50
+  User deploy
+  Port 2222
+  IdentityFile ~/.ssh/id_ed25519_prod
+
+# GitHub
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_github
+
+# Jump host (bastion) — lihat ProxyJump di bawah
+Host bastion
+  HostName bastion.example.com
+  User admin
+  IdentityFile ~/.ssh/id_ed25519
+
+Host internal-db
+  HostName 10.0.1.50
+  User dbadmin
+  ProxyJump bastion
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+Setelah config, connect cukup dengan alias:
+
+```bash
+ssh staging
+ssh prod
+ssh internal-db          # otomatis lewat bastion
+git clone git@github.com:user/repo.git
+```
+
+Penjelasan opsi penting:
+
+| Opsi | Fungsi |
+| --- | --- |
+| **`Host`** | Alias lokal — bisa wildcard (`Host *.example.com`) |
+| **`HostName`** | Alamat IP atau domain sebenarnya |
+| **`User`** | Username default untuk host ini |
+| **`Port`** | Port SSH (default 22) |
+| **`IdentityFile`** | Path ke kunci privat |
+| **`ProxyJump`** | Connect lewat jump host/bastion |
+| **`AddKeysToAgent yes`** | Tambahkan key ke agent saat dipakai |
+| **`UseKeychain yes`** | Simpan passphrase di macOS Keychain |
+| **`IdentitiesOnly yes`** | Hanya kirim key yang ditentukan |
+| **`LocalForward`** | Port forwarding lokal (bisa di config) |
+| **`RemoteForward`** | Port forwarding remote (bisa di config) |
+| **`DynamicForward`** | SOCKS proxy (bisa di config) |
+
+---
+
+### `ProxyJump` — Akses Server di Jaringan Internal
+
+Banyak infrastruktur production tidak expose SSH langsung ke internet — Anda harus lewat bastion/jump host.
+
+Kapan dipakai: akses database di VPC private, server internal perusahaan, atau arsitektur zero-trust.
+
+```bash
+# One-liner tanpa config
+ssh -J admin@bastion.example.com deploy@10.0.1.100
+
+# Multiple jump
+ssh -J admin@bastion,deploy@intermediate deploy@10.0.1.100
+```
+
+Di `~/.ssh/config`:
+
+```ssh-config
+Host app-internal
+  HostName 10.0.1.100
+  User deploy
+  ProxyJump bastion
+```
+
+- **`ProxyJump`**: SSH connect ke bastion dulu, lalu forward ke target — transparan untuk user.
+- **`-J`**: equivalent command-line — berguna untuk one-off tanpa edit config.
+
+---
+
+### `Match` — Opsi Kondisional
+
+```ssh-config
+# Gunakan kunci berbeda untuk host perusahaan
+Match host *.corp.example.com
+  IdentityFile ~/.ssh/id_ed25519_corp
+  User corp-admin
+
+# Di jaringan kantor (lebih permisif timeout)
+Match exec "scutil --nc list | grep 'Connected' | grep 'CorpVPN'"
+  ConnectTimeout 5
+```
+
+- **`Match`**: terapkan blok opsi hanya jika kondisi terpenuhi — host pattern, user, atau exec command.
+- **`Match exec`**: jalankan shell command — jika exit 0, blok Match aktif.
+
+<Callout type="tip">
+Di Mac, `UseKeychain yes` + `AddKeysToAgent yes` di blok `Host *` membuat passphrase key disimpan di Keychain — Anda tidak perlu `ssh-add` setiap reboot.
+</Callout>
+
+---
+
+## `ssh-agent` — Kelola Kunci di Memori
+
+`ssh-agent` adalah proses background yang menyimpan kunci privat terdekripsi di memori — Anda cukup memasukkan passphrase sekali per sesi.
+
+Kapan dipakai: punya key dengan passphrase, multiple keys untuk server berbeda, atau workflow Git + server yang sama.
+
+```bash
+# Cek agent berjalan
+echo $SSH_AUTH_SOCK
+ssh-add -l                           # daftar key di agent
+
+# Tambahkan key
+ssh-add ~/.ssh/id_ed25519
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519   # Mac: simpan di Keychain
+ssh-add ~/.ssh/id_ed25519_github
+
+# Hapus key dari agent
+ssh-add -d ~/.ssh/id_ed25519         # hapus satu key
+ssh-add -D                           # hapus semua key
+
+# Start agent manual (jarang perlu di Mac)
+eval "$(ssh-agent -s)"
+```
+
+- **`ssh-add -l`**: tampilkan fingerprint key yang loaded — debug "permission denied" karena wrong key.
+- **`--apple-use-keychain`**: flag khusus macOS — passphrase disimpan di Keychain, auto-load setelah reboot.
+- **`SSH_AUTH_SOCK`**: environment variable yang menunjuk ke socket agent — harus diset agar `ssh` pakai agent.
+
+Setup Keychain permanen di Mac (`~/.ssh/config`):
+
+```ssh-config
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+Load key pertama kali:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
+
+- Setelah ini, passphrase tidak perlu diketik lagi setiap reboot Mac.
+- Untuk key tambahan, ulangi `ssh-add --apple-use-keychain` per file key.
+
+---
+
+### Forwarding agent (`ssh -A`)
+
+```bash
+ssh -A user@jump-host              # forward agent ke jump host
+# Dari jump host, bisa ssh ke server lain pakai key lokal
+ssh user@internal-server
+```
+
+- **`-A`**: forward ssh-agent — key di laptop Anda bisa dipakai dari server remote.
+- **Risiko keamanan**: hanya pakai ke server yang Anda percaya — admin server bisa memakai key Anda selama sesi aktif.
+- **Lebih aman**: `ssh -o ForwardAgent=yes` hanya ke host spesifik di config, bukan global.
+
+<Callout type="warning">
+Jangan set `ForwardAgent yes` di blok `Host *` global. Aktifkan hanya per-host yang benar-benar membutuhkan hop SSH berantai.
+</Callout>
+
+---
+
+## Transfer File dengan `scp`
+
+### `scp` — Salin File via SSH
+
+`scp` (secure copy) mentransfer file dan folder antar mesin lewat saluran SSH terenkripsi — sintaks mirip `cp` lokal.
+
+Kapan dipakai: upload config, download log, deploy artifact kecil, atau backup file tunggal tanpa perlu sinkronisasi incremental.
+
+```bash
+# Upload: lokal → remote
+scp file.txt user@host:/remote/path/
+scp -r ./dist/ user@host:/var/www/app/
+
+# Download: remote → lokal
+scp user@host:/var/log/app.log ./logs/
+scp -r user@host:/etc/nginx/ ./nginx-backup/
+
+# Dengan port dan key custom
+scp -P 2222 -i ~/.ssh/id_ed25519 file.txt user@host:~/
+
+# Antar dua remote host (via mesin lokal)
+scp user@host1:/path/file user@host2:/path/
+```
+
+- **`-r`**: rekursif — wajib untuk folder.
+- **`-P 2222`**: port SSH (huruf besar P — beda dengan `ssh -p`).
+- **`-i`**: kunci privat spesifik.
+- **`user@host:path`**: format remote path — titik dua setelah host wajib.
+
+Opsi tambahan:
+
+```bash
+scp -C file.txt user@host:~/                  # kompresi saat transfer
+scp -p file.txt user@host:~/                   # preserve timestamp
+scp -l 1000 large.iso user@host:~/             # limit bandwidth (Kbit/s)
+scp -3 user@host1:file user@host2:file        # route langsung host1→host2
+```
+
+- **`-C`**: kompresi — berguna di koneksi lambat atau file teks besar.
+- **`-p`**: pertahankan modification time — seperti `cp -p`.
+- **`-l 1000`**: throttle bandwidth — jangan saturasi jaringan kantor.
+- **`-3`**: transfer antar dua remote lewat mesin lokal sebagai relay.
+
+Dengan alias config:
+
+```bash
+scp deploy.zip staging:~/releases/
+scp prod:/var/log/nginx/error.log ./debug/
+```
+
+---
+
+## Transfer File dengan `sftp`
+
+### `sftp` — Protokol File Transfer Interaktif
+
+`sftp` menyediakan sesi interaktif untuk browse, upload, download, dan kelola file di server — lebih fleksibel daripada `scp` untuk operasi multi-file.
+
+Kapan dipakai: explore direktori remote, upload/download banyak file dengan kontrol, atau workflow yang mirip FTP tapi aman.
+
+```bash
+sftp user@host
+sftp -P 2222 -i ~/.ssh/id_ed25519 user@host
+sftp staging                              # pakai alias dari ~/.ssh/config
+```
+
+Perintah di dalam sesi `sftp`:
+
+```bash
+sftp> ls                                  # list file remote
+sftp> lls                                 # list file lokal
+sftp> cd /var/www                         # ganti direktori remote
+sftp> lcd ~/Downloads                     # ganti direktori lokal
+sftp> pwd                                 # direktori remote saat ini
+sftp> lpwd                                # direktori lokal saat ini
+sftp> get remote-file.txt                 # download
+sftp> get -r remote-folder/             # download folder rekursif
+sftp> put local-file.txt                  # upload
+sftp> put -r ./assets/                    # upload folder rekursif
+sftp> mget *.log                          # download multiple (glob)
+sftp> mput *.json                         # upload multiple
+sftp> mkdir new-folder
+sftp> rm old-file.txt
+sftp> rename old.txt new.txt
+sftp> chmod 644 file.txt
+sftp> exit
+```
+
+- **`get` / `put`**: transfer satu file — analog download/upload.
+- **`mget` / `mput`**: multiple file dengan glob pattern.
+- **`lls` / `lcd` / `lpwd`**: operasi sisi lokal — prefix `l` = local.
+
+Batch mode (non-interaktif):
+
+```bash
+sftp -b commands.txt user@host
+
+# commands.txt:
+# cd /var/www
+# put index.html
+# put -r assets/
+# bye
+```
+
+- **`-b`**: jalankan perintah dari file — cocok untuk script automation.
+- **`bye` / `exit`**: tutup sesi di batch file.
+
+---
+
+## Sinkronisasi dengan `rsync` over SSH
+
+### `rsync` — Transfer Incremental via SSH
+
+`rsync` hanya mengirim bagian file yang berubah — jauh lebih efisien daripada `scp` untuk deploy berulang, backup, atau mirror direktori besar.
+
+Kapan dipakai: deploy aplikasi ke server, backup harian, sinkronisasi folder development, atau migrasi data besar.
+
+```bash
+# Upload folder ke server
+rsync -avz ./dist/ user@host:/var/www/app/
+
+# Download dari server
+rsync -avz user@host:/var/log/nginx/ ./logs/
+
+# Dengan port dan key SSH
+rsync -avz -e "ssh -p 2222 -i ~/.ssh/id_ed25519" ./app/ user@host:/opt/app/
+
+# Dry run — lihat apa yang akan ditransfer tanpa eksekusi
+rsync -avzn ./dist/ user@host:/var/www/app/
+
+# Hapus file di destinasi yang tidak ada di sumber
+rsync -avz --delete ./dist/ user@host:/var/www/app/
+
+# Exclude file/folder
+rsync -avz --exclude 'node_modules' --exclude '.git' ./ project/ user@host:~/app/
+```
+
+Penjelasan flag utama:
+
+| Flag | Arti |
+| --- | --- |
+| **`-a`** | Archive — preserve permission, timestamp, symlink, rekursif |
+| **`-v`** | Verbose — tampilkan file yang ditransfer |
+| **`-z`** | Kompresi saat transfer |
+| **`-n`** | Dry run — simulasi tanpa menulis |
+| **`--delete`** | Hapus file di destinasi yang tidak ada di sumber |
+| **`--exclude`** | Skip file/pattern tertentu |
+| **`-e "ssh ..."`** | Tentukan transport SSH custom (port, key) |
+| **`--progress`** | Tampilkan progress per file |
+| **`--bwlimit=1000`** | Limit bandwidth (KB/s) |
+
+<Callout type="info">
+Trailing slash penting: `rsync -avz ./dist/ host:/path/` menyinkronkan **isi** folder dist. Tanpa slash (`./dist`), rsync membuat subfolder `dist` di destinasi.
+</Callout>
+
+Contoh deploy production:
+
+```bash
+rsync -avz --delete \
+  --exclude '.env' \
+  --exclude 'node_modules' \
+  -e "ssh -i ~/.ssh/id_ed25519_prod" \
+  ./build/ prod:/var/www/myapp/
+```
+
+- **`--delete`**: pastikan server mirror persis isi `build/` — hapus file lama yang sudah tidak ada.
+- **`--exclude '.env'`**: jangan timpa config environment di server.
+- **`-e "ssh -i ..."`**: pakai key production terpisah.
+
+Dengan alias config:
+
+```bash
+rsync -avz --delete ./build/ staging:/var/www/app/
+rsync -avz prod:/backup/db/ ./local-backup/
+```
+
+---
+
+## Port Forwarding
+
+Port forwarding membuat tunnel SSH yang meneruskan traffic dari port lokal atau remote lewat koneksi terenkripsi — fondasi akses database private, debugging, dan SOCKS proxy.
+
+### `-L` Local Forward — Akses Layanan Remote dari Laptop
+
+Membuka port di mesin lokal yang diteruskan ke port di server remote (atau server di balik remote).
+
+Kapan dipakai: akses database di VPC private, debug service yang hanya listen di localhost server, atau buka panel admin internal.
+
+```bash
+# Format: -L [bind:]local_port:target_host:target_port
+ssh -L 5432:localhost:5432 user@db-server
+ssh -L 8080:10.0.1.50:80 user@bastion
+ssh -L 127.0.0.1:3000:localhost:3000 staging
+
+# Background tunnel
+ssh -f -N -L 5432:localhost:5432 user@db-server
+```
+
+Setelah tunnel aktif, di Mac:
+
+```bash
+psql -h localhost -p 5432 -U myuser mydb
+open http://localhost:8080
+```
+
+- **`-L 5432:localhost:5432`**: traffic ke `localhost:5432` di Mac diteruskan ke port 5432 di server remote.
+- **`10.0.1.50:80`**: target bisa host internal yang hanya reachable dari server remote.
+- **`-f -N`**: background tanpa shell — tunnel berjalan diam di belakang.
+
+Di `~/.ssh/config`:
+
+```ssh-config
+Host db-tunnel
+  HostName db-server.example.com
+  User admin
+  LocalForward 5432 localhost:5432
+  LocalForward 6379 localhost:6379
+```
+
+```bash
+ssh -N db-tunnel    # buka tunnel tanpa shell
+```
+
+---
+
+### `-R` Remote Forward — Expose Lokal ke Internet (via Server)
+
+Membuka port di server remote yang diteruskan ke port di mesin lokal Anda.
+
+Kapan dipakai: demo aplikasi lokal ke klien, webhook development, atau reverse tunnel ke mesin di balik NAT.
+
+```bash
+# Format: -R [bind:]remote_port:local_host:local_port
+ssh -R 8080:localhost:3000 user@public-server
+
+# Dari internet: http://public-server:8080 → localhost:3000 di Mac Anda
+```
+
+- **`-R 8080:localhost:3000`**: port 8080 di server publik meneruskan ke port 3000 di laptop Anda.
+- **Server harus allow**: `GatewayPorts` dan `AllowTcpForwarding` di `sshd_config` — sering disabled default.
+- **Alternatif aman**: pakai layanan seperti ngrok atau Cloudflare Tunnel untuk expose lokal.
+
+```bash
+ssh -f -N -R 0.0.0.0:9000:localhost:3000 user@server
+```
+
+- **`0.0.0.0:9000`**: bind ke semua interface di server — accessible dari luar, bukan hanya localhost server.
+
+<Callout type="warning">
+Remote forward expose service lokal ke jaringan server. Pastikan ada autentikasi di aplikasi dan matikan tunnel (`kill` proses ssh) setelah selesai.
+</Callout>
+
+---
+
+### `-D` Dynamic Forward — SOCKS Proxy
+
+Membuat SOCKS5 proxy lokal — semua traffic aplikasi compatible bisa diarahkan lewat server SSH.
+
+Kapan dipakai: browsing aman di WiFi publik, akses resource hanya available dari IP server, atau bypass geo-restriction (dengan pertimbangan legal/policy).
+
+```bash
+ssh -D 1080 -f -N user@server
+ssh -D 1080 -C user@server              # dengan kompresi
+```
+
+Konfigurasi di macOS:
+
+1. System Settings → Network → Wi-Fi/Ethernet → Details → Proxies
+2. Aktifkan **SOCKS Proxy**: `127.0.0.1`, port `1080`
+
+Atau per-aplikasi (browser, curl):
+
+```bash
+curl --socks5-hostname 127.0.0.1:1080 https://ifconfig.me
+```
+
+- **`-D 1080`**: buka SOCKS proxy di port 1080 lokal.
+- **`--socks5-hostname`**: DNS resolution lewat proxy — penting untuk privasi DNS.
+- **`-f -N`**: background tanpa shell.
+
+Di `~/.ssh/config`:
+
+```ssh-config
+Host socks
+  HostName my-vps.example.com
+  User deploy
+  DynamicForward 1080
+```
+
+```bash
+ssh -N socks    # aktifkan SOCKS proxy
+```
+
+---
+
+## SSH Tunnel — Pola & Workflow
+
+Tunnel SSH menggabungkan port forwarding untuk skenario nyata development dan operasi.
+
+### Database tunnel untuk development
+
+```bash
+# Terminal 1: buka tunnel
+ssh -N -L 5432:localhost:5432 staging
+
+# Terminal 2: aplikasi connect ke localhost
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb npm run dev
+```
+
+- **`-N`**: tidak execute command — tunnel saja.
+- Aplikasi lokal tidak tahu database sebenarnya di remote — hanya lihat `localhost:5432`.
+
+---
+
+### Multi-tunnel dalam satu koneksi
+
+```bash
+ssh -N \
+  -L 5432:localhost:5432 \
+  -L 6379:localhost:6379 \
+  -L 9200:localhost:9200 \
+  staging
+```
+
+- Satu sesi SSH bisa membuka banyak `-L` — PostgreSQL, Redis, Elasticsearch sekaligus.
+- Atau definisikan semua `LocalForward` di `~/.ssh/config` untuk host `staging`.
+
+---
+
+### Auto-reconnect tunnel dengan `autossh`
+
+```bash
+brew install autossh
+
+autossh -M 0 -f -N \
+  -o "ServerAliveInterval=30" \
+  -o "ServerAliveCountMax=3" \
+  -L 5432:localhost:5432 staging
+```
+
+- **`autossh`**: restart tunnel otomatis jika putus — penting untuk tunnel production jangka panjang.
+- **`-M 0`**: disable monitoring port legacy — pakai `ServerAliveInterval` saja.
+
+---
+
+### Tunnel di `~/.ssh/config` lengkap
+
+```ssh-config
+Host dev-tunnel
+  HostName staging.example.com
+  User deploy
+  IdentityFile ~/.ssh/id_ed25519
+  LocalForward 3000 localhost:3000
+  LocalForward 5432 localhost:5432
+  LocalForward 6379 localhost:6379
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
+```
+
+```bash
+ssh -N dev-tunnel
+# atau background:
+ssh -f -N dev-tunnel
+```
+
+Cek tunnel aktif di Mac:
+
+```bash
+lsof -i :5432
+lsof -i -P | grep ssh
+```
+
+- **`lsof -i :5432`**: pastikan port 5432 didengarkan oleh proses `ssh`.
+- **`kill <pid>`**: tutup tunnel dengan menghentikan proses ssh yang relevan.
+
+---
+
+## Perintah Remote & Eksekusi Batch
+
+### Menjalankan perintah tanpa shell interaktif
+
+```bash
+ssh staging 'cd /var/www && git pull && pm2 restart app'
+ssh prod 'df -h && free -m'
+ssh user@host 'cat /etc/os-release'
+```
+
+- Single quote di Mac: seluruh string dijalankan di server — variable `$` lokal tidak ter-expand.
+- Double quote: variable lokal ter-expand sebelum dikirim.
+
+```bash
+# Variable lokal ke remote
+FILE="app.log"
+ssh staging "tail -50 /var/log/$FILE"
+```
+
+---
+
+### `ssh` dengan heredoc dan pipe
+
+```bash
+# Kirim script ke remote
+ssh staging bash -s << 'EOF'
+  set -euo pipefail
+  cd /var/www/app
+  git pull origin main
+  npm ci --production
+  pm2 restart app
+EOF
+
+# Pipe output remote ke lokal
+ssh prod 'journalctl -u nginx -n 100' | grep error
+
+# Pipe file lokal ke remote command
+cat backup.sql | ssh staging 'mysql -u root mydb'
+```
+
+- **`bash -s << 'EOF'`**: jalankan script multi-baris di remote — `'EOF'` mencegah expand variable lokal.
+- **Pipe ke `ssh`**: kirim stdin ke command remote — berguna untuk import database.
+
+---
+
+## Konfigurasi Server (`sshd`)
+
+Bagian ini untuk admin server — mengatur siapa yang boleh connect dan bagaimana.
+
+### File konfigurasi penting
+
+| File | Lokasi | Fungsi |
+| --- | --- | --- |
+| **`sshd_config`** | `/etc/ssh/sshd_config` | Konfigurasi daemon SSH server |
+| **`authorized_keys`** | `~/.ssh/authorized_keys` | Kunci publik yang boleh login per user |
+| **`ssh_config`** | `/etc/ssh/ssh_config` | Config global client di server |
+
+```bash
+# Di server — edit config
+sudo nano /etc/ssh/sshd_config
+sudo sshd -t                    # test config valid
+sudo systemctl reload sshd      # Ubuntu/Debian
+sudo launchctl kickstart -k system/com.openssh.sshd   # macOS server
+```
+
+Opsi keamanan umum di `sshd_config`:
+
+```ssh-config
+Port 2222
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AllowUsers deploy admin
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
+X11Forwarding no
+AllowTcpForwarding yes
+```
+
+- **`Port 2222`**: ubah dari 22 — kurangi noise bot scan (bukan pengganti keamanan serius).
+- **`PermitRootLogin no`**: root tidak boleh login langsung — pakai sudo dari user biasa.
+- **`PasswordAuthentication no`**: hanya key-based — wajib setelah `ssh-copy-id` berhasil.
+- **`AllowUsers`**: whitelist user yang boleh SSH.
+
+<Callout type="warning">
+Sebelum disable `PasswordAuthentication`, pastikan key-based login sudah berfungsi di sesi terpisah. Salah langkah = terkunci dari server.
+</Callout>
+
+---
+
+## Troubleshooting
+
+### "Permission denied (publickey)"
+
+Penyebab paling umum: server tidak menerima kunci Anda atau key yang salah dikirim.
+
+```bash
+# Debug verbose
+ssh -vvv user@host
+
+# Cek key di agent
+ssh-add -l
+
+# Paksa key spesifik
+ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes user@host
+
+# Cek permission di server
+ssh user@host 'ls -la ~/.ssh && ls -la ~/.ssh/authorized_keys'
+```
+
+Checklist:
+
+| Cek | Solusi |
+| --- | --- |
+| Key belum di `authorized_keys` | `ssh-copy-id` ulang |
+| Permission `~/.ssh` bukan 700 | `chmod 700 ~/.ssh` di server |
+| Permission `authorized_keys` bukan 600 | `chmod 600 ~/.ssh/authorized_keys` |
+| Wrong key dikirim | `IdentitiesOnly=yes` + `IdentityFile` |
+| Key tidak di agent | `ssh-add ~/.ssh/id_ed25519` |
+| User salah | Cek `User` di config atau `user@host` |
+
+---
+
+### "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!"
+
+Host key server berubah — bisa reinstall server, IP dialihkan, atau serangan MITM.
+
+```bash
+# Hapus entry lama
+ssh-keygen -R example.com
+ssh-keygen -R 203.0.113.50
+
+# Atau edit manual
+nano ~/.ssh/known_hosts
+```
+
+- **Verifikasi dulu**: tanya admin apakah server memang di-rebuild — jangan langsung `yes` jika tidak yakin.
+- **`ssh-keygen -R host`**: hapus fingerprint lama dari `known_hosts` — connect ulang akan prompt fingerprint baru.
+
+---
+
+### Koneksi timeout / "Connection refused"
+
+```bash
+# Test port terbuka
+nc -zv example.com 22
+nc -zv example.com 2222
+
+# Traceroute
+traceroute example.com
+
+# Cek dari jaringan lain (mobile hotspot) — isolasi masalah firewall kantor
+ssh -v -o ConnectTimeout=10 user@host
+```
+
+| Gejala | Kemungkinan penyebab |
+| --- | --- |
+| **Connection refused** | sshd tidak jalan, port salah, atau firewall block |
+| **Connection timed out** | Firewall drop packet, IP salah, atau server down |
+| **Too many authentication failures** | Terlalu banyak key dicoba — `IdentitiesOnly=yes` |
+
+```bash
+# Terlalu banyak key di agent
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 user@host
+```
+
+---
+
+### "Bad owner or permissions"
+
+SSH menolak koneksi jika file permission terlalu terbuka.
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/config
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+chmod 644 ~/.ssh/known_hosts
+```
+
+Di server:
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+- **Owner harus user yang bersangkutan** — jangan root-owned di home user biasa.
+- **`chown -R user:user ~/.ssh`** jika owner salah setelah copy manual.
+
+---
+
+### Koneksi sering putus
+
+```bash
+# Client side (~/.ssh/config)
+ServerAliveInterval 60
+ServerAliveCountMax 3
+
+# Server side (sshd_config)
+ClientAliveInterval 60
+ClientAliveCountMax 3
+```
+
+- **Keepalive**: kirim packet kosong berkala — cegah NAT/firewall drop koneksi idle.
+- **`tmux` / `screen`**: jika putus tetap terjadi, jalankan pekerjaan panjang di dalam tmux di server.
+
+```bash
+ssh staging
+tmux new -s deploy
+# ... pekerjaan panjang ...
+# Detach: Ctrl+B lalu D
+# Reattach: tmux attach -t deploy
+```
+
+---
+
+### Debug log di server
+
+```bash
+# Ubuntu/Debian
+sudo tail -f /var/log/auth.log
+
+# RHEL/CentOS
+sudo tail -f /var/log/secure
+
+# macOS
+log stream --predicate 'process == "sshd"' --level debug
+```
+
+- **`auth.log`**: catat setiap attempt login — lihat "Failed publickey", "Accepted publickey", IP sumber.
+- Berguna saat `sshd` menolak koneksi tapi client tidak jelas kenapa.
+
+---
+
+## Keamanan — Best Practices
+
+### Kunci & autentikasi
+
+```bash
+# Generate key modern
+ssh-keygen -t ed25519 -a 100 -C "rahmat@macbook-2025"
+
+# Rotasi kunci berkala (setiap 6-12 bulan)
+# 1. Generate key baru
+# 2. ssh-copy-id dengan key baru
+# 3. Hapus key lama dari authorized_keys
+# 4. Hapus file key lama di lokal
+```
+
+- **Ed25519**: pilihan default — lebih aman dan cepat dari RSA 4096.
+- **Passphrase wajib** di laptop pribadi — kombinasi dengan Keychain Mac untuk kenyamanan.
+- **Satu key per layanan** — kompromi satu key tidak membahayakan semua server.
+
+---
+
+### Hardening server
+
+```ssh-config
+# /etc/ssh/sshd_config
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+MaxAuthTries 3
+LoginGraceTime 30
+AllowUsers deploy
+Protocol 2
+```
+
+```bash
+# Firewall — hanya allow IP kantor (contoh UFW)
+sudo ufw allow from 203.0.113.0/24 to any port 2222
+sudo ufw enable
+```
+
+- **`fail2ban`**: ban IP setelah beberapa gagal login — `brew install fail2ban` (Mac) atau `apt install fail2ban` (Ubuntu).
+- **Pemantauan**: alert jika login dari IP tidak dikenal.
+
+---
+
+### Praktik aman sehari-hari
+
+| Do | Don't |
+| --- | --- |
+| Pakai key + passphrase + Keychain | Share kunci privat lewat chat/email |
+| `ssh -i` / config per environment | Satu key untuk semua server |
+| `ProxyJump` untuk server internal | Expose SSH langsung ke internet tanpa firewall |
+| `ssh-keygen -R` setelah verifikasi | Ignore host key change warning |
+| Matikan tunnel setelah dipakai | Biarkan `-R` forward aktif permanen |
+| `IdentitiesOnly yes` | ForwardAgent global di `Host *` |
+| Audit `authorized_keys` berkala | Biarkan key ex-employee aktif |
+
+<Callout type="info">
+GitHub, GitLab, dan Bitbucket menggunakan SSH key terpisah — daftarkan isi `~/.ssh/id_ed25519_github.pub` di Settings → SSH Keys, bukan di server Anda sendiri.
+</Callout>
+
+---
+
+## Integrasi dengan Tools Lain
+
+### Git over SSH
+
+```bash
+git clone git@github.com:user/repo.git
+git remote -v
+git remote set-url origin git@github.com:user/repo.git
+
+# Test koneksi GitHub
+ssh -T git@github.com
+# Hi username! You've successfully authenticated...
+```
+
+- **User `git`**: GitHub/GitLab pakai user virtual `git` — identitas Anda dari key, bukan username.
+- **`ssh -T`**: test auth tanpa membuka shell — pesan sukses bervariasi per layanan.
+
+---
+
+### VS Code Remote SSH
+
+```bash
+# Di VS Code: install extension "Remote - SSH"
+# ~/.ssh/config host alias otomatis terdeteksi
+code --remote ssh-remote+staging /var/www/app
+```
+
+- Extension memakai `~/.ssh/config` — alias `Host staging` muncul di Command Palette → "Remote-SSH: Connect to Host".
+- Pastikan `ServerAliveInterval` diset agar koneksi editing panjang tidak putus.
+
+---
+
+### `mosh` — SSH yang lebih resilient
+
+```bash
+brew install mosh
+mosh user@host
+```
+
+- **mosh**: alternatif SSH untuk koneksi mobile/latency tinggi — tetap aktif saat ganti jaringan (WiFi → hotspot).
+- Membutuhkan `mosh-server` terpasang di remote — tidak mengganti SSH sepenuhnya.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Setup mesin Mac baru
+
+```bash
+# 1. Pastikan SSH ada
+ssh -V
+
+# 2. Generate key
+ssh-keygen -t ed25519 -C "rahmat@macbook-pro"
+
+# 3. Tambahkan ke Keychain
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+
+# 4. Copy ke server
+ssh-copy-id deploy@staging.example.com
+ssh-copy-id deploy@production.example.com
+
+# 5. Setup config
+nano ~/.ssh/config
+
+# 6. Test
+ssh staging
+ssh prod
+ssh -T git@github.com
+```
+
+---
+
+### Deploy aplikasi ke server
+
+```bash
+# Build lokal
+npm run build
+
+# Sync ke staging
+rsync -avz --delete \
+  --exclude '.env' \
+  ./dist/ staging:/var/www/app/
+
+# Restart service
+ssh staging 'cd /var/www/app && pm2 restart app'
+
+# Cek log
+ssh staging 'pm2 logs app --lines 50'
+```
+
+---
+
+### Debug production dengan tunnel
+
+```bash
+# Terminal 1: buka tunnel database
+ssh -N -L 5432:localhost:5432 prod
+
+# Terminal 2: query lokal
+psql -h localhost -U readonly -d production
+
+# Atau buka admin panel internal
+ssh -N -L 8080:localhost:8080 prod
+open http://localhost:8080
+```
+
+---
+
+### Backup dari server
+
+```bash
+# Backup folder config
+rsync -avz prod:/etc/nginx/ ./backup/nginx-$(date +%Y%m%d)/
+
+# Backup database via SSH
+ssh prod 'pg_dump -U myuser mydb' | gzip > backup-$(date +%Y%m%d).sql.gz
+
+# Backup seluruh app directory
+rsync -avz prod:/var/www/app/ ./backup/app/
+```
+
+---
+
+### Sesi panjang dengan `tmux`
+
+```bash
+ssh staging
+tmux new -s work
+
+# Di dalam tmux: jalankan deploy panjang
+./deploy.sh
+
+# Detach tanpa putus pekerjaan: Ctrl+B, lalu D
+# Disconnect SSH aman
+
+# Reconnect nanti
+ssh staging
+tmux attach -t work
+```
+
+- **`tmux`**: pekerjaan tetap jalan meski SSH putus — wajib untuk operasi > 5 menit.
+- **`tmux ls`**: daftar sesi aktif.
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc`:
+
+```bash
+# Koneksi cepat
+alias ss='ssh'
+alias ssa='ssh-add --apple-use-keychain ~/.ssh/id_ed25519'
+alias ssl='ssh-add -l'
+
+# Tunnel umum
+alias tunnel-db='ssh -N -L 5432:localhost:5432 staging'
+alias tunnel-redis='ssh -N -L 6379:localhost:6379 staging'
+alias tunnel-prod-db='ssh -N -L 15432:localhost:5432 prod'
+
+# Copy & sync
+alias scpu='scp -C'
+alias sync-staging='rsync -avz --delete --exclude node_modules ./dist/ staging:/var/www/app/'
+alias sync-prod='rsync -avz --delete --exclude node_modules -e "ssh -i ~/.ssh/id_ed25519_prod" ./dist/ prod:/var/www/app/'
+
+# Debug
+alias sshv='ssh -vvv'
+alias ssh-test='ssh -o ConnectTimeout=5 -o BatchMode=yes'
+
+# Manajemen known_hosts
+alias ssh-clean='ssh-keygen -R'
+```
+
+Fungsi helper untuk tunnel background:
+
+```bash
+# Tambahkan ke ~/.zshrc
+tunnel() {
+  local port=$1
+  local host=${2:-staging}
+  ssh -f -N -L "${port}:localhost:${port}" "$host"
+  echo "Tunnel localhost:${port} → ${host}:${port} (PID: $(lsof -ti :${port}))"
+}
+
+# Pakai: tunnel 5432 staging
+```
+
+- **`BatchMode=yes`**: gagal cepat tanpa prompt password — cocok untuk script test koneksi.
+- **`tunnel` function**: buka local forward di background dengan satu perintah.
+
+Reload shell:
+
+```bash
+source ~/.zshrc
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Koneksi** | `ssh user@host`, `-p`, `-i`, `-v` |
+| **Kunci** | `ssh-keygen`, `ssh-copy-id`, `chmod 600` |
+| **Config** | `~/.ssh/config`, `ProxyJump`, `IdentityFile` |
+| **Agent** | `ssh-add`, `ssh-add -l`, `--apple-use-keychain` |
+| **Copy file** | `scp`, `sftp` |
+| **Sync** | `rsync -avz -e ssh` |
+| **Forward lokal** | `ssh -L local:target:port` |
+| **Forward remote** | `ssh -R remote:local:port` |
+| **SOCKS proxy** | `ssh -D 1080` |
+| **Tunnel** | `ssh -f -N -L ...`, `autossh` |
+| **Debug** | `ssh -vvv`, `ssh-add -l`, `ssh-keygen -R` |
+| **Server** | `sshd_config`, `authorized_keys`, `ufw` |
+
+---
+
+## Penutup
+
+Enam perintah inti SSH: **`ssh`**, **`ssh-keygen`**, **`ssh-copy-id`**, **`scp`**, **`rsync`**, dan **port forwarding (`-L`)**. Dengan keenamnya, Anda sudah bisa login server, setup autentikasi aman, transfer file, dan akses layanan internal.
+
+Langkah berikutnya: rapikan **`~/.ssh/config`** dengan alias per environment, aktifkan **Keychain Mac** untuk passphrase, dan kuasai **`rsync --delete`** untuk deploy. Untuk infrastruktur kompleks, kombinasikan **`ProxyJump`** dengan tunnel **`autossh`**. Manfaatkan `man ssh` dan `man ssh_config` sebagai referensi — opsi SSH sangat kaya, dan config file menghemat waktu lebih dari apa pun.

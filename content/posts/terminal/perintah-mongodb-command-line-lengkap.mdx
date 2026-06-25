@@ -1,0 +1,1570 @@
+---
+title: "Perintah MongoDB Command Line Lengkap"
+description: "Panduan lengkap perintah CLI MongoDB: mongosh, mongodump, mongorestore, mongoexport, mongoimport, koneksi, CRUD, aggregation, index, auth, dan troubleshooting."
+date: "2025-06-24"
+category: terminal
+tags: ["mongodb", "mongosh", "nosql", "database", "cli", "tutorial"]
+featured: true
+---
+
+**MongoDB** adalah basis data dokumen (NoSQL) yang menyimpan data dalam format BSON — struktur mirip JSON dengan tipe data kaya. Dengan perintah `mongosh`, `mongodump`, `mongorestore`, `mongoexport`, dan `mongoimport` di terminal, Anda bisa mengelola database tanpa GUI — ideal untuk server, CI/CD, scripting, dan workflow developer sehari-hari.
+
+<Callout type="tip">
+Pastikan MongoDB sudah terpasang. Cek dengan `mongosh --version` dan `mongod --version`. Di Mac: `brew tap mongodb/brew && brew install mongodb-community`. Di Ubuntu: ikuti [dokumentasi resmi MongoDB](https://www.mongodb.com/docs/manual/installation/). Untuk development cepat: `docker run -d -p 27017:27017 --name mongo mongo:7`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti MongoDB — istilah ini muncul terus di dokumentasi, output terminal, dan error message:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **mongod** | Proses server database — daemon yang berjalan di background dan menerima koneksi |
+| **mongosh** | Shell interaktif modern (pengganti `mongo` legacy) — client CLI utama untuk query dan administrasi |
+| **Instance** | Satu instalasi MongoDB yang berjalan — bisa punya banyak database |
+| **Database** | Kontainer logis untuk koleksi — setara "schema" di SQL |
+| **Collection** | Kumpulan dokumen — setara "table" di SQL |
+| **Document** | Satu record BSON/JSON — unit penyimpanan utama |
+| **Field** | Pasangan key-value dalam dokumen — setara "column" di SQL |
+| **\_id** | Primary key otomatis setiap dokumen — ObjectId unik 12 byte |
+| **Index** | Struktur akselerasi pencarian — seperti index di SQL |
+| **Replica Set** | Cluster MongoDB dengan replikasi data untuk high availability |
+| **Shard** | Partisi horizontal data di cluster besar |
+| **BSON** | Binary JSON — format penyimpanan internal MongoDB |
+| **Port** | Nomor port TCP default MongoDB: **27017** |
+
+### Arsitektur koneksi CLI
+
+```
+Terminal  ──mongosh──►  mongod (server)  ──►  Data files (/data/db)
+   │                         │
+   └── mongodb://host:27017 ─┘
+```
+
+### Perintah informasi dasar
+
+```bash
+mongosh --version           # versi shell MongoDB
+mongod --version            # versi server MongoDB
+mongosh --help              # bantuan lengkap mongosh
+mongodump --help            # bantuan mongodump
+mongorestore --help         # bantuan mongorestore
+mongoexport --help          # bantuan mongoexport
+mongoimport --help          # bantuan mongoimport
+man mongosh                 # manual page (Mac/Linux)
+```
+
+- **`mongosh --version`**: langkah pertama saat troubleshooting — pastikan client dan server versinya kompatibel.
+- **`mongosh --help`**: daftar semua flag koneksi dan mode operasi tanpa buka browser.
+
+---
+
+## Instalasi & Menjalankan Server
+
+### Instalasi MongoDB Community
+
+MongoDB menyediakan server database (`mongod`) dan kumpulan tool CLI. Pilih metode instalasi sesuai platform.
+
+Kapan dipakai: setup mesin development baru, server production, atau container Docker untuk proyek lokal.
+
+```bash
+# macOS (Homebrew)
+brew tap mongodb/brew
+brew install mongodb-community@7.0
+brew services start mongodb-community@7.0
+brew services stop mongodb-community@7.0
+brew services restart mongodb-community@7.0
+
+# Ubuntu 22.04 (contoh — cek docs untuk versi terbaru)
+wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+sudo apt update
+sudo apt install -y mongodb-org
+sudo systemctl start mongod
+sudo systemctl enable mongod
+sudo systemctl status mongod
+
+# Docker (development cepat)
+docker run -d --name mongo-dev \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD=secret \
+  -p 27017:27017 \
+  mongo:7
+
+# Cek apakah server merespons
+mongosh --eval "db.runCommand({ ping: 1 })"
+```
+
+- **`brew services start`**: jalankan MongoDB sebagai background service di Mac — auto-start saat boot.
+- **`systemctl`**: cara standar mengelola service di Linux.
+- **Docker**: cocok untuk development — data hilang saat container dihapus kecuali pakai volume.
+
+<Callout type="warning">
+Setelah instalasi fresh tanpa auth, MongoDB terbuka tanpa password. Segera buat user admin dan aktifkan autentikasi sebelum expose ke jaringan.
+</Callout>
+
+---
+
+### `mongod` — Menjalankan Server
+
+`mongod` adalah proses server database MongoDB — menerima koneksi, menulis data ke disk, dan mengelola index.
+
+Kapan dipakai: menjalankan server secara manual (bukan via service), custom config path, atau debugging startup error.
+
+```bash
+# Jalankan dengan default config
+mongod
+
+# Custom data directory dan port
+mongod --dbpath /var/lib/mongodb --port 27017
+
+# Dengan config file
+mongod --config /etc/mongod.conf
+
+# Bind ke localhost saja (development)
+mongod --bind_ip 127.0.0.1 --port 27017
+
+# Foreground dengan log verbose
+mongod --dbpath ./data --logpath ./mongod.log --fork
+mongod --dbpath ./data -vvv    # verbose level 3
+```
+
+- **`--dbpath`**: lokasi penyimpanan data — default `/data/db` di Linux.
+- **`--bind_ip`**: IP yang didengarkan — `0.0.0.0` untuk semua interface (hati-hati di production).
+- **`--fork`**: jalankan di background (Linux) — di Mac gunakan `brew services` atau `nohup`.
+
+---
+
+## Koneksi dengan `mongosh`
+
+### `mongosh` — Terhubung ke Server
+
+`mongosh` adalah shell interaktif modern MongoDB — pengganti `mongo` shell legacy. Digunakan untuk query, administrasi, dan scripting.
+
+Kapan dipakai: setiap kali Anda perlu eksplorasi database, menjalankan CRUD, atau administrasi dari terminal.
+
+```bash
+# Koneksi lokal default
+mongosh
+
+# Koneksi dengan host dan port eksplisit
+mongosh --host 127.0.0.1 --port 27017
+
+# Koneksi ke database tertentu langsung
+mongosh mongodb://127.0.0.1:27017/appdb
+mongosh "mongodb://db.example.com:27017/production"
+
+# Koneksi dengan autentikasi
+mongosh -u admin -p secret --authenticationDatabase admin
+mongosh "mongodb://admin:secret@127.0.0.1:27017/?authSource=admin"
+
+# Eval satu perintah tanpa masuk shell interaktif
+mongosh --eval "db.runCommand({ ping: 1 })"
+mongosh appdb --eval "db.users.countDocuments()"
+
+# Jalankan script file
+mongosh appdb setup-indexes.js
+mongosh --file seed-data.js
+
+# Output JSON (untuk piping ke jq)
+mongosh --quiet --eval "JSON.stringify(db.users.find().toArray())" appdb
+```
+
+- **`--eval`**: jalankan perintah JavaScript sekali lalu keluar — ideal untuk script dan CI.
+- **`--quiet`**: suppress banner dan warning — output lebih bersih untuk automation.
+- **`--file`**: jalankan seluruh file JavaScript — berguna untuk migration dan seed.
+
+---
+
+### Connection String — Format URI MongoDB
+
+Connection string (URI) adalah cara standar menghubungkan aplikasi dan CLI ke MongoDB — mendukung auth, replica set, TLS, dan opsi lain.
+
+Kapan dipakai: konfigurasi aplikasi (Node.js, Python, dll.), koneksi ke Atlas, atau tool CLI dengan flag `--uri`.
+
+```bash
+# Format dasar
+mongodb://[username:password@]host[:port][/database][?options]
+
+# Contoh koneksi lokal
+mongosh "mongodb://127.0.0.1:27017"
+mongosh "mongodb://127.0.0.1:27017/myapp"
+
+# Dengan autentikasi
+mongosh "mongodb://appuser:pass123@127.0.0.1:27017/myapp?authSource=admin"
+
+# Replica set
+mongosh "mongodb://host1:27017,host2:27017,host3:27017/myapp?replicaSet=rs0"
+
+# MongoDB Atlas (cloud)
+mongosh "mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/myapp"
+
+# TLS/SSL
+mongosh "mongodb://user:pass@host:27017/myapp?tls=true&tlsCAFile=/path/to/ca.pem"
+
+# Via environment variable
+export MONGODB_URI="mongodb://127.0.0.1:27017/myapp"
+mongosh "$MONGODB_URI"
+```
+
+Komponen URI penting:
+
+| Komponen | Contoh | Keterangan |
+| --- | --- | --- |
+| **Protocol** | `mongodb://` atau `mongodb+srv://` | SRV untuk Atlas (DNS seedlist) |
+| **Credentials** | `user:pass@` | URL-encode karakter khusus di password |
+| **Host:Port** | `127.0.0.1:27017` | Default port 27017 |
+| **Database** | `/myapp` | Database default saat connect |
+| **Options** | `?authSource=admin` | Query string untuk opsi tambahan |
+
+<Callout type="info">
+Password dengan karakter khusus (`@`, `:`, `/`, `?`, `#`) harus di-**URL-encode**. Contoh: `p@ss` → `p%40ss`. Gunakan tool encode atau library di aplikasi.
+</Callout>
+
+---
+
+### Opsi Koneksi CLI Tambahan
+
+Flag tambahan `mongosh` dan tool MongoDB lain untuk skenario koneksi khusus.
+
+Kapan dipakai: koneksi via TLS, SSH tunnel, atau environment production dengan credential terpisah.
+
+```bash
+# TLS
+mongosh --host db.example.com --tls --tlsCAFile /etc/ssl/ca.pem
+
+# IPv6
+mongosh --host ::1 --port 27017
+
+# Timeout koneksi
+mongosh --host slow-server --connectTimeoutMS 10000
+
+# Read preference (replica set)
+mongosh "mongodb://rs0/host1,host2/?readPreference=secondary"
+
+# Via SSH tunnel (terminal 1)
+ssh -L 27017:localhost:27017 user@remote-server
+# Terminal 2
+mongosh mongodb://127.0.0.1:27017
+```
+
+- **SSH tunnel**: akses MongoDB di server private tanpa expose port ke internet.
+- **`--connectTimeoutMS`**: hindari hang lama saat server tidak merespons.
+
+---
+
+## Navigasi Database & Collection
+
+### `show dbs` / `show databases` — Lihat Semua Database
+
+Menampilkan daftar database di instance MongoDB beserta ukuran perkiraan di disk.
+
+Kapan dipakai: eksplorasi awal server, audit database yang ada, atau verifikasi setelah restore.
+
+```javascript
+// Di dalam mongosh
+show dbs
+show databases
+
+// Setara via perintah
+db.adminCommand({ listDatabases: 1 })
+```
+
+- Database dengan ukuran 0 mungkin tidak muncul sampai ada data.
+- **`admin`**, **`local`**, **`config`**: database sistem — jangan dihapus sembarangan.
+
+---
+
+### `use` — Pilih Database
+
+`use <dbname>` beralih ke database target — membuat database baru jika belum ada (saat pertama kali insert data).
+
+Kapan dipakai: sebelum operasi CRUD atau query ke collection tertentu.
+
+```javascript
+use myapp
+use production
+use test_db
+
+// Cek database aktif
+db.getName()
+db
+```
+
+- Database baru tidak benar-benar dibuat di disk sampai ada data ditulis.
+- **`db`** adalah variabel global yang merujuk ke database aktif.
+
+---
+
+### `show collections` / `show tables` — Lihat Collection
+
+Menampilkan semua collection di database yang sedang aktif.
+
+Kapan dipakai: eksplorasi schema, audit collection, atau sebelum query.
+
+```javascript
+show collections
+show tables          // alias yang sama
+
+// Setara via perintah
+db.getCollectionNames()
+db.getCollectionInfos()
+db.getCollectionInfos({ type: "collection" })
+```
+
+- Collection view dan time series juga muncul di output.
+- **`getCollectionInfos`**: info detail termasuk options dan index.
+
+---
+
+### Perintah Informasi Schema & Statistik
+
+Perintah untuk memahami struktur data, ukuran collection, dan statistik database.
+
+Kapan dipakai: optimasi query, audit storage, atau dokumentasi schema.
+
+```javascript
+// Statistik database
+db.stats()
+db.stats(1024)    // ukuran dalam KB
+
+// Statistik collection
+db.users.stats()
+db.users.dataSize()
+db.users.storageSize()
+db.users.countDocuments()
+db.users.estimatedDocumentCount()   // lebih cepat, estimasi
+
+// Sample dokumen untuk lihat struktur
+db.users.findOne()
+db.users.find().limit(3).pretty()
+
+// Lihat index collection
+db.users.getIndexes()
+
+// Validasi collection
+db.users.validate()
+db.users.validate({ full: true })
+```
+
+- **`countDocuments()`**: hitung akurat dengan filter — bisa lambat di collection besar.
+- **`estimatedDocumentCount()`**: estimasi dari metadata — jauh lebih cepat.
+- **`findOne()`**: cara cepat melihat struktur field dokumen.
+
+---
+
+## CRUD — Create, Read, Update, Delete
+
+### `insertOne` / `insertMany` — Menambah Dokumen
+
+Menyisipkan satu atau banyak dokumen ke collection.
+
+Kapan dipakai: seed data, testing, atau insert record baru dari script.
+
+```javascript
+// Insert satu dokumen
+db.users.insertOne({
+  name: "Rahmat",
+  email: "rahmat@example.com",
+  role: "admin",
+  createdAt: new Date()
+})
+
+// Insert banyak dokumen
+db.users.insertMany([
+  { name: "Budi", email: "budi@example.com", role: "user" },
+  { name: "Siti", email: "siti@example.com", role: "user" },
+  { name: "Ani", email: "ani@example.com", role: "editor" }
+])
+
+// Insert dengan opsi
+db.users.insertOne(
+  { name: "Test", email: "test@example.com" },
+  { writeConcern: { w: "majority" } }
+)
+
+// Insert ke collection baru (otomatis buat collection)
+db.orders.insertOne({ orderId: "ORD-001", total: 150000 })
+```
+
+- **`_id`**: otomatis dibuat sebagai ObjectId jika tidak disediakan.
+- **`insertMany`**: default `ordered: true` — berhenti di error pertama. Set `ordered: false` untuk lanjut insert sisanya.
+- **`writeConcern`**: kontrol durabilitas write — penting di replica set production.
+
+---
+
+### `find` — Membaca Dokumen
+
+Query dokumen dengan filter, proyeksi, sort, skip, dan limit.
+
+Kapan dipakai: hampir setiap operasi read — eksplorasi data, debugging, reporting.
+
+```javascript
+// Semua dokumen (hati-hati di collection besar!)
+db.users.find()
+
+// Filter sederhana
+db.users.find({ role: "admin" })
+db.users.find({ age: { $gte: 18 } })
+db.users.find({ status: { $in: ["active", "pending"] } })
+
+// Proyeksi field (pilih field yang ditampilkan)
+db.users.find({}, { name: 1, email: 1, _id: 0 })
+db.users.find({ role: "user" }, { password: 0 })   // exclude field
+
+// Sort, skip, limit
+db.users.find().sort({ createdAt: -1 }).limit(10)
+db.users.find().sort({ name: 1, age: -1 }).skip(20).limit(10)
+
+// Pretty print
+db.users.find().pretty()
+db.users.find().toArray()    // return array JavaScript
+
+// Cari satu dokumen
+db.users.findOne({ email: "rahmat@example.com" })
+db.users.findOne({ _id: ObjectId("507f1f77bcf86cd799439011") })
+
+// Count
+db.users.countDocuments({ role: "admin" })
+db.users.find({ role: "admin" }).count()   // deprecated, pakai countDocuments
+```
+
+Operator query umum:
+
+| Operator | Contoh | Arti |
+| --- | --- | --- |
+| `$eq` | `{ age: { $eq: 25 } }` | Sama dengan |
+| `$ne` | `{ status: { $ne: "deleted" } }` | Tidak sama dengan |
+| `$gt` / `$gte` | `{ age: { $gte: 18 } }` | Lebih besar (atau sama) |
+| `$lt` / `$lte` | `{ price: { $lt: 100 } }` | Lebih kecil (atau sama) |
+| `$in` | `{ role: { $in: ["admin", "editor"] } }` | Dalam array nilai |
+| `$nin` | `{ status: { $nin: ["banned"] } }` | Tidak dalam array |
+| `$exists` | `{ phone: { $exists: true } }` | Field ada/tidak |
+| `$regex` | `{ name: { $regex: /^rah/i } }` | Pattern regex |
+| `$and` / `$or` | `{ $or: [{ a: 1 }, { b: 2 }] }` | Logika AND/OR |
+
+---
+
+### `updateOne` / `updateMany` / `replaceOne` — Memperbarui Dokumen
+
+Memodifikasi dokumen yang sudah ada di collection.
+
+Kapan dipakai: update field, migrasi data, atau batch update berdasarkan filter.
+
+```javascript
+// Update satu dokumen
+db.users.updateOne(
+  { email: "rahmat@example.com" },
+  { $set: { role: "superadmin", updatedAt: new Date() } }
+)
+
+// Update banyak dokumen
+db.users.updateMany(
+  { status: "pending" },
+  { $set: { status: "active" } }
+)
+
+// Replace seluruh dokumen (hati-hati — field lain hilang!)
+db.users.replaceOne(
+  { email: "test@example.com" },
+  { name: "Test User", email: "test@example.com", role: "user" }
+)
+
+// Upsert — insert jika tidak ditemukan
+db.users.updateOne(
+  { email: "baru@example.com" },
+  { $set: { name: "Baru", role: "user" }, $setOnInsert: { createdAt: new Date() } },
+  { upsert: true }
+)
+
+// Operator update lainnya
+db.users.updateOne(
+  { _id: ObjectId("...") },
+  {
+    $inc: { loginCount: 1 },           // increment
+    $push: { tags: "premium" },         // tambah ke array
+    $pull: { tags: "trial" },           // hapus dari array
+    $unset: { tempField: "" },          // hapus field
+    $rename: { oldName: "newName" }     // rename field
+  }
+)
+```
+
+Operator update penting:
+
+| Operator | Fungsi |
+| --- | --- |
+| `$set` | Set nilai field |
+| `$unset` | Hapus field |
+| `$inc` | Increment/decrement numerik |
+| `$push` / `$pull` | Tambah/hapus elemen array |
+| `$addToSet` | Push ke array jika belum ada |
+| `$setOnInsert` | Set field hanya saat upsert insert |
+
+<Callout type="warning">
+Tanpa operator update (`$set`, `$inc`, dll.), `updateOne` akan **mengganti seluruh dokumen** — perilaku lama yang sering menyebabkan kehilangan data. Selalu gunakan operator update.
+</Callout>
+
+---
+
+### `deleteOne` / `deleteMany` — Menghapus Dokumen
+
+Menghapus satu atau banyak dokumen berdasarkan filter.
+
+Kapan dipakai: cleanup data, GDPR deletion, atau maintenance collection.
+
+```javascript
+// Hapus satu dokumen
+db.users.deleteOne({ email: "test@example.com" })
+
+// Hapus banyak dokumen
+db.users.deleteMany({ status: "inactive" })
+db.logs.deleteMany({ createdAt: { $lt: new Date("2024-01-01") } })
+
+// Hapus semua dokumen di collection (collection tetap ada)
+db.temp.deleteMany({})
+
+// Hapus collection beserta index
+db.temp.drop()
+```
+
+- **`deleteMany({})`**: hapus semua dokumen tapi collection dan index tetap ada.
+- **`drop()`**: hapus collection seluruhnya termasuk index — tidak bisa di-undo!
+
+---
+
+### `findAndModify` / `findOneAndUpdate` — Atomic Read-Modify-Write
+
+Operasi atomik: cari dokumen, modifikasi, dan return versi sebelum/sesudah — dalam satu operasi.
+
+Kapan dipakai: counter sequence, queue processing, atau update dengan return value.
+
+```javascript
+// Update dan return dokumen setelah update
+db.users.findOneAndUpdate(
+  { email: "rahmat@example.com" },
+  { $inc: { loginCount: 1 }, $set: { lastLogin: new Date() } },
+  { returnDocument: "after" }    // "before" untuk versi lama
+)
+
+// Find and delete
+db.sessions.findOneAndDelete({ token: "abc123" })
+
+// Find and replace
+db.config.findOneAndReplace(
+  { key: "maintenance" },
+  { key: "maintenance", value: false, updatedAt: new Date() }
+)
+```
+
+- Operasi atomik — aman untuk concurrency tanpa race condition manual.
+- **`returnDocument: "after"`**: default di driver modern; di shell bisa pakai `returnNew: true` (legacy).
+
+---
+
+## Aggregation Pipeline — Dasar
+
+### `$match`, `$group`, `$project` — Pipeline Dasar
+
+Aggregation framework memproses dokumen melalui pipeline stage — setara GROUP BY, JOIN, dan transformasi kompleks di SQL.
+
+Kapan dipakai: reporting, analitik, transformasi data, dan query yang tidak bisa diselesaikan dengan `find` biasa.
+
+```javascript
+// Pipeline sederhana: filter + group + sort
+db.orders.aggregate([
+  { $match: { status: "completed" } },
+  { $group: {
+      _id: "$customerId",
+      totalOrders: { $sum: 1 },
+      totalAmount: { $sum: "$amount" },
+      avgAmount: { $avg: "$amount" }
+  }},
+  { $sort: { totalAmount: -1 } },
+  { $limit: 10 }
+])
+
+// Group by field dengan count
+db.users.aggregate([
+  { $group: { _id: "$role", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+])
+
+// Project — reshape output
+db.users.aggregate([
+  { $project: {
+      fullName: { $concat: ["$firstName", " ", "$lastName"] },
+      email: 1,
+      isAdmin: { $eq: ["$role", "admin"] }
+  }}
+])
+
+// Match tanggal
+db.logs.aggregate([
+  { $match: {
+      createdAt: {
+        $gte: ISODate("2025-01-01"),
+        $lt: ISODate("2025-07-01")
+      }
+  }},
+  { $count: "totalLogs" }
+])
+```
+
+Stage aggregation umum:
+
+| Stage | Fungsi |
+| --- | --- |
+| `$match` | Filter dokumen (seperti `find`) |
+| `$group` | Group dan agregasi (`$sum`, `$avg`, `$min`, `$max`) |
+| `$project` | Pilih/transform field output |
+| `$sort` | Urutkan hasil |
+| `$limit` / `$skip` | Paginasi |
+| `$unwind` | Flatten array jadi dokumen terpisah |
+| `$lookup` | Join antar collection (seperti LEFT JOIN) |
+| `$count` | Hitung dokumen |
+
+---
+
+### `$lookup` — Join Antar Collection
+
+`$lookup` melakukan left outer join ke collection lain — menghubungkan data relasional di MongoDB.
+
+Kapan dipakai: query yang butuh data dari collection terkait tanpa denormalisasi penuh.
+
+```javascript
+db.orders.aggregate([
+  { $match: { status: "completed" } },
+  { $lookup: {
+      from: "users",
+      localField: "userId",
+      foreignField: "_id",
+      as: "userInfo"
+  }},
+  { $unwind: "$userInfo" },
+  { $project: {
+      orderId: 1,
+      amount: 1,
+      "userInfo.name": 1,
+      "userInfo.email": 1
+  }}
+])
+```
+
+- **`as`**: nama field array hasil join di output.
+- **`$unwind`**: flatten array hasil lookup jika relasi one-to-one.
+
+---
+
+### `$unwind` — Flatten Array
+
+Memecah field array menjadi satu dokumen per elemen — berguna untuk analisis elemen array.
+
+Kapan dipakai: analisis tag, item order, atau field array lainnya.
+
+```javascript
+db.articles.aggregate([
+  { $unwind: "$tags" },
+  { $group: { _id: "$tags", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+])
+
+// Unwind dengan preserve null/empty
+db.articles.aggregate([
+  { $unwind: { path: "$tags", preserveNullAndEmptyArrays: true } }
+])
+```
+
+---
+
+### Explain Aggregation — Analisis Performa
+
+Menganalisis execution plan aggregation pipeline — mirip `EXPLAIN` di SQL.
+
+Kapan dipakai: optimasi pipeline lambat, verifikasi index digunakan.
+
+```javascript
+db.orders.aggregate([
+  { $match: { status: "completed" } },
+  { $group: { _id: "$customerId", total: { $sum: "$amount" } } }
+]).explain("executionStats")
+```
+
+- Cek `totalDocsExamined` vs `nReturned` — rasio tinggi berarti scan tidak efisien.
+- Tambahkan `$match` di awal pipeline untuk filter sedini mungkin.
+
+---
+
+## Index
+
+### `createIndex` — Membuat Index
+
+Index mempercepat query — trade-off: lebih cepat read, lebih lambat write dan lebih banyak storage.
+
+Kapan dipakai: field yang sering difilter, di-sort, atau di-join via `$lookup`.
+
+```javascript
+// Index tunggal (ascending)
+db.users.createIndex({ email: 1 })
+
+// Index descending
+db.orders.createIndex({ createdAt: -1 })
+
+// Compound index (urutan field penting!)
+db.users.createIndex({ role: 1, createdAt: -1 })
+
+// Unique index
+db.users.createIndex({ email: 1 }, { unique: true })
+
+// Text index (full-text search)
+db.articles.createIndex({ title: "text", body: "text" })
+
+// TTL index — auto-delete dokumen setelah waktu tertentu
+db.sessions.createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 })
+
+// Partial index — hanya index dokumen yang memenuhi filter
+db.users.createIndex(
+  { phone: 1 },
+  { partialFilterExpression: { phone: { $exists: true } } }
+)
+
+// Sparse index — skip dokumen tanpa field
+db.users.createIndex({ legacyId: 1 }, { sparse: true })
+```
+
+- **Compound index**: field pertama paling penting — `{ role: 1, createdAt: -1 }` mendukung query `{ role: "admin" }` dan `{ role: "admin", createdAt: ... }`.
+- **Unique**: enforce uniqueness — error jika duplikat.
+- **TTL**: background job hapus dokumen expired — cocok untuk session dan cache.
+
+---
+
+### `getIndexes` / `dropIndex` — Kelola Index
+
+Melihat dan menghapus index yang ada.
+
+Kapan dipakai: audit index, hapus index tidak terpakai, atau rebuild setelah migrasi schema.
+
+```javascript
+// Lihat semua index
+db.users.getIndexes()
+
+// Hapus index by name
+db.users.dropIndex("email_1")
+db.users.dropIndex({ email: 1 })
+
+// Hapus semua index kecuali _id
+db.users.dropIndexes()
+
+// Rebuild index (maintenance)
+db.users.reIndex()    // deprecated di versi baru — gunakan collMod atau rebuild manual
+```
+
+<Callout type="warning">
+Jangan hapus index `_id_` — index tersebut wajib ada. Hapus index yang tidak terpakai bisa mempercepat write tapi memperlambat query terkait.
+</Callout>
+
+---
+
+### `explain` — Analisis Query Plan
+
+Menampilkan bagaimana MongoDB mengeksekusi query — index digunakan atau collection scan.
+
+Kapan dipakai: debugging query lambat, verifikasi index efektif.
+
+```javascript
+// Explain find
+db.users.find({ email: "rahmat@example.com" }).explain("executionStats")
+
+// Explain dengan verbosity
+db.users.find({ role: "admin" }).explain("allPlansExecution")
+
+// Cek COLLSCAN (buruk di collection besar)
+db.users.find({ name: "Budi" }).explain("executionStats")
+// Lihat: winningPlan.stage === "IXSCAN" (baik) vs "COLLSCAN" (buruk)
+```
+
+Metrik penting di `executionStats`:
+
+| Metrik | Arti |
+| --- | --- |
+| `nReturned` | Jumlah dokumen dikembalikan |
+| `totalDocsExamined` | Dokumen di-scan — semakin kecil semakin baik |
+| `executionTimeMillis` | Waktu eksekusi |
+| `stage: IXSCAN` | Index scan — efisien |
+| `stage: COLLSCAN` | Collection scan — lambat di data besar |
+
+---
+
+## Backup & Restore
+
+### `mongodump` — Backup Database
+
+`mongodump` mengekspor data BSON ke folder — backup level database, collection, atau query filter.
+
+Kapan dipakai: backup rutin production, migrasi antar server, atau snapshot sebelum migrasi schema.
+
+```bash
+# Backup semua database
+mongodump --uri="mongodb://127.0.0.1:27017" --out=/backup/$(date +%Y%m%d)
+
+# Backup satu database
+mongodump --uri="mongodb://127.0.0.1:27017" --db=myapp --out=/backup/
+
+# Backup satu collection
+mongodump --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users --out=/backup/
+
+# Dengan autentikasi
+mongodump --uri="mongodb://admin:secret@127.0.0.1:27017/?authSource=admin" --db=myapp --out=/backup/
+
+# Backup dengan gzip (hemat disk)
+mongodump --uri="mongodb://127.0.0.1:27017" --db=myapp --gzip --out=/backup/
+
+# Backup query filter
+mongodump --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=logs \
+  --query='{"createdAt":{"$lt":{"$date":"2024-01-01T00:00:00Z"}}}' --out=/backup/
+
+# Backup dari replica set secondary (kurangi load primary)
+mongodump --uri="mongodb://host1,host2,host3/?replicaSet=rs0&readPreference=secondary" \
+  --db=myapp --out=/backup/
+```
+
+- **`--out`**: folder output — berisi subfolder per database dengan file BSON + metadata JSON.
+- **`--gzip`**: kompresi — hemat ruang, sedikit lebih lambat.
+- Backup BSON mempertahankan tipe data BSON — lebih akurat daripada JSON export.
+
+---
+
+### `mongorestore` — Restore dari Backup
+
+`mongorestore` mengimpor data dari output `mongodump` — restore database, collection, atau merge data.
+
+Kapan dipakai: recovery dari backup, clone database ke environment lain, atau disaster recovery.
+
+```bash
+# Restore semua database dari folder dump
+mongorestore --uri="mongodb://127.0.0.1:27017" /backup/20250624/
+
+# Restore satu database
+mongorestore --uri="mongodb://127.0.0.1:27017" --db=myapp /backup/20250624/myapp/
+
+# Restore dengan gzip
+mongorestore --uri="mongodb://127.0.0.1:27017" --gzip /backup/20250624/
+
+# Drop collection sebelum restore (replace)
+mongorestore --uri="mongodb://127.0.0.1:27017" --db=myapp --drop /backup/myapp/
+
+# Restore ke database dengan nama berbeda
+mongorestore --uri="mongodb://127.0.0.1:27017" --nsFrom="prod.*" --nsTo="staging.*" /backup/
+
+# Restore collection tertentu saja
+mongorestore --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users /backup/myapp/users.bson
+
+# Parallel restore (per collection)
+mongorestore --uri="mongodb://127.0.0.1:27017" --numParallelCollections=4 /backup/
+```
+
+- **`--drop`**: hapus collection existing sebelum restore — hati-hati di production!
+- **`--nsFrom` / `--nsTo`**: remap namespace — clone prod ke staging.
+- Restore BSON lebih cepat dan akurat daripada import JSON untuk dataset besar.
+
+<Callout type="info">
+`mongodump` + `mongorestore` adalah pasangan backup/restore resmi MongoDB. Untuk backup hot di production besar, pertimbangkan juga **MongoDB Atlas Backup**, **Ops Manager**, atau snapshot filesystem dengan journaling enabled.
+</Callout>
+
+---
+
+## Export & Import JSON/CSV
+
+### `mongoexport` — Export ke JSON/CSV
+
+`mongoexport` mengekspor data ke format JSON atau CSV — human-readable, interoperable dengan tool lain.
+
+Kapan dipakai: share data ke analis, import ke spreadsheet, migrasi ke sistem lain, atau seed file version control.
+
+```bash
+# Export collection ke JSON
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users --out=users.json
+
+# Export dengan pretty JSON
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --out=users.json --jsonArray
+
+# Export dengan query filter
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --query='{"role":"admin"}' --out=admins.json
+
+# Export field tertentu saja
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --fields=name,email,role --out=users.csv --type=csv
+
+# Export CSV dengan header
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=orders \
+  --type=csv --fields=orderId,amount,status --out=orders.csv
+
+# Export ke stdout (pipe ke file lain)
+mongoexport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users | jq '.'
+```
+
+- **`--jsonArray`**: output satu array JSON — lebih mudah di-parse beberapa tool.
+- **`--type=csv`**: format CSV — butuh `--fields` untuk urutan kolom.
+- Export JSON tidak mempertahankan semua tipe BSON (ObjectId jadi string, Date jadi ISO string).
+
+---
+
+### `mongoimport` — Import dari JSON/CSV
+
+`mongoimport` mengimpor data dari file JSON, CSV, atau TSV ke collection.
+
+Kapan dipakai: seed database dari file, import data dari sistem eksternal, atau restore partial dari export.
+
+```bash
+# Import JSON (satu dokumen per baris — NDJSON)
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users --file=users.json
+
+# Import JSON array
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --file=users.json --jsonArray
+
+# Import CSV
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --type=csv --headerline --file=users.csv
+
+# Import dengan drop collection dulu
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --file=users.json --drop
+
+# Import mode upsert (update jika _id ada)
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --file=users.json --mode=upsert
+
+# Batasi jumlah dokumen (testing)
+mongoimport --uri="mongodb://127.0.0.1:27017" --db=myapp --collection=users \
+  --file=users.json --limit=100
+```
+
+Mode import:
+
+| Mode | Perilaku |
+| --- | --- |
+| `insert` (default) | Insert semua — error jika duplikat _id |
+| `upsert` | Update jika _id ada, insert jika tidak |
+| `merge` | Merge field ke dokumen existing |
+| `delete` | Hapus dokumen yang match filter import |
+
+<Callout type="warning">
+`mongoexport`/`mongoimport` **tidak** mempertahankan index — buat ulang index setelah import. Untuk backup lengkap termasuk index, gunakan `mongodump`/`mongorestore`.
+</Callout>
+
+---
+
+## Monitoring — `mongostat` & `mongotop`
+
+### `mongostat` — Statistik Server Real-time
+
+`mongostat` menampilkan snapshot status server MongoDB secara berkala — insert/query/update/delete per detik, connection count, network I/O.
+
+Kapan dipakai: monitoring cepat dari terminal, diagnosa load tinggi, atau verifikasi aktivitas setelah deploy.
+
+```bash
+# Statistik default (refresh setiap 1 detik)
+mongostat --uri="mongodb://127.0.0.1:27017"
+
+# Interval custom (setiap 5 detik, 10 kali)
+mongostat --uri="mongodb://127.0.0.1:27017" 5 10
+
+# Dengan autentikasi
+mongostat --uri="mongodb://admin:secret@127.0.0.1:27017/?authSource=admin"
+
+# Kolom yang ditampilkan
+# insert/s query/s update/s delete/s connections active queued
+```
+
+- **`insert`/`query`/`update`/`delete`**: operasi per detik.
+- **`connections`**: koneksi aktif — monitor jika mendekati `maxConnections`.
+- Mirip `vmstat`/`iostat` untuk MongoDB.
+
+---
+
+### `mongotop` — Waktu Baca/Tulis per Collection
+
+`mongotop` menampilkan waktu yang dihabiskan server untuk read/write per collection — identifikasi collection hot.
+
+Kapan dipakai: diagnosa collection mana yang paling banyak diakses, optimasi setelah lonjakan load.
+
+```bash
+# Top collection activity (refresh setiap 1 detik)
+mongotop --uri="mongodb://127.0.0.1:27017"
+
+# Interval custom
+mongotop --uri="mongodb://127.0.0.1:27017" 5
+
+# Output: ns (namespace), total, read, write (dalam milliseconds)
+```
+
+- **`ns`**: format `database.collection`.
+- **`total`/`read`/`write`**: waktu ms per interval — collection dengan angka tinggi perlu investigasi index/query.
+
+---
+
+## Autentikasi & Role
+
+### Membuat User & Role
+
+MongoDB menggunakan role-based access control (RBAC) — user diberi role yang mendefinisikan privilege.
+
+Kapan dipakai: setup pertama kali production, buat user aplikasi dengan hak minimal, atau audit akses.
+
+```javascript
+// Di mongosh — connect sebagai admin
+use admin
+db.auth("admin", "secret")
+
+// Buat user admin (jika belum ada)
+db.createUser({
+  user: "admin",
+  pwd: "SecretAdminPass!",
+  roles: [{ role: "userAdminAnyDatabase", db: "admin" }, { role: "readWriteAnyDatabase", db: "admin" }]
+})
+
+// Buat user aplikasi — read/write satu database saja
+use myapp
+db.createUser({
+  user: "appuser",
+  pwd: "AppPass123!",
+  roles: [{ role: "readWrite", db: "myapp" }]
+})
+
+// User read-only (reporting, backup read)
+db.createUser({
+  user: "readonly",
+  pwd: "ReadOnlyPass!",
+  roles: [{ role: "read", db: "myapp" }]
+})
+
+// Lihat user
+use myapp
+db.getUsers()
+db.getUser("appuser")
+
+// Update password
+db.updateUser("appuser", { pwd: "NewPass456!" })
+
+// Hapus user
+db.dropUser("olduser")
+```
+
+Built-in role umum:
+
+| Role | Hak Akses |
+| --- | --- |
+| `read` | Baca data database |
+| `readWrite` | Baca + tulis data database |
+| `dbAdmin` | Administrasi database (index, stats) |
+| `userAdmin` | Kelola user di database |
+| `clusterAdmin` | Administrasi cluster |
+| `readAnyDatabase` | Baca semua database |
+| `readWriteAnyDatabase` | Baca/tulis semua database |
+| `root` | Akses penuh (superuser) |
+
+---
+
+### Custom Role — Privilege Granular
+
+Membuat role custom dengan privilege spesifik — principle of least privilege.
+
+Kapan dipakai: user yang hanya butuh akses terbatas (mis. satu collection, atau hanya insert).
+
+```javascript
+use myapp
+
+// Role custom: hanya insert ke collection logs
+db.createRole({
+  role: "logWriter",
+  privileges: [
+    { resource: { db: "myapp", collection: "logs" }, actions: ["insert"] }
+  ],
+  roles: []
+})
+
+db.createUser({
+  user: "logger",
+  pwd: "LogPass!",
+  roles: [{ role: "logWriter", db: "myapp" }]
+})
+
+// Lihat role
+db.getRoles({ showPrivileges: true })
+db.getRole("logWriter", { showPrivileges: true })
+
+// Hapus role
+db.dropRole("logWriter")
+```
+
+---
+
+### Mengaktifkan Autentikasi
+
+Autentikasi harus diaktifkan di config server — tidak cukup hanya buat user.
+
+Kapan dipakai: sebelum expose MongoDB ke jaringan atau deploy production.
+
+```bash
+# /etc/mongod.conf
+security:
+  authorization: enabled
+
+# Restart server
+sudo systemctl restart mongod
+# atau
+brew services restart mongodb-community@7.0
+```
+
+```javascript
+// Verifikasi auth aktif — tanpa credential harus gagal
+mongosh --eval "db.runCommand({ connectionStatus: 1 })"
+// Setelah auth: perlu login
+mongosh -u appuser -p AppPass123! --authenticationDatabase myapp myapp
+```
+
+<Callout type="warning">
+Buat user admin **sebelum** mengaktifkan `authorization: enabled`. Jika tidak, Anda terkunci dari database. Simpan credential di password manager atau secret manager.
+</Callout>
+
+---
+
+## Administrasi Server
+
+### `db.serverStatus()` — Status Server Lengkap
+
+Menampilkan metrics server komprehensif — connections, opcounters, memory, replication status.
+
+Kapan dipakai: health check, monitoring script, atau diagnosa masalah performa.
+
+```javascript
+db.serverStatus()
+db.serverStatus().connections
+db.serverStatus().opcounters
+db.serverStatus().mem
+db.serverStatus().repl   // jika replica set
+```
+
+---
+
+### `db.currentOp()` — Operasi yang Sedang Berjalan
+
+Menampilkan operasi yang sedang dieksekusi — berguna untuk diagnosa query lambat atau lock.
+
+Kapan dipakai: database terasa lambat, investigasi long-running query, atau kill operasi bermasalah.
+
+```javascript
+// Semua operasi aktif
+db.currentOp()
+
+// Filter query lambat (> 5 detik)
+db.currentOp({ "secs_running": { $gte: 5 } })
+
+// Kill operasi by opid
+db.killOp(12345)
+
+// Di MongoDB 4.2+: currentOp digabung ke aggregate
+use admin
+db.aggregate([{ $currentOp: { allUsers: true } }])
+```
+
+---
+
+### Replica Set — Perintah Dasar
+
+Perintah administrasi replica set dari shell — monitoring dan konfigurasi.
+
+Kapan dipakai: setup high availability, failover, atau monitoring replikasi.
+
+```javascript
+// Status replica set
+rs.status()
+rs.conf()
+
+// Initiate replica set (pertama kali)
+rs.initiate({
+  _id: "rs0",
+  members: [
+    { _id: 0, host: "host1:27017" },
+    { _id: 1, host: "host2:27017" },
+    { _id: 2, host: "host3:27017" }
+  ]
+})
+
+// Tambah/hapus member
+rs.add("host4:27017")
+rs.remove("host4:27017")
+
+// Step down primary (maintenance)
+rs.stepDown()
+
+// Cek siapa primary
+rs.isMaster()
+```
+
+---
+
+### Compact & Repair — Maintenance Storage
+
+Operasi maintenance untuk reclaim disk space dan perbaikan collection.
+
+Kapan dipakai: setelah delete besar-besaran, atau recovery dari crash.
+
+```javascript
+// Compact collection (MongoDB 4.4+, WiredTiger)
+db.runCommand({ compact: "users" })
+
+// Repair database (offline — butuh stop mongod)
+// mongod --repair --dbpath /var/lib/mongodb
+```
+
+- **`compact`**: reclaim space setelah delete banyak — berjalan online tapi resource-intensive.
+- **`--repair`**: last resort — stop server, bisa memakan waktu lama.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek dengan MongoDB lokal
+
+```bash
+# 1. Jalankan MongoDB (Docker)
+docker run -d --name mongo-dev \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD=devpass \
+  -p 27017:27017 \
+  -v mongo-data:/data/db \
+  mongo:7
+
+# 2. Connect
+mongosh "mongodb://admin:devpass@127.0.0.1:27017/?authSource=admin"
+
+# 3. Buat database dan user aplikasi
+use myapp
+db.createUser({
+  user: "dev",
+  pwd: "devpass",
+  roles: [{ role: "readWrite", db: "myapp" }]
+})
+
+# 4. Seed data
+db.users.insertMany([
+  { name: "Dev User", email: "dev@localhost", role: "admin" }
+])
+```
+
+---
+
+### Eksplorasi cepat saat debugging
+
+```javascript
+// Connect ke DB aplikasi
+mongosh "mongodb://dev:devpass@127.0.0.1:27017/myapp?authSource=myapp"
+
+// Cek struktur
+show collections
+db.users.findOne()
+db.users.getIndexes()
+
+// Cari data bermasalah
+db.orders.find({ status: "pending", createdAt: { $lt: new Date("2025-01-01") } }).limit(5)
+
+// Explain query lambat
+db.orders.find({ customerId: ObjectId("...") }).explain("executionStats")
+
+// Hitung record
+db.orders.countDocuments({ status: "completed" })
+```
+
+---
+
+### Backup sebelum migrasi
+
+```bash
+# 1. Backup
+mongodump --uri="mongodb://dev:devpass@127.0.0.1:27017/myapp?authSource=myapp" \
+  --out=./backup/pre-migration-$(date +%Y%m%d)
+
+# 2. Jalankan migrasi (script JS)
+mongosh "mongodb://dev:devpass@127.0.0.1:27017/myapp?authSource=myapp" migration.js
+
+# 3. Jika gagal — restore
+mongorestore --uri="mongodb://dev:devpass@127.0.0.1:27017/?authSource=myapp" \
+  --db=myapp --drop ./backup/pre-migration-20250624/myapp/
+```
+
+---
+
+### Export seed data untuk version control
+
+```bash
+# Export collection ke JSON (NDJSON — satu dokumen per baris)
+mongoexport --uri="mongodb://127.0.0.1:27017/myapp" \
+  --collection=users --out=./seeds/users.json
+
+# Import di mesin lain
+mongoimport --uri="mongodb://127.0.0.1:27017/myapp" \
+  --collection=users --file=./seeds/users.json --drop
+```
+
+---
+
+### Script automation di CI/CD
+
+```bash
+# Health check
+mongosh "$MONGODB_URI" --quiet --eval "db.runCommand({ ping: 1 }).ok" | grep -q 1
+
+# Run migration
+mongosh "$MONGODB_URI" --file migrations/001-add-indexes.js
+
+# Verify count setelah seed
+COUNT=$(mongosh "$MONGODB_URI" --quiet --eval "db.users.countDocuments()")
+echo "Users: $COUNT"
+```
+
+---
+
+## Perbandingan Singkat: MongoDB vs SQL
+
+MongoDB (dokumen) dan SQL (relasional) punya model data berbeda — pilih sesuai kebutuhan, bukan karena tren.
+
+| Aspek | MongoDB (mongosh) | SQL (mysql/psql) |
+| --- | --- | --- |
+| **Model data** | Dokumen BSON (nested) | Tabel baris-kolom (normalisasi) |
+| **Schema** | Fleksibel / schemaless | Rigid — definisi tabel wajib |
+| **Query language** | JavaScript API + aggregation | SQL (SELECT, JOIN, GROUP BY) |
+| **Relasi** | Embedding atau `$lookup` | JOIN native, foreign key |
+| **Primary key** | `_id` (ObjectId) | AUTO_INCREMENT, UUID, dll. |
+| **Transactions** | Multi-doc transactions (4.0+) | ACID native |
+| **Scaling horizontal** | Sharding built-in | Lebih kompleks (sharding manual) |
+| **Backup CLI** | `mongodump` / `mongorestore` | `mysqldump` / `pg_dump` |
+| **Export human-readable** | `mongoexport` (JSON/CSV) | `SELECT INTO OUTFILE`, `\copy` |
+| **Use case ideal** | Konten fleksibel, catalog, logs, real-time | Transaksi finansial, reporting kompleks, relasi ketat |
+
+Kapan MongoDB cocok:
+
+- Schema berubah sering atau tidak terprediksi.
+- Data nested/hierarchical (produk dengan variant, user profile kompleks).
+- Write-heavy dengan struktur dokumen.
+- Prototipe cepat tanpa migrasi schema SQL.
+
+Kapan SQL tetap lebih baik:
+
+- Relasi kompleks antar banyak entitas.
+- Transaksi multi-tabel dengan konsistensi ketat.
+- Reporting ad-hoc dengan JOIN banyak tabel.
+- Tim sudah kuat di SQL dan ecosystem matang.
+
+<Callout type="info">
+Banyak aplikasi modern memakai **keduanya** — PostgreSQL untuk transaksi inti, MongoDB untuk cache, logs, atau fitur dengan schema fleksibel. Pilih berdasarkan pola akses data, bukan dogma.
+</Callout>
+
+---
+
+## Troubleshooting Umum
+
+### Connection refused
+
+```bash
+# Cek apakah mongod berjalan
+pgrep -l mongod
+brew services list | grep mongo
+sudo systemctl status mongod
+
+# Cek port listening
+lsof -i :27017
+ss -tlnp | grep 27017
+
+# Start server
+brew services start mongodb-community@7.0
+sudo systemctl start mongod
+```
+
+---
+
+### Authentication failed
+
+```bash
+# Pastikan authSource benar
+mongosh -u appuser -p pass --authenticationDatabase myapp myapp
+
+# Cek user ada
+mongosh -u admin -p adminpass --authenticationDatabase admin --eval "db.getUsers()" myapp
+
+# Reset password (sebagai admin)
+mongosh -u admin -p adminpass --authenticationDatabase admin --eval 'db.updateUser("appuser", { pwd: "NewPass!" })' myapp
+```
+
+---
+
+### Query lambat / COLLSCAN
+
+```javascript
+// 1. Explain query
+db.orders.find({ status: "pending" }).explain("executionStats")
+
+// 2. Buat index yang sesuai
+db.orders.createIndex({ status: 1, createdAt: -1 })
+
+// 3. Verifikasi index dipakai
+db.orders.find({ status: "pending" }).explain("executionStats")
+// winningPlan.inputStage.stage harus "IXSCAN"
+```
+
+---
+
+### Disk penuh / storage growth
+
+```bash
+# Cek ukuran database
+mongosh --eval "db.adminCommand({ listDatabases: 1 })"
+
+# Di shell — collection terbesar
+db.getCollectionNames().forEach(function(c) {
+  const stats = db.getCollection(c).stats();
+  print(c + ": " + (stats.storageSize / 1024 / 1024).toFixed(2) + " MB");
+});
+
+# Compact setelah delete besar
+db.runCommand({ compact: "logs" })
+```
+
+---
+
+### Too many connections
+
+```javascript
+// Cek koneksi aktif
+db.serverStatus().connections
+
+// Lihat siapa yang connect
+db.currentOp(true).inprog.filter(op => op.client)
+
+// Naikkan limit (sementara) — di mongod.conf:
+// net:
+//   maxIncomingConnections: 500
+```
+
+---
+
+### Duplicate key error (E11000)
+
+```javascript
+// Error: E11000 duplicate key error collection
+// Penyebab: insert/update melanggar unique index
+
+// Cek index unique
+db.users.getIndexes()
+
+// Cari duplikat
+db.users.aggregate([
+  { $group: { _id: "$email", count: { $sum: 1 } } },
+  { $match: { count: { $gt: 1 } } }
+])
+```
+
+---
+
+### mongodump/mongorestore gagal
+
+```bash
+# Permission denied pada output folder
+mkdir -p /backup && chmod 755 /backup
+
+# Auth error
+mongodump --uri="mongodb://user:pass@host:27017/?authSource=admin" --db=myapp --out=/backup/
+
+# Restore conflict — gunakan --drop dengan hati-hati
+mongorestore --uri="..." --db=myapp --drop /backup/myapp/
+
+# BSON corrupt — re-dump dari source
+```
+
+---
+
+### Docker: data hilang setelah restart
+
+```bash
+# Gunakan named volume
+docker run -d --name mongo-dev \
+  -v mongo-data:/data/db \
+  -p 27017:27017 \
+  mongo:7
+
+# Cek volume
+docker volume ls
+docker volume inspect mongo-data
+```
+
+---
+
+## Tips & Konfigurasi Shell
+
+### `.mongoshrc.js` — Konfigurasi Shell
+
+File konfigurasi yang dijalankan otomatis saat `mongosh` start — custom prompt, helper function, alias.
+
+Kapan dipakai: personalisasi shell, definisi helper yang sering dipakai.
+
+```javascript
+// ~/.mongoshrc.js
+print("MongoDB shell — " + db.getName());
+
+// Helper: pretty count all collections
+function countAll() {
+  db.getCollectionNames().forEach(c => {
+    print(c + ": " + db.getCollection(c).countDocuments());
+  });
+}
+
+// Custom prompt
+config.set("prompt", "mongosh[" + db.getName() + "]> ");
+```
+
+---
+
+### Perintah Bantuan di Shell
+
+```javascript
+help          // bantuan umum
+help connect  // bantuan koneksi
+help db       // bantuan database commands
+help admin    // bantuan admin commands
+
+// Bantuan method
+db.users.help()
+db.users.insertOne.help()
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Server** | `mongod`, `brew services start mongodb-community` |
+| **Koneksi** | `mongosh`, connection string `mongodb://...` |
+| **Navigasi** | `show dbs`, `use`, `show collections`, `db.stats()` |
+| **Create** | `insertOne`, `insertMany` |
+| **Read** | `find`, `findOne`, `countDocuments` |
+| **Update** | `updateOne`, `updateMany`, `findOneAndUpdate` |
+| **Delete** | `deleteOne`, `deleteMany`, `drop` |
+| **Aggregation** | `aggregate`, `$match`, `$group`, `$lookup` |
+| **Index** | `createIndex`, `getIndexes`, `explain` |
+| **Backup** | `mongodump`, `mongorestore` |
+| **Export/Import** | `mongoexport`, `mongoimport` |
+| **Monitoring** | `mongostat`, `mongotop`, `db.serverStatus()` |
+| **Auth** | `createUser`, `createRole`, `db.auth()` |
+| **Admin** | `currentOp`, `killOp`, `rs.status()` |
+
+---
+
+## Penutup
+
+Enam perintah inti MongoDB CLI: **`mongosh`** (koneksi & query), **`db.collection.find()`** (baca data), **`insertOne`/`updateOne`** (tulis data), **`createIndex`** (performa), **`mongodump`/`mongorestore`** (backup), dan **`createUser`** (keamanan). Dengan keenamnya, Anda sudah menutup workflow database sehari-hari dari terminal.
+
+Langkah berikutnya: kuasai **aggregation pipeline** (`$lookup`, `$unwind`), **`explain`** untuk optimasi query, **replica set** untuk high availability, dan **connection string** dengan TLS untuk production. MongoDB punya ekosistem tool yang luas — manfaatkan [dokumentasi resmi](https://www.mongodb.com/docs/manual/) dan `help` di dalam `mongosh` sebagai referensi terbaru.

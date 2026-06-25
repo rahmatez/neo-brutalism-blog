@@ -1,0 +1,63 @@
+---
+title: "Memulai dengan MDX di Next.js 16"
+description: "Pelajari cara menulis konten blog yang kaya dengan MDX, komponen React, dan syntax highlighting menggunakan Shiki."
+date: "2025-06-15"
+category: typescript
+tags: ["mdx", "nextjs", "tutorial"]
+featured: true
+---
+
+## Apa itu MDX?
+
+MDX adalah format yang menggabungkan **Markdown** dengan **JSX**. Anda bisa menulis konten seperti biasa, lalu menyisipkan komponen React langsung di dalamnya.
+
+<Callout type="tip">
+MDX sangat cocok untuk blog teknis karena memungkinkan demo interaktif langsung di artikel.
+</Callout>
+
+## Contoh Kode TypeScript
+
+Berikut contoh fungsi sederhana dengan syntax highlighting dari **Shiki**:
+
+```typescript
+interface Post {
+  title: string;
+  slug: string;
+  date: Date;
+}
+
+function createPost(title: string, slug: string): Post {
+  return {
+    title,
+    slug,
+    date: new Date(),
+  };
+}
+
+const post = createPost("Hello MDX", "hello-mdx");
+console.log(post.title); // "Hello MDX"
+```
+
+## Fitur Markdown
+
+MDX mendukung semua fitur GitHub Flavored Markdown:
+
+- **Bold** dan *italic*
+- [Link internal](/) dan link eksternal
+- List bernomor dan bullet
+- Blockquote
+
+> "The best way to learn is to teach." — Anonymous
+
+## Tabel Perbandingan
+
+| Fitur | Markdown | MDX |
+| --- | --- | --- |
+| Teks formatting | ✅ | ✅ |
+| Komponen React | ❌ | ✅ |
+| Interaktif | ❌ | ✅ |
+| Type-safe | ❌ | ✅ |
+
+## Langkah Selanjutnya
+
+Di artikel berikutnya, kita akan membahas **Sandpack playground** untuk demo kode yang bisa diedit langsung oleh pembaca.

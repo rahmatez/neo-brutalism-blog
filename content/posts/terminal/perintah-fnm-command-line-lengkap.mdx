@@ -1,0 +1,1016 @@
+---
+title: "Perintah fnm (Fast Node Manager) Command Line Lengkap"
+description: "Panduan lengkap perintah CLI fnm (Fast Node Manager): install, use, default, list, uninstall, env, exec, .node-version, .nvmrc, shell setup, dan workflow multi-proyek."
+date: "2025-06-24"
+category: terminal
+tags: ["fnm", "nodejs", "nvm", "cli", "tutorial"]
+featured: true
+---
+
+**fnm** (Fast Node Manager) adalah version manager Node.js yang ditulis dalam Rust — ringan, cepat, dan cross-platform. Dengan perintah `fnm` di terminal, Anda bisa menginstal banyak versi Node.js, beralih antar versi per proyek, dan mengotomatiskan switching lewat file `.node-version` atau `.nvmrc`.
+
+<Callout type="tip">
+Pastikan fnm sudah terpasang. Cek dengan `fnm --version`. Instalasi di Mac: `brew install fnm` atau `curl -fsSL https://fnm.vercel.app/install | bash`. Setelah instal, wajib setup shell — lihat bagian **Shell Setup (Zsh)** di artikel ini.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti fnm — istilah ini muncul terus di dokumentasi dan output terminal:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Version manager** | Tool yang mengelola banyak instalasi Node.js paralel di satu mesin |
+| **fnm** | Fast Node Manager — binary tunggal berbasis Rust, pengganti populer nvm |
+| **Versi Node** | Rilis spesifik Node.js, mis. `20.15.0`, `22.3.0`, atau alias `lts/hydrogen` |
+| **Default version** | Versi Node yang aktif saat tidak ada file versi lokal — diset lewat `fnm default` |
+| **`.node-version`** | File teks satu baris berisi versi Node yang dipakai proyek — standar umum |
+| **`.nvmrc`** | File versi kompatibel nvm — fnm membacanya juga |
+| **`engines.node`** | Field di `package.json` yang mendeklarasikan versi Node yang didukung |
+| **`fnm env`** | Perintah yang menghasilkan script shell agar `node`/`npm` di PATH benar |
+| **Alias** | Nama pintasan untuk versi, mis. `default`, `lts`, atau custom `work` |
+| **`--use-on-cd`** | Hook shell yang otomatis ganti versi Node saat `cd` ke folder proyek |
+
+### Alur kerja fnm
+
+```
+fnm install 20   ──►  unduh & simpan Node 20.x ke ~/.local/share/fnm
+fnm use 20       ──►  aktifkan Node 20 di shell saat ini
+fnm default 22   ──►  set Node 22 sebagai fallback global
+cd ~/proyek      ──►  (--use-on-cd) baca .node-version → switch otomatis
+```
+
+### Perintah informasi dasar
+
+```bash
+fnm --version           # tampilkan versi fnm yang terinstal
+fnm --help              # daftar semua subcommand
+fnm help install        # bantuan detail untuk satu perintah
+fnm current             # versi Node yang sedang aktif
+node --version          # verifikasi versi Node di PATH (setelah fnm env)
+```
+
+- **`fnm --version`**: langkah pertama saat troubleshooting — pastikan fnm tidak terlalu usang.
+- **`fnm current`**: cek versi aktif tanpa memanggil `node` — berguna di script.
+- **`fnm help <command>`**: referensi cepat tanpa buka browser.
+
+---
+
+## Instalasi fnm
+
+### Instalasi di macOS — Homebrew
+
+`brew install fnm` adalah cara paling mudah di Mac — Homebrew mengurus binary dan PATH dasar.
+
+Kapan dipakai: setup mesin development baru, atau migrasi dari nvm ke fnm.
+
+```bash
+brew install fnm
+fnm --version
+```
+
+- Setelah instal Homebrew, Anda tetap perlu menambahkan `eval "$(fnm env --use-on-cd)"` ke `~/.zshrc` — Homebrew tidak melakukannya otomatis.
+- Di Apple Silicon, binary biasanya di `/opt/homebrew/bin/fnm`.
+
+---
+
+### Instalasi via script resmi
+
+Script instalasi resmi dari [fnm.vercel.app](https://fnm.vercel.app) mendukung bash, zsh, dan fish.
+
+Kapan dipakai: Linux, WSL, atau Mac tanpa Homebrew.
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# atau dengan opsi shell eksplisit:
+curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir "$HOME/.local/share/fnm" --skip-shell
+```
+
+- **`--skip-shell`**: instal binary saja tanpa mengubah file shell — berguna jika Anda kelola `.zshrc` sendiri.
+- **`--install-dir`**: lokasi custom untuk binary dan data Node — default `~/.local/share/fnm`.
+
+---
+
+### Instalasi via Cargo (Rust)
+
+Jika Anda sudah punya Rust toolchain, fnm bisa di-build dari source crate.
+
+Kapan dipakai: developer Rust yang ingin versi bleeding-edge, atau environment tanpa package manager.
+
+```bash
+cargo install fnm
+fnm --version
+```
+
+- Build dari source lebih lambat daripada unduh binary pre-compiled.
+- Pastikan `~/.cargo/bin` ada di PATH.
+
+---
+
+## `fnm install` — Instal Versi Node.js
+
+`fnm install` mengunduh dan menginstal versi Node.js tertentu ke direktori fnm — tanpa mengganggu instalasi Node lain di sistem.
+
+Kapan dipakai: pertama kali setup mesin, proyek baru butuh versi spesifik, atau upgrade ke LTS terbaru.
+
+```bash
+fnm install 22                    # instal versi mayor 22 (latest patch)
+fnm install 20.15.0               # versi exact semver
+fnm install --lts                 # instal LTS terbaru
+fnm install lts/hydrogen            # instal LTS dengan codename
+fnm install --latest              # instal versi current terbaru
+fnm install                       # instal dari .node-version / .nvmrc / engines
+fnm install 20 --use              # instal lalu langsung aktifkan
+fnm i 18                          # alias singkat: fnm i
+```
+
+- **`--lts`**: paling aman untuk production — versi dengan dukungan jangka panjang.
+- **`lts/<codename>`**: pin ke generasi LTS tertentu — mis. `lts/iron` untuk Node 20.
+- **`--latest`**: versi current (bukan LTS) — fitur terbaru, tapi kurang stabil.
+- **Tanpa argumen**: baca versi dari file lokal — kombinasi powerful dengan `.node-version`.
+- **`--use`**: instal + aktifkan dalam satu langkah — menghemat satu perintah.
+
+Opsi instalasi lanjutan:
+
+```bash
+fnm install 20 --progress always          # tampilkan progress bar download
+fnm install 20 --progress never           # tanpa progress bar (untuk CI/log)
+fnm install 20 --corepack-enabled         # jalankan corepack enable setelah instal
+fnm install --resolve-engines=false 20    # abaikan engines.node di package.json
+```
+
+- **`--progress`**: `auto` (default), `always`, atau `never` — atur output download.
+- **`--corepack-enabled`**: aktifkan [Corepack](https://nodejs.org/api/corepack.html) otomatis — berguna untuk Yarn/pnpm terkelola.
+- **`--resolve-engines`**: default `true` — fnm bisa baca `engines.node` dari `package.json` jika tidak ada file versi.
+
+<Callout type="info">
+fnm mendukung **partial semver**: `fnm install 20` menginstal patch terbaru dari mayor 20, `fnm install 20.15` menginstal patch terbaru dari minor 20.15.
+</Callout>
+
+---
+
+## `fnm use` — Aktifkan Versi Node
+
+`fnm use` mengganti versi Node.js yang aktif di shell saat ini — memperbarui symlink dan environment variable.
+
+Kapan dipakai: beralih antar proyek dengan versi berbeda, atau setelah `fnm install` tanpa flag `--use`.
+
+```bash
+fnm use 22                        # aktifkan Node 22
+fnm use 20.15.0                   # versi exact
+fnm use default                   # kembali ke versi default
+fnm use                           # baca dari .node-version / .nvmrc / engines
+fnm use 18 --install-if-missing   # instal dulu jika belum ada, lalu aktifkan
+fnm use 20 --silent-if-unchanged  # tanpa output jika versi sudah sama
+```
+
+- **`--install-if-missing`**: workflow favorit developer — satu perintah untuk "pastikan versi ada lalu pakai".
+- **Tanpa argumen**: otomatis resolve dari file versi di direktori kerja — pasangan ideal dengan `.node-version`.
+- **`--silent-if-unchanged`**: berguna di script/CI yang memanggil `fnm use` berulang — hindari noise di log.
+
+Contoh workflow setelah clone proyek:
+
+```bash
+cd ~/Developer/my-app
+cat .node-version          # mis. 20.15.0
+fnm use --install-if-missing
+node --version             # v20.15.0
+npm install
+```
+
+---
+
+## `fnm default` — Set Versi Default Global
+
+`fnm default` menetapkan versi Node yang dipakai saat tidak ada file versi lokal — setara `fnm alias <version> default`.
+
+Kapan dipakai: setup mesin baru, tentukan versi "utama" untuk terminal baru dan proyek tanpa `.node-version`.
+
+```bash
+fnm default 22                    # set Node 22 sebagai default
+fnm default                       # tampilkan default saat ini
+fnm default lts/latest            # default ke LTS terbaru (jika sudah diinstal)
+```
+
+- Default berlaku di **shell baru** setelah `fnm env` dievaluasi — bukan menggantikan `.node-version` lokal.
+- Jika belum set default dan tidak ada file versi, fnm mungkin error atau tidak menemukan Node — selalu set default setelah setup awal.
+
+Setup mesin baru yang direkomendasikan:
+
+```bash
+fnm install --lts
+fnm default lts/latest
+fnm current
+```
+
+---
+
+## `fnm list` — Versi Terinstal Lokal
+
+`fnm list` (alias `fnm ls`) menampilkan semua versi Node.js yang sudah diinstal di mesin Anda.
+
+Kapan dipakai: audit versi yang terpasang, cek sebelum uninstall, atau verifikasi instalasi berhasil.
+
+```bash
+fnm list                          # daftar versi lokal
+fnm ls                            # alias singkat
+```
+
+Output tipikal:
+
+```
+* v22.3.0 default
+* v20.15.0
+* v18.20.4
+```
+
+- Tanda **`*`** di kiri menandakan versi yang sedang aktif di shell.
+- Label **`default`** menandakan versi fallback global.
+- Versi yang tidak pernah dipakai bisa dihapus dengan `fnm uninstall` untuk menghemat disk.
+
+---
+
+## `fnm list-remote` — Versi Tersedia di Server
+
+`fnm list-remote` (alias `fnm ls-remote`) menampilkan versi Node.js yang bisa diunduh dari mirror resmi.
+
+Kapan dipakai: mencari versi spesifik sebelum instal, cek ketersediaan LTS, atau audit rilis terbaru.
+
+```bash
+fnm list-remote                   # semua versi (banyak output!)
+fnm ls-remote --lts               # hanya versi LTS
+fnm ls-remote --lts hydrogen      # LTS dengan codename tertentu
+fnm ls-remote --latest            # hanya versi terbaru
+fnm ls-remote --filter 20         # filter versi mayor 20
+fnm ls-remote --filter ">=20 <21"  # filter semver range
+fnm ls-remote --sort desc         # urut dari terbaru ke terlama
+fnm ls-remote --sort asc          # urut dari terlama ke terbaru (default)
+```
+
+- **`--filter`**: sangat berguna — hindari scroll ribuan baris output.
+- **`--sort desc`**: kombinasikan dengan `--latest` untuk dapat versi terbaru dengan cepat.
+- **`--lts`**: daftar rilis LTS saja — cocok saat memilih versi production.
+
+Contoh: cari patch terbaru Node 20:
+
+```bash
+fnm ls-remote --filter 20 --sort desc | head -5
+fnm install 20
+```
+
+---
+
+## `fnm current` — Versi Aktif Saat Ini
+
+`fnm current` mencetak versi Node.js yang sedang aktif di environment fnm — tanpa memanggil binary `node`.
+
+Kapan dipakai: script shell, CI check, atau verifikasi cepat sebelum menjalankan build.
+
+```bash
+fnm current
+# output: v22.3.0
+```
+
+Perbandingan dengan perintah lain:
+
+```bash
+fnm current           # versi yang dipilih fnm
+node --version        # versi binary node di PATH (harus cocok)
+which node            # lokasi symlink node dari fnm
+```
+
+- Jika `fnm current` dan `node --version` berbeda, kemungkinan `fnm env` belum dievaluasi atau ada Node lain di PATH (Homebrew, nvm) yang menang.
+
+---
+
+## `fnm uninstall` — Hapus Versi Node
+
+`fnm uninstall` (alias `fnm uni`) menghapus instalasi versi Node tertentu dari direktori fnm.
+
+Kapan dipakai: bersihkan versi lama yang tidak terpakai, hemat ruang disk, atau reset environment.
+
+```bash
+fnm uninstall 18.20.4             # hapus versi spesifik
+fnm uninstall 18                  # hapus versi mayor 18 (jika ter-resolve)
+fnm uni 16.20.2                   # alias singkat
+```
+
+<Callout type="warning">
+Saat uninstall lewat **alias**, fnm menghapus versi yang ditunjuk alias tersebut — beserta alias lain yang menunjuk ke versi yang sama. Pastikan tidak menghapus versi yang masih dipakai proyek aktif.
+</Callout>
+
+- Jangan uninstall versi yang sedang aktif tanpa beralih dulu — `fnm use` ke versi lain sebelum `uninstall`.
+- Jika versi adalah `default`, set default baru dulu: `fnm default 22` lalu `fnm uninstall 20`.
+
+Bersihkan versi lama secara bertahap:
+
+```bash
+fnm list
+fnm uninstall 16.20.2
+fnm uninstall 18.20.4
+fnm list
+```
+
+---
+
+## `fnm env` — Setup Environment Shell
+
+`fnm env` adalah perintah fundamental fnm — menghasilkan perintah shell yang harus dievaluasi agar `node`, `npm`, dan `npx` mengarah ke versi yang benar.
+
+Kapan dipakai: setup awal fnm, konfigurasi shell, atau debug PATH yang salah.
+
+```bash
+eval "$(fnm env)"                           # bash/zsh — wajib di shell config
+eval "$(fnm env --use-on-cd)"               # + auto-switch saat cd
+eval "$(fnm env --use-on-cd -s zsh)"        # tentukan shell eksplisit
+fnm env --json                              # output JSON (untuk tool/script)
+fnm env --shell fish | source               # sintaks Fish shell
+```
+
+- **`eval "$(fnm env)"`**: tanpa ini, perintah `fnm use` tidak memengaruhi `node` di PATH.
+- **`--use-on-cd`**: hook yang menjalankan `fnm use` otomatis setiap kali Anda `cd` — fitur killer untuk multi-proyek.
+- **`-s` / `--shell`**: pilih sintaks output — `bash`, `zsh`, `fish`, `powershell`.
+- **`--json`**: untuk integrasi dengan tool yang tidak bisa `eval` shell script.
+
+Apa yang dilakukan `fnm env` di balik layar:
+
+| Variabel / Aksi | Fungsi |
+| --- | --- |
+| **`PATH`** | Menambahkan direktori Node versi aktif ke depan PATH |
+| **`FNM_*`** | Set environment variable konfigurasi fnm |
+| **`--use-on-cd`** | Registrasi hook `chpwd` (zsh) atau `PROMPT_COMMAND` (bash) |
+
+---
+
+## `fnm exec` — Jalankan Perintah dengan Versi Tertentu
+
+`fnm exec` menjalankan satu perintah dalam konteks versi Node spesifik — tanpa mengubah versi aktif di shell.
+
+Kapan dipakai: CI script, tes kompatibilitas multi-versi, atau menjalankan tool sekali pakai dengan Node berbeda.
+
+```bash
+fnm exec --using=20 node --version
+fnm exec --using=18 npm test
+fnm exec --using=22 npx vitest run
+fnm exec --using=.node-version node script.js
+fnm exec --using=20 -- node -e "console.log(process.version)"
+```
+
+- **`--using`**: versi eksplisit (`20`, `20.15.0`) atau path ke file (`.node-version`, `.nvmrc`).
+- **`--`**: pemisah opsi fnm vs argumen perintah — mirip `git` dan `docker`.
+- Versi shell **tidak berubah** setelah `exec` selesai — aman untuk pipeline.
+
+Contoh matrix test di script:
+
+```bash
+for v in 18 20 22; do
+  echo "=== Testing Node $v ==="
+  fnm exec --using=$v npm test
+done
+```
+
+Contoh di `package.json` scripts:
+
+```json
+{
+  "scripts": {
+    "test:node18": "fnm exec --using=18 npm test",
+    "test:node20": "fnm exec --using=20 npm test"
+  }
+}
+```
+
+---
+
+## `fnm alias` & `fnm unalias` — Alias Versi
+
+`fnm alias` memberi nama pintasan ke versi Node — `default` adalah alias paling penting, tapi Anda bisa buat custom.
+
+Kapan dipakai: penamaan versi untuk tim, shortcut versi kerja, atau alias `lts` custom.
+
+```bash
+fnm alias 20.15.0 work             # buat alias "work" → 20.15.0
+fnm use work                       # aktifkan lewat alias
+fnm alias 22.3.0 default           # set default (sama dengan fnm default 22.3.0)
+fnm unalias work                   # hapus alias custom
+```
+
+- **`default`**: alias khusus — versi fallback saat tidak ada file lokal.
+- Alias custom berguna di dokumentasi tim: "proyek legacy pakai alias `legacy` (= 16.20.2)".
+- `fnm unalias` hanya menghapus nama alias — tidak menghapus instalasi Node-nya.
+
+---
+
+## File Versi: `.node-version` & `.nvmrc`
+
+fnm membaca file versi di direktori proyek untuk otomatis menentukan Node yang dipakai — kompatibel dengan ekosistem nvm dan asdf.
+
+### `.node-version` — Standar Umum
+
+File teks satu baris berisi versi Node — didukung fnm, asdf, nodenv, dan banyak tool lain.
+
+Kapan dipakai: proyek baru, monorepo, atau standarisasi tim — format paling portable.
+
+```bash
+echo "20.15.0" > .node-version
+echo "20" > .node-version           # partial semver — OK
+echo "lts/hydrogen" > .node-version # LTS codename
+fnm install                         # instal versi dari file
+fnm use                             # aktifkan versi dari file
+```
+
+Isi file yang valid:
+
+```
+20.15.0
+20
+lts/iron
+```
+
+- Commit `.node-version` ke Git — seluruh tim dan CI memakai versi sama.
+- Satu baris saja — tanpa `v` prefix (keduanya biasanya OK, tapi tanpa `v` lebih umum).
+
+---
+
+### `.nvmrc` — Kompatibilitas nvm
+
+File yang dipopulerkan nvm — fnm membacanya dengan cara yang sama.
+
+Kapan dipakai: proyek legacy yang sudah punya `.nvmrc`, migrasi dari nvm tanpa ubah repo.
+
+```bash
+echo "20.15.0" > .nvmrc
+fnm use                             # baca .nvmrc jika tidak ada .node-version
+fnm install
+```
+
+Prioritas resolusi versi (dengan `--version-file-strategy local`):
+
+1. `.node-version` di direktori saat ini
+2. `.nvmrc` di direktori saat ini
+3. `engines.node` di `package.json` (jika `--resolve-engines` aktif)
+4. Versi `default` fnm
+
+Dengan strategi `recursive`, fnm juga mencari file versi di **parent directory** — berguna untuk monorepo:
+
+```bash
+# Set di ~/.zshrc atau environment
+export FNM_VERSION_FILE_STRATEGY=recursive
+# atau lewat flag:
+fnm use --version-file-strategy=recursive
+```
+
+---
+
+### `engines.node` di `package.json`
+
+Jika tidak ada `.node-version` atau `.nvmrc`, fnm bisa membaca field `engines`:
+
+```json
+{
+  "name": "my-app",
+  "engines": {
+    "node": ">=20 <21"
+  }
+}
+```
+
+```bash
+fnm install                         # resolve ke versi terbaru yang memenuhi range
+fnm use
+```
+
+- **`--resolve-engines`**: default `true` — fnm memilih versi terbaru yang memenuhi semver range.
+- Lebih fleksibel dari pin exact, tapi kurang deterministik — untuk reproducibility, prefer `.node-version`.
+
+<Callout type="tip">
+Untuk tim dan CI, **pin exact version** di `.node-version` (`20.15.0`) dan gunakan `engines.node` hanya sebagai guardrail (`>=20 <21`). Kombinasi ini memberi reproducibility plus validasi fleksibel.
+</Callout>
+
+---
+
+## Shell Setup (Zsh)
+
+Setup shell adalah langkah **wajib** setelah instal fnm — tanpa ini, `fnm use` tidak memengaruhi perintah `node`.
+
+### Konfigurasi Zsh — Direkomendasikan
+
+Tambahkan ke `~/.zshrc`:
+
+```bash
+# fnm — Fast Node Manager
+FNM_PATH="$HOME/.local/share/fnm"
+if [ -d "$FNM_PATH" ]; then
+  export PATH="$FNM_PATH:$PATH"
+  eval "$(fnm env --use-on-cd -s zsh)"
+fi
+```
+
+Kapan dipakai: setiap setup fnm di Mac/Linux dengan Zsh sebagai shell default (termasuk Terminal.app dan iTerm2).
+
+- **`--use-on-cd`**: otomatis ganti versi Node saat pindah direktori — tidak perlu `fnm use` manual tiap proyek.
+- **Cek `FNM_PATH`**: Homebrew mungkin instal di lokasi berbeda — sesuaikan jika perlu.
+- Setelah edit, reload: `source ~/.zshrc` atau buka terminal baru.
+
+Verifikasi setup:
+
+```bash
+source ~/.zshrc
+fnm current
+node --version
+which node
+# harus mengarah ke direktori fnm, bukan /usr/local/bin atau Homebrew node
+```
+
+---
+
+### Konfigurasi Bash
+
+Untuk bash (Linux server, WSL, atau script interaktif):
+
+```bash
+# ~/.bashrc
+export PATH="$HOME/.local/share/fnm:$PATH"
+eval "$(fnm env --use-on-cd -s bash)"
+```
+
+Kapan dipakai: server Linux, Git Bash di Windows, atau environment yang default-nya bash.
+
+---
+
+### Konfigurasi Fish
+
+Fish punya sintaks berbeda — tidak pakai `eval`:
+
+```fish
+# ~/.config/fish/config.fish
+fnm env --use-on-cd | source
+```
+
+Kapan dipakai: developer yang memakai Fish shell sebagai default.
+
+---
+
+### Tab Completion (Zsh)
+
+fnm menyediakan completion script untuk shell:
+
+```bash
+fnm completions --shell zsh > ~/.zfunc/_fnm
+# pastikan fpath mengandung ~/.zfunc di ~/.zshrc:
+# fpath=(~/.zfunc $fpath)
+# autoload -Uz compinit && compinit
+```
+
+Kapan dipakai: produktivitas sehari-hari — autocomplete subcommand dan versi.
+
+---
+
+### Oh My Zsh & Plugin
+
+Jika memakai Oh My Zsh, ada plugin `fnm` — tapi konfigurasi manual `eval "$(fnm env --use-on-cd)"` sering lebih transparan dan mudah di-debug.
+
+```bash
+# Alternatif: tanpa plugin, cukup baris eval di ~/.zshrc
+eval "$(fnm env --use-on-cd -s zsh)"
+```
+
+- Hindari **duplikasi** setup fnm — jangan aktifkan plugin Oh My Zsh **dan** `eval` manual bersamaan.
+- Konflik dengan **nvm** — jika migrasi, hapus atau comment block nvm di `.zshrc`.
+
+---
+
+## Variabel Environment fnm
+
+fnm bisa dikonfigurasi lewat environment variable — berguna untuk CI, Docker, atau preferensi global.
+
+| Variabel | Default | Penjelasan |
+| --- | --- | --- |
+| **`FNM_DIR`** | `~/.local/share/fnm` | Root direktori instalasi Node |
+| **`FNM_NODE_DIST_MIRROR`** | `https://nodejs.org/dist` | Mirror download Node.js |
+| **`FNM_LOGLEVEL`** | `info` | Level log: `quiet`, `error`, `info` |
+| **`FNM_ARCH`** | arch sistem | Override arsitektur binary Node |
+| **`FNM_VERSION_FILE_STRATEGY`** | `local` | `local` atau `recursive` |
+| **`FNM_COREPACK_ENABLED`** | — | Aktifkan corepack tiap instal |
+| **`FNM_RESOLVE_ENGINES`** | `true` | Baca `engines.node` dari package.json |
+
+Contoh di `~/.zshrc`:
+
+```bash
+export FNM_DIR="$HOME/.fnm"
+export FNM_LOGLEVEL=quiet
+export FNM_VERSION_FILE_STRATEGY=recursive
+export FNM_NODE_DIST_MIRROR="https://nodejs.org/dist"
+eval "$(fnm env --use-on-cd)"
+```
+
+Mirror untuk region dengan koneksi lambat (gunakan mirror tepercaya):
+
+```bash
+export FNM_NODE_DIST_MIRROR="https://npmmirror.com/mirrors/node"
+fnm install 20
+```
+
+- **`FNM_DIR` custom**: berguna jika home directory terbatas — arahkan ke disk lain.
+- **`FNM_LOGLEVEL=quiet`**: kurangi noise di CI/CD pipeline.
+
+---
+
+## Perbandingan: fnm vs nvm vs Volta
+
+Ringkasan singkat tiga Node version manager populer — pilih berdasarkan kebutuhan, bukan hype.
+
+| Aspek | **fnm** | **nvm** | **Volta** |
+| --- | --- | --- | --- |
+| **Bahasa** | Rust | Bash | Rust |
+| **Kecepatan** | Sangat cepat | Lambat (shell script) | Cepat |
+| **Instalasi** | Satu binary | Clone + source script | Satu binary |
+| **Auto-switch per folder** | `--use-on-cd` | `nvm use` manual / plugin | Otomatis (built-in) |
+| **`.nvmrc`** | Didukung | Native | Didukung |
+| **`.node-version`** | Didukung | Perlu config | Didukung |
+| **Pin per proyek** | Via file versi | Via `.nvmrc` | Via `package.json` volta field |
+| **Package manager pin** | Tidak (gunakan corepack) | Tidak | Ya (npm/yarn/pnpm) |
+| **Cross-platform** | Mac, Linux, Windows | Mac, Linux (WSL) | Mac, Linux, Windows |
+| **Startup shell** | Ringan | Lambat (source nvm.sh) | Ringan |
+
+### Kapan pilih fnm?
+
+- Anda ingin **kecepatan** instal dan switching — fnm 10–50× lebih cepat dari nvm di benchmark umum.
+- Tim sudah pakai **`.nvmrc`** atau **`.node-version`** — migrasi dari nvm mudah.
+- Anda tidak butuh pin versi npm/yarn per proyek (itu domain Volta/Corepack).
+
+### Kapan pilih nvm?
+
+- Proyek/laptop legacy yang sudah sangat terintegrasi dengan nvm.
+- Butuh fitur spesifik nvm yang belum ada di fnm (jarang, tapi cek dulu).
+
+### Kapan pilih Volta?
+
+- Anda ingin pin **Node + npm/yarn** sekaligus lewat `package.json`.
+- Auto-switch tanpa konfigurasi shell hook tambahan adalah prioritas.
+
+<Callout type="info">
+Migrasi nvm → fnm: instal fnm, setup shell, lalu `fnm install` versi yang sama dengan yang dipakai proyek. File `.nvmrc` existing tetap berfungsi — tidak perlu rename ke `.node-version` kecuali ingin standarisasi.
+</Callout>
+
+---
+
+## Workflow Multi-Proyek
+
+Skenario umum developer yang mengelola banyak proyek dengan versi Node berbeda — fnm dirancang untuk ini.
+
+### Setup awal mesin baru
+
+```bash
+# 1. Instal fnm
+brew install fnm
+
+# 2. Setup zsh (tambah ke ~/.zshrc)
+eval "$(fnm env --use-on-cd -s zsh)"
+
+# 3. Instal versi yang sering dipakai
+fnm install 18
+fnm install 20
+fnm install 22
+fnm default 22
+
+# 4. Verifikasi
+fnm list
+node --version
+```
+
+---
+
+### Clone proyek dan mulai kerja
+
+```bash
+git clone git@github.com:tim/legacy-app.git
+cd legacy-app
+cat .nvmrc                    # 18.20.4
+# dengan --use-on-cd, fnm otomatis switch — atau manual:
+fnm use --install-if-missing
+node --version
+npm install
+npm run dev
+```
+
+- **`--install-if-missing`**: jika versi belum ada, fnm instal dulu — ideal untuk onboarding tim.
+- Dengan **`--use-on-cd`**, langkah `fnm use` manual tidak diperlukan setelah `cd`.
+
+---
+
+### Beralih antar proyek dalam satu hari
+
+```bash
+cd ~/Developer/api-backend      # .node-version: 20
+# fnm auto-switch ke 20 (dengan --use-on-cd)
+npm test
+
+cd ~/Developer/frontend-legacy  # .node-version: 18
+# fnm auto-switch ke 18
+npm run build
+
+cd ~/Developer/experiment       # tanpa file versi
+# fnm pakai default (22)
+node --version
+```
+
+---
+
+### Monorepo dengan versi di root
+
+Struktur umum:
+
+```
+monorepo/
+├── .node-version          # 20.15.0 — berlaku seluruh repo
+├── package.json
+├── apps/
+│   ├── web/
+│   └── api/
+└── packages/
+    └── shared/
+```
+
+```bash
+cd monorepo
+fnm use --install-if-missing
+npm install
+npm run build --workspaces
+```
+
+- Satu `.node-version` di root cukup untuk seluruh monorepo — kecuali sub-package butuh versi berbeda (jarang).
+- Gunakan `FNM_VERSION_FILE_STRATEGY=recursive` jika file versi bisa di subfolder.
+
+---
+
+### Menambahkan `.node-version` ke proyek existing
+
+```bash
+cd my-project
+node --version                  # v20.15.0
+echo "20.15.0" > .node-version
+git add .node-version
+git commit -m "chore: pin Node.js version for fnm/nvm"
+```
+
+- Dokumentasikan di README: "Requires Node 20 — gunakan fnm/nvm/asdf".
+- Pertimbangkan tambahkan `engines` di `package.json` sebagai backup.
+
+---
+
+## fnm di CI/CD
+
+fnm juga bisa dipakai di pipeline CI untuk memastikan versi Node konsisten dengan development lokal.
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup fnm
+        uses: Schniz/fnm-action@v1
+        with:
+          version: '20.15.0'
+          # atau: fnm-version: '1.37.0'
+      - run: node --version
+      - run: npm ci
+      - run: npm test
+```
+
+Alternatif manual tanpa action:
+
+```yaml
+      - name: Install fnm
+        run: |
+          curl -fsSL https://fnm.vercel.app/install | bash
+          eval "$(fnm env)"
+          fnm install
+          fnm use
+      - run: npm ci && npm test
+```
+
+---
+
+### Script lokal untuk CI
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+eval "$(fnm env)"
+fnm install --install-if-missing 2>/dev/null || fnm use --install-if-missing
+fnm current
+npm ci
+npm test
+```
+
+- **`set -euo pipefail`**: gagal cepat jika versi Node salah atau test error.
+- Di CI, biasanya **tidak** pakai `--use-on-cd` — cukup `fnm install` + `fnm use` eksplisit.
+
+---
+
+## Integrasi dengan Editor & Tool
+
+### VS Code
+
+VS Code memakai Node dari PATH shell — pastikan terminal integrated memuat `fnm env`:
+
+```json
+// .vscode/settings.json
+{
+  "terminal.integrated.env.osx": {
+    "FNM_LOGLEVEL": "quiet"
+  }
+}
+```
+
+Untuk debug, pastikan `node` di PATH terminal VS Code sama dengan terminal eksternal — buka terminal VS Code, jalankan `which node`.
+
+---
+
+### Direnv
+
+Kombinasi fnm + direnv untuk environment variable per proyek:
+
+```bash
+# .envrc
+eval "$(fnm env)"
+fnm use --install-if-missing
+```
+
+```bash
+direnv allow
+```
+
+Kapan dipakai: proyek yang butuh env vars kompleks selain versi Node.
+
+---
+
+## Troubleshooting Umum
+
+### `node: command not found` setelah instal fnm
+
+Penyebab: `fnm env` belum dievaluasi di shell.
+
+```bash
+# Perbaikan
+echo 'eval "$(fnm env --use-on-cd -s zsh)"' >> ~/.zshrc
+source ~/.zshrc
+fnm install --lts
+fnm default lts/latest
+node --version
+```
+
+---
+
+### Versi Node salah / konflik dengan Homebrew
+
+Penyebab: Node dari `brew install node` masih di PATH dan menang atas fnm.
+
+```bash
+which -a node                   # lihat semua node di PATH
+brew uninstall node             # hapus Node Homebrew jika tidak dipakai
+# pastikan fnm env di AKHIR ~/.zshrc (setelah path lain)
+source ~/.zshrc
+which node                      # harus di ~/.local/share/fnm/...
+```
+
+- Urutan di `~/.zshrc` penting — `eval "$(fnm env)"` harus dievaluasi dan fnm harus prepend PATH-nya.
+- Jangan campur **nvm + fnm** aktif bersamaan — pilih satu.
+
+---
+
+### `fnm use` tidak auto-switch saat cd
+
+Penyebab: `--use-on-cd` tidak diaktifkan.
+
+```bash
+# Ganti di ~/.zshrc:
+eval "$(fnm env --use-on-cd -s zsh)"
+source ~/.zshrc
+cd /path/to/project-with-node-version
+fnm current
+```
+
+---
+
+### Error: version not installed
+
+```bash
+fnm use --install-if-missing
+# atau eksplisit:
+fnm install 20.15.0
+fnm use 20.15.0
+```
+
+---
+
+### Download lambat atau gagal
+
+```bash
+# Coba mirror alternatif (pastikan tepercaya)
+export FNM_NODE_DIST_MIRROR="https://nodejs.org/dist"
+fnm install 20 --progress always
+
+# Cek koneksi
+curl -I https://nodejs.org/dist/v20.15.0/node-v20.15.0-darwin-arm64.tar.xz
+```
+
+---
+
+### fnm lambat di shell startup
+
+Penyebab: terlalu banyak versi atau plugin shell berat.
+
+```bash
+# Kurangi log
+export FNM_LOGLEVEL=quiet
+
+# Bersihkan versi tidak terpakai
+fnm list
+fnm uninstall 16.20.2
+fnm uninstall 14.21.3
+```
+
+- fnm sendiri sangat ringan — masalah startup biasanya dari plugin Zsh atau konflik nvm.
+- Benchmark: bandingkan `time zsh -i -c exit` sebelum dan sesudah setup fnm.
+
+---
+
+### Migrasi dari nvm
+
+```bash
+# 1. Comment/remove block nvm di ~/.zshrc
+# 2. Setup fnm
+eval "$(fnm env --use-on-cd -s zsh)"
+# 3. Instal ulang versi yang dibutuhkan (fnm tidak share cache dengan nvm)
+fnm install 20
+fnm install 18
+fnm default 20
+# 4. .nvmrc existing tetap jalan
+cd project-with-nvmrc
+fnm use --install-if-missing
+```
+
+<Callout type="warning">
+fnm dan nvm menyimpan Node di lokasi berbeda — uninstall nvm tidak otomatis migrasi versi. Anda perlu `fnm install` ulang versi yang dibutuhkan.
+</Callout>
+
+---
+
+### Windows (fnm via winget/scoop)
+
+```powershell
+# winget
+winget install Schniz.fnm
+
+# Setup PowerShell profile
+fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+```
+
+- fnm mendukung Windows native — tidak perlu WSL untuk version management.
+- Sintaks setup berbeda dari zsh — gunakan `--shell powershell`.
+
+---
+
+## Cheat Sheet Harian
+
+Perintah yang paling sering dipakai sehari-hari:
+
+```bash
+fnm install --lts                   # instal LTS terbaru
+fnm use --install-if-missing        # pakai versi proyek (instal jika perlu)
+fnm default 22                      # set default global
+fnm list                            # lihat versi terinstal
+fnm current                         # versi aktif sekarang
+fnm ls-remote --lts --latest        # cek LTS terbaru tersedia
+fnm uninstall 18                    # hapus versi lama
+fnm exec --using=20 npm test        # tes dengan Node 20 tanpa ganti shell
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Instal** | `install`, `install --lts`, `install --latest` |
+| **Aktifkan** | `use`, `use --install-if-missing`, `default` |
+| **Info** | `list`, `list-remote`, `current` |
+| **Hapus** | `uninstall` |
+| **Shell** | `env`, `env --use-on-cd` |
+| **Eksekusi** | `exec --using=<version>` |
+| **Alias** | `alias`, `unalias` |
+| **File versi** | `.node-version`, `.nvmrc`, `engines.node` |
+| **Env vars** | `FNM_DIR`, `FNM_NODE_DIST_MIRROR`, `FNM_VERSION_FILE_STRATEGY` |
+
+---
+
+## Penutup
+
+Enam perintah inti fnm: **`fnm install`**, **`fnm use`**, **`fnm default`**, **`fnm list`**, **`fnm env`**, dan **`fnm current`**. Dengan keenamnya plus file `.node-version` di setiap proyek, Anda sudah menutup workflow version management Node.js sehari-hari.
+
+Langkah berikutnya: aktifkan **`--use-on-cd`** di shell agar switching otomatis, tambahkan **`.node-version`** ke semua repo tim, dan pertimbangkan **`fnm exec`** untuk matrix test multi-versi di CI. fnm punya dokumentasi ringkas — manfaatkan `fnm help <command>` dan [repositori resmi fnm](https://github.com/Schniz/fnm) sebagai referensi terbaru.

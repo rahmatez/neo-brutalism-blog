@@ -1,0 +1,1151 @@
+---
+title: "Perintah GitHub CLI (gh) Command Line Lengkap"
+description: "Panduan lengkap perintah GitHub CLI (gh): autentikasi, repo, pull request, issue, CI/actions, release, gist, API, config, alias, dan workflow developer sehari-hari."
+date: "2025-06-24"
+category: terminal
+tags: ["github", "gh", "cli", "devops", "tutorial"]
+featured: true
+---
+
+**GitHub CLI** (`gh`) adalah tool resmi dari GitHub yang memungkinkan Anda mengelola repository, pull request, issue, Actions, release, dan hampir semua fitur GitHub langsung dari terminal — tanpa membuka browser. `gh` melengkapi `git`: Git mengurus version control lokal, sedangkan `gh` mengurus interaksi dengan platform GitHub (API, PR, review, CI status, dll.).
+
+<Callout type="tip">
+Pastikan `gh` sudah terpasang. Cek dengan `gh --version`. Di Mac: `brew install gh`. Setelah instal, jalankan `gh auth login` untuk menghubungkan akun GitHub Anda.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami bagaimana `gh` berinteraksi dengan GitHub dan Git:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **gh** | CLI resmi GitHub — wrapper di atas GitHub REST & GraphQL API |
+| **Host** | Server GitHub (`github.com` atau GitHub Enterprise Server) |
+| **Auth** | Token/credential yang disimpan lokal setelah `gh auth login` |
+| **Context** | Repo aktif — biasanya terdeteksi dari folder Git saat ini |
+| **Remote** | `origin` di repo Git lokal — `gh` membacanya untuk tahu repo mana |
+| **PR / Issue** | Objek kolaborasi di GitHub — dibuat & dikelola lewat `gh pr` / `gh issue` |
+| **Workflow run** | Eksekusi GitHub Actions — dipantau lewat `gh run` |
+| **Extension** | Plugin tambahan untuk `gh` — instal via `gh extension install` |
+
+### Hubungan Git vs gh
+
+```
+Git (lokal)                    gh (GitHub platform)
+───────────                    ────────────────────
+commit, branch, merge    →     PR, review, merge di GitHub
+push, pull               →     fork, clone, sync remote
+tag lokal                →     release + asset upload
+.git/config              →     gh repo view, gh api
+```
+
+### Perintah informasi dasar
+
+```bash
+gh --version            # versi gh yang terinstal
+gh help                 # daftar semua perintah
+gh help pr              # bantuan detail per subcommand
+gh pr --help            # bantuan singkat
+gh <command> -h         # alias bantuan
+```
+
+- **`gh --version`**: langkah pertama saat troubleshooting — pastikan versi tidak terlalu usang untuk fitur tertentu.
+- **`gh help <command>`**: dokumentasi inline tanpa buka browser — sangat lengkap.
+
+---
+
+## Instalasi
+
+### macOS — Homebrew
+
+`brew install gh` menginstal GitHub CLI dari formula resmi Homebrew — cara paling umum di Mac.
+
+Kapan dipakai: setup mesin development baru, atau upgrade versi `gh` yang sudah ada.
+
+```bash
+brew install gh
+brew upgrade gh
+gh --version
+```
+
+- **`brew upgrade gh`**: update ke versi terbaru — disarankan berkala karena GitHub menambah fitur baru.
+
+---
+
+### Linux & Windows
+
+Di Linux, paket tersedia lewat repositori resmi GitHub. Di Windows, gunakan `winget`, Chocolatey, atau installer MSI.
+
+```bash
+# Debian/Ubuntu (contoh)
+(type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
+  && sudo mkdir -p -m 755 /etc/apt/keyrings \
+  && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+  && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+  && sudo apt update \
+  && sudo apt install gh -y
+```
+
+```powershell
+# Windows (winget)
+winget install --id GitHub.cli
+```
+
+- **Repositori resmi**: lebih update daripada paket distro default di beberapa Linux.
+- **`winget`**: cara termudah di Windows 10/11 tanpa package manager tambahan.
+
+---
+
+## Autentikasi — `gh auth`
+
+### `gh auth login` — Login ke GitHub
+
+`gh auth login` memandu proses autentikasi interaktif — HTTPS token, SSH, atau browser OAuth — dan menyimpan credential di keychain sistem.
+
+Kapan dipakai: pertama kali setup `gh`, ganti akun, atau setelah token expired.
+
+```bash
+gh auth login
+gh auth login --hostname github.com
+gh auth login --hostname github.example.com   # GitHub Enterprise Server
+gh auth login --web                           # login via browser
+gh auth login --with-token < token.txt        # non-interaktif (CI/script)
+gh auth login -p ssh                          # prefer SSH untuk Git
+gh auth login -p https                        # prefer HTTPS
+```
+
+Alur interaktif tipikal:
+
+1. Pilih `GitHub.com` atau Enterprise host
+2. Pilih protokol Git: HTTPS atau SSH
+3. Autentikasi via browser atau paste token
+
+- **`--web`**: buka browser untuk OAuth — paling mudah untuk developer.
+- **`--with-token`**: untuk automation/CI — token dibaca dari stdin.
+- **`-p ssh`**: konfigurasi Git remote memakai SSH — cocok jika sudah punya SSH key.
+
+---
+
+### `gh auth status` — Cek Status Login
+
+Menampilkan akun yang aktif, host, protokol Git, dan scope token.
+
+Kapan dipakai: debug masalah permission, verifikasi akun yang dipakai, atau sebelum operasi sensitif.
+
+```bash
+gh auth status
+gh auth status --hostname github.com
+gh auth status -t                 # tampilkan token (hati-hati!)
+```
+
+- **`-t` / `--show-token`**: cetak token ke terminal — jangan share atau commit; hanya untuk debug lokal.
+
+---
+
+### `gh auth refresh` & `gh auth logout`
+
+Perbarui scope token atau keluar dari sesi.
+
+```bash
+gh auth refresh -s repo,read:org,workflow    # tambah scope
+gh auth logout
+gh auth logout --hostname github.com
+gh auth switch                               # ganti akun aktif (multi-account)
+```
+
+- **`gh auth refresh`**: minta scope tambahan tanpa login ulang penuh — mis. akses `workflow` untuk `gh run`.
+- **`gh auth switch`**: berganti antar akun yang sudah terdaftar — berguna jika punya akun personal dan kerja.
+
+<Callout type="info">
+Token `gh` disimpan di macOS Keychain, Windows Credential Manager, atau Linux secret service. Scope minimal untuk operasi umum: `repo`, `read:org`, `gist`. Untuk Actions: tambahkan scope `workflow`.
+</Callout>
+
+---
+
+## Repository — `gh repo`
+
+### `gh repo create` — Buat Repository Baru
+
+`gh repo create` membuat repository baru di GitHub — publik atau privat — dan opsional mengaitkannya dengan folder lokal.
+
+Kapan dipakai: bootstrap proyek baru, membuat repo dari folder yang sudah ada, atau scaffolding cepat tanpa buka GitHub web.
+
+```bash
+gh repo create my-new-app --public --source=. --remote=origin --push
+gh repo create my-new-app --private
+gh repo create my-new-app --public --clone          # buat + clone
+gh repo create my-new-app --template owner/template-repo
+gh repo create my-new-app --description "Deskripsi repo"
+gh repo create my-new-app --add-readme
+gh repo create my-new-app --gitignore node
+gh repo create my-new-app --license mit
+```
+
+- **`--source=.`**: hubungkan folder saat ini sebagai repo lokal.
+- **`--remote=origin`**: set remote Git otomatis.
+- **`--push`**: push commit lokal setelah repo dibuat.
+- **`--template`**: buat dari template repository GitHub.
+- **`--gitignore` / `--license`**: scaffold file awal — nilai `node` adalah template .gitignore untuk Node.js.
+
+---
+
+### `gh repo clone` — Clone Repository
+
+Clone repository GitHub ke mesin lokal — setara `git clone` dengan deteksi host otomatis.
+
+Kapan dipakai: checkout proyek tim, fork internal, atau clone tanpa mengetik URL lengkap.
+
+```bash
+gh repo clone owner/repo
+gh repo clone owner/repo my-folder
+gh repo clone https://github.com/owner/repo.git
+gh repo clone owner/repo -- --depth 1           # pass flag ke git clone
+```
+
+- **`owner/repo`**: format singkat — `gh` resolve ke URL GitHub otomatis.
+- **`--`**: separator — flag setelahnya diteruskan ke `git clone` (mis. `--depth 1`).
+
+---
+
+### `gh repo fork` — Fork Repository
+
+Fork repository orang lain ke akun Anda — opsional clone langsung.
+
+Kapan dipakai: kontribusi open source, eksperimen di repo pihak ketiga, atau workflow PR dari fork.
+
+```bash
+gh repo fork owner/repo
+gh repo fork owner/repo --clone                   # fork + clone ke lokal
+gh repo fork owner/repo --remote                  # tambah remote fork ke repo existing
+gh repo fork owner/repo --remote-name upstream    # nama remote custom
+```
+
+- **`--clone`**: fork dan langsung `git clone` ke folder lokal.
+- **`--remote`**: tambahkan remote fork ke repo yang sudah ada — berguna jika sudah clone upstream.
+
+---
+
+### `gh repo view` — Lihat Info Repository
+
+Menampilkan metadata repo: deskripsi, URL, default branch, topics, visibility, dan statistik.
+
+Kapan dipakai: cek info repo cepat, buka di browser, atau dapat URL clone tanpa buka GitHub.
+
+```bash
+gh repo view
+gh repo view owner/repo
+gh repo view --web                                # buka di browser
+gh repo view --json name,url,defaultBranchRef
+gh repo view --json stargazerCount,description -q '.description'
+```
+
+- **`--web`**: buka halaman repo di browser default.
+- **`--json`**: output JSON untuk scripting — field tersedia: `name`, `url`, `description`, `isPrivate`, dll.
+- **`-q` / `--jq`**: filter JSON dengan sintaks jq.
+
+---
+
+### Perintah repo lainnya
+
+```bash
+gh repo list                                      # repo milik Anda
+gh repo list owner --limit 50
+gh repo list --json name,visibility -q '.[] | .name'
+gh repo sync owner/repo                           # sync fork dengan upstream
+gh repo edit --description "Baru" --add-topic cli
+gh repo archive owner/repo
+gh repo delete owner/repo --yes
+gh repo rename new-name
+```
+
+- **`gh repo sync`**: tarik perubahan upstream ke fork — setara merge/rebase dari parent.
+- **`gh repo edit`**: ubah deskripsi, visibility, topics, default branch dari terminal.
+- **`gh repo archive`**: arsipkan repo — read-only, tidak bisa push baru.
+
+---
+
+## Pull Request — `gh pr`
+
+Pull request adalah jantung kolaborasi di GitHub. `gh pr` memungkinkan seluruh lifecycle PR dari terminal.
+
+### `gh pr create` — Buat Pull Request
+
+Membuat PR dari branch saat ini ke base branch — dengan judul, body, reviewer, label, dan assignee.
+
+Kapan dipakai: setelah push feature branch, menggantikan buat PR lewat web UI.
+
+```bash
+gh pr create
+gh pr create --title "feat: tambah login OAuth" --body "Deskripsi perubahan"
+gh pr create --base main --head feature/oauth
+gh pr create --draft
+gh pr create --fill                               # isi title/body dari commit
+gh pr create --reviewer user1,user2
+gh pr create --assignee @me
+gh pr create --label bug,enhancement
+gh pr create --web                                # buka form di browser
+```
+
+- **`--fill`**: generate judul dan body dari commit message — cepat untuk PR kecil.
+- **`--draft`**: PR draft — belum siap review/merge.
+- **`--reviewer`**: assign reviewer saat create — hemat langkah.
+- **`@me`**: shorthand untuk username Anda sendiri.
+
+---
+
+### `gh pr list` — Daftar Pull Request
+
+Menampilkan PR terbuka, tertutup, atau milik Anda — dengan filter.
+
+Kapan dipakai: cek PR tim, audit PR sendiri, atau scripting daftar PR.
+
+```bash
+gh pr list
+gh pr list --state open
+gh pr list --state closed --limit 20
+gh pr list --author @me
+gh pr list --assignee @me
+gh pr list --label "needs-review"
+gh pr list --search "is:open review:required"
+gh pr list --json number,title,url -q '.[] | "\(.number) \(.title)"'
+```
+
+- **`--state`**: `open`, `closed`, `merged`, `all`.
+- **`--search`**: query GitHub search syntax — sangat powerful untuk filter kompleks.
+- **`--json`**: output terstruktur untuk script atau integrasi CI.
+
+---
+
+### `gh pr view` — Lihat Detail PR
+
+Menampilkan detail satu PR: status, diff stat, reviewer, checks, dan komentar.
+
+```bash
+gh pr view
+gh pr view 42
+gh pr view 42 --web
+gh pr view --json title,body,state,mergeable,statusCheckRollup
+gh pr view 42 --comments
+```
+
+- Tanpa argumen: PR yang terkait branch saat ini.
+- **`--comments`**: tampilkan thread komentar di terminal.
+- **`statusCheckRollup`**: ringkasan CI checks — berguna sebelum merge.
+
+---
+
+### `gh pr checkout` — Checkout Branch PR
+
+Checkout branch lokal dari PR — untuk review atau test lokal.
+
+Kapan dipakai: review PR rekan, test perubahan sebelum approve, atau debug CI failure.
+
+```bash
+gh pr checkout 42
+gh pr checkout 42 --branch review-pr-42
+gh pr checkout https://github.com/owner/repo/pull/42
+```
+
+- **`42`**: nomor PR — `gh` fetch branch dan checkout otomatis.
+- **`--branch`**: nama branch lokal custom — hindari konflik nama branch.
+
+---
+
+### `gh pr diff` — Lihat Diff PR
+
+Menampilkan diff PR di terminal — setara `git diff` untuk PR.
+
+```bash
+gh pr diff
+gh pr diff 42
+gh pr diff 42 --name-only
+gh pr diff 42 --patch
+```
+
+- **`--name-only`**: hanya daftar file yang berubah — overview cepat.
+- **`--patch`**: format patch penuh — bisa diarahkan ke file.
+
+---
+
+### `gh pr merge` — Merge Pull Request
+
+Merge PR di GitHub — merge commit, squash, atau rebase.
+
+Kapan dipakai: merge setelah review dan CI hijau — tanpa buka browser.
+
+```bash
+gh pr merge 42
+gh pr merge 42 --merge                            # merge commit (default)
+gh pr merge 42 --squash
+gh pr merge 42 --rebase
+gh pr merge 42 --auto                           # auto-merge saat checks pass
+gh pr merge 42 --delete-branch                  # hapus branch setelah merge
+gh pr merge 42 --admin                          # bypass protection (butuh permission)
+```
+
+- **`--squash`**: gabung semua commit jadi satu — history bersih.
+- **`--rebase`**: rebase commit ke base — history linear tanpa merge commit.
+- **`--auto`**: enable auto-merge — merge otomatis setelah required checks lulus.
+- **`--delete-branch`**: bersihkan branch remote setelah merge.
+
+<Callout type="warning">
+`--admin` melewati branch protection — hanya untuk emergency dan butuh permission admin. Prefer merge normal setelah review dan CI hijau.
+</Callout>
+
+---
+
+### `gh pr review` — Review Pull Request
+
+Submit review: approve, request changes, atau comment.
+
+Kapan dipakai: code review dari terminal — cocok untuk reviewer yang sudah familiar diff di CLI.
+
+```bash
+gh pr review 42 --approve
+gh pr review 42 --request-changes --body "Perlu unit test"
+gh pr review 42 --comment --body "Nit: typo di README"
+gh pr review 42 --approve --body "LGTM!"
+```
+
+- **`--approve`**: setujui PR — unblock merge jika required.
+- **`--request-changes`**: minta perubahan — author harus address sebelum merge.
+- **`--comment`**: komentar tanpa approve/reject — untuk diskusi.
+
+---
+
+### Perintah PR lainnya
+
+```bash
+gh pr status                                      # PR terkait branch Anda
+gh pr ready 42                                    # convert draft → ready
+gh pr close 42
+gh pr reopen 42
+gh pr edit 42 --add-label bug --add-reviewer user1
+gh pr checks 42                                   # status CI checks
+gh pr comment 42 --body "Sudah di-fix di commit terbaru"
+```
+
+- **`gh pr status`**: ringkasan PR di repo saat ini yang terkait branch Anda — sangat berguna di awal hari.
+- **`gh pr checks`**: pantau CI tanpa buka Actions tab.
+- **`gh pr ready`**: tandai draft PR siap untuk review.
+
+---
+
+## Issue — `gh issue`
+
+### `gh issue create` — Buat Issue
+
+Membuat issue baru dengan judul, body, label, assignee, dan milestone.
+
+Kapan dipakai: lapor bug, buat task, atau dokumentasi pekerjaan dari terminal.
+
+```bash
+gh issue create
+gh issue create --title "Bug: login gagal di Safari" --body "Langkah reproduksi..."
+gh issue create --title "Task" --body-file issue-template.md
+gh issue create --label bug,priority-high
+gh issue create --assignee @me
+gh issue create --milestone "v2.0"
+gh issue create --web
+```
+
+- **`--body-file`**: baca body dari file markdown — cocok untuk template issue panjang.
+- **`--web`**: buka form issue di browser jika prefer UI.
+
+---
+
+### `gh issue list` — Daftar Issue
+
+```bash
+gh issue list
+gh issue list --state open
+gh issue list --assignee @me
+gh issue list --label bug
+gh issue list --author @me
+gh issue list --search "is:open sort:updated-desc"
+gh issue list --limit 100 --json number,title,state
+```
+
+- **`--search`**: GitHub search syntax — filter powerful seperti di web.
+- **`--json`**: untuk integrasi script atau export.
+
+---
+
+### `gh issue view` — Lihat Detail Issue
+
+```bash
+gh issue view 15
+gh issue view 15 --web
+gh issue view 15 --comments
+gh issue view 15 --json title,body,labels,assignees
+```
+
+---
+
+### Perintah issue lainnya
+
+```bash
+gh issue edit 15 --add-label "in-progress"
+gh issue edit 15 --add-assignee user1
+gh issue close 15
+gh issue close 15 --reason "not planned"
+gh issue reopen 15
+gh issue comment 15 --body "Sudah dicek, bukan bug"
+gh issue develop 15                              # buat branch linked ke issue
+gh issue develop 15 --checkout
+```
+
+- **`gh issue develop`**: buat branch dengan nama terkait issue — fitur GitHub "linked branch".
+- **`--reason`**: saat close — `completed` atau `not planned`.
+
+---
+
+## GitHub Actions & CI — `gh run`
+
+### `gh run list` — Daftar Workflow Run
+
+Menampilkan history eksekusi GitHub Actions di repository.
+
+Kapan dipakai: pantau CI setelah push, audit failure, atau cek status pipeline.
+
+```bash
+gh run list
+gh run list --limit 10
+gh run list --workflow ci.yml
+gh run list --branch main
+gh run list --status failure
+gh run list --json databaseId,status,conclusion,url -q '.[] | "\(.databaseId) \(.status)"'
+```
+
+- **`--workflow`**: filter per file workflow — mis. `ci.yml` atau `deploy.yml`.
+- **`--status`**: `queued`, `in_progress`, `completed`, `failure`, dll.
+- **`--branch`**: hanya run di branch tertentu.
+
+---
+
+### `gh run view` — Detail Workflow Run
+
+```bash
+gh run view
+gh run view 12345678
+gh run view 12345678 --web
+gh run view 12345678 --log
+gh run view 12345678 --log-failed              # hanya step yang gagal
+gh run view 12345678 --job 98765432
+```
+
+- **`--log`**: tampilkan log lengkap di terminal — pengganti buka Actions tab.
+- **`--log-failed`**: fokus ke step gagal — hemat waktu debug CI.
+- **`--job`**: detail job tertentu dalam run.
+
+---
+
+### `gh run watch` — Pantau Run Real-time
+
+```bash
+gh run watch
+gh run watch 12345678
+gh run watch 12345678 --exit-status             # exit 0/1 sesuai hasil
+```
+
+Kapan dipakai: setelah push, tunggu CI selesai di terminal — berguna di script atau sebelum merge.
+
+- **`--exit-status`**: exit code sesuai sukses/gagal — bisa dipakai di shell script: `gh run watch --exit-status && gh pr merge`.
+
+---
+
+### Perintah run & workflow lainnya
+
+```bash
+gh run rerun 12345678
+gh run rerun 12345678 --failed                  # rerun hanya job gagal
+gh run cancel 12345678
+gh run download 12345678                        # unduh artifact
+gh run download 12345678 -n my-artifact -D ./artifacts
+gh workflow list
+gh workflow view ci.yml
+gh workflow run ci.yml
+gh workflow run ci.yml --ref main -f environment=staging
+gh workflow enable ci.yml
+gh workflow disable ci.yml
+```
+
+- **`gh run download`**: unduh artifact build — binary, coverage report, dll.
+- **`gh workflow run`**: trigger workflow manual (`workflow_dispatch`) dengan input.
+- **`-f environment=staging`**: kirim input parameter ke workflow.
+
+<Callout type="info">
+Untuk `gh run` dan `gh workflow`, pastikan token punya scope `workflow`. Jalankan `gh auth refresh -s workflow` jika mendapat error permission.
+</Callout>
+
+---
+
+## Release — `gh release`
+
+### `gh release create` — Buat Release
+
+Membuat GitHub Release dari tag — dengan notes, draft, prerelease, dan upload asset.
+
+Kapan dipakai: shipping versi baru, distribusi binary, atau changelog resmi.
+
+```bash
+gh release create v1.0.0
+gh release create v1.0.0 --title "Version 1.0.0" --notes "Changelog..."
+gh release create v1.0.0 --notes-file CHANGELOG.md
+gh release create v1.0.0 --draft
+gh release create v1.0.0 --prerelease
+gh release create v1.0.0 ./dist/app.zip ./dist/app.tar.gz
+gh release create v1.0.0 --generate-notes          # auto dari PR/commit
+gh release create v1.0.0 --target main
+```
+
+- **`--generate-notes`**: generate release notes otomatis dari merged PR — hemat waktu.
+- **`--draft`**: release draft — belum publik.
+- **`--prerelease`**: tandai sebagai prerelease (alpha/beta/rc).
+- **Upload file**: path file di akhir perintah di-upload sebagai release asset.
+
+---
+
+### `gh release list` & `gh release view`
+
+```bash
+gh release list
+gh release list --limit 20
+gh release view v1.0.0
+gh release view v1.0.0 --web
+gh release view v1.0.0 --json tagName,publishedAt,assets
+```
+
+---
+
+### Perintah release lainnya
+
+```bash
+gh release download v1.0.0
+gh release download v1.0.0 --pattern "*.zip" -D ./downloads
+gh release upload v1.0.0 ./new-binary.zip
+gh release delete v1.0.0
+gh release delete v1.0.0 --yes
+gh release edit v1.0.0 --notes "Update changelog"
+```
+
+- **`gh release download`**: unduh asset release — berguna untuk install tool dari GitHub Releases.
+- **`--pattern`**: filter asset by glob — mis. hanya file `.zip`.
+
+---
+
+## Gist — `gh gist`
+
+Gist adalah snippet atau file kecil yang di-host GitHub — berguna untuk share code cepat.
+
+### `gh gist create` — Buat Gist
+
+```bash
+gh gist create script.sh
+gh gist create file1.js file2.js --desc "Contoh snippet"
+gh gist create --public script.sh
+gh gist create --filename hello.txt "Hello world"
+echo "console.log('hi')" | gh gist create -
+```
+
+- **Default**: gist private (secret URL) — tidak muncul di profil publik.
+- **`--public`**: gist publik — muncul di tab Gists profil Anda.
+- **`-`**: baca dari stdin — pipe output command ke gist.
+
+---
+
+### Perintah gist lainnya
+
+```bash
+gh gist list
+gh gist list --limit 50
+gh gist view abc123def456
+gh gist view abc123def456 --web
+gh gist edit abc123def456
+gh gist clone abc123def456
+gh gist delete abc123def456
+```
+
+- **`gh gist clone`**: clone gist sebagai repo Git lokal — bisa edit dan push.
+- **`gh gist edit`**: edit gist di editor default (`gh config`).
+
+---
+
+## API Langsung — `gh api`
+
+### `gh api` — Panggil GitHub REST API
+
+`gh api` memanggil endpoint GitHub REST API langsung — dengan auth otomatis dari `gh auth`.
+
+Kapan dipakai: operasi yang belum punya subcommand `gh`, scripting custom, atau eksplorasi API.
+
+```bash
+gh api user
+gh api repos/{owner}/{repo}/pulls
+gh api repos/octocat/Hello-World/issues --jq '.[].title'
+gh api -X POST repos/owner/repo/issues -f title="Bug" -f body="Deskripsi"
+gh api -X PATCH repos/owner/repo -f description="Baru"
+gh api graphql -f query='{ viewer { login } }'
+```
+
+- **`--jq`**: filter response JSON — sangat berguna di pipeline shell.
+- **`-f` / `-F`**: field form — `-f` string, `-F` file upload.
+- **`graphql`**: subcommand untuk GraphQL API — query kompleks dalam satu request.
+
+---
+
+### Contoh API praktis
+
+```bash
+# Cek rate limit
+gh api rate_limit --jq '.rate'
+
+# List collaborator
+gh api repos/{owner}/{repo}/collaborators --jq '.[].login'
+
+# Trigger repository dispatch
+gh api repos/owner/repo/dispatches -f event_type=deploy -f 'client_payload[ref]=main'
+
+# Paginate otomatis
+gh api repos/owner/repo/issues --paginate --jq '.[].title'
+```
+
+- **`--paginate`**: fetch semua halaman — penting untuk list panjang.
+- **`{owner}/{repo}`**: placeholder — `gh` resolve dari context repo saat ini jika di dalam git repo.
+
+<Callout type="tip">
+Gunakan `gh api` dengan `--jq` untuk scripting shell yang lebih bersih daripada `curl` + manual token handling. Auth dan host sudah ditangani `gh`.
+</Callout>
+
+---
+
+## Konfigurasi — `gh config`
+
+### `gh config set` & `gh config get`
+
+Mengatur preferensi global `gh`: editor, pager, prompt, tema, dan protokol Git.
+
+Kapan dipakai: setup pertama kali, atau sesuaikan behavior `gh` dengan workflow Anda.
+
+```bash
+gh config set editor "code --wait"
+gh config set editor vim
+gh config set git_protocol ssh
+gh config set git_protocol https
+gh config set pager "less -R"
+gh config set prompt disabled                    # non-interaktif di script
+gh config set prompt enabled
+
+gh config get editor
+gh config list
+```
+
+- **`editor`**: editor untuk `gh pr create`, `gh issue create`, dll. saat mode interaktif.
+- **`git_protocol`**: default HTTPS atau SSH untuk operasi repo.
+- **`prompt disabled`**: matikan prompt interaktif — penting untuk CI/script.
+
+---
+
+### Konfigurasi berguna lainnya
+
+```bash
+gh config set browser "open"                     # Mac default
+gh config set http_unix_socket /path/to/socket   # proxy custom
+gh config set prefer_editor_prompt enabled       # selalu buka editor untuk body
+```
+
+File konfigurasi tersimpan di:
+
+| OS | Lokasi |
+| --- | --- |
+| **macOS/Linux** | `~/.config/gh/` |
+| **Windows** | `%AppData%\GitHub CLI\` |
+
+---
+
+## Alias — `gh alias`
+
+### `gh alias set` — Buat Alias Perintah
+
+Alias mempersingkat perintah `gh` yang sering dipakai — disimpan di config `gh`.
+
+Kapan dipakai: otomasi workflow harian, shorthand untuk kombinasi flag, atau wrapper script.
+
+```bash
+gh alias set pv 'pr view'
+gh alias set pco 'pr checkout'
+gh alias set pl 'pr list'
+gh alias set il 'issue list'
+gh alias set stars 'api user/starred --paginate'
+
+gh alias set --shell prmerged "gh pr list --state merged --limit 20"
+gh alias set prs "pr list --author @me --state open"
+
+gh alias list
+gh alias delete pv
+```
+
+- **Tanpa `--shell`**: alias perintah `gh` — argumen tambahan diteruskan.
+- **`--shell`**: alias shell penuh — bisa pipe, chain command, atau logic kompleks.
+
+---
+
+### Contoh alias produktif
+
+```bash
+# PR saya yang perlu perhatian
+gh alias set my-prs "pr list --author @me"
+
+# Cek CI PR saat ini
+gh alias set pr-checks "pr checks"
+
+# Buka PR di browser
+gh alias set pr-web "pr view --web"
+
+# List issue assigned ke saya
+gh alias set my-issues "issue list --assignee @me --state open"
+
+# Clone repo kerja cepat
+gh alias set clone-work "repo clone my-org"
+```
+
+Atau edit manual `~/.config/gh/config.yml`:
+
+```yaml
+aliases:
+  pv: pr view
+  pco: pr checkout
+  pl: pr list --state open
+```
+
+---
+
+## GitHub Copilot — `gh copilot` (Singkat)
+
+`gh copilot` (via extension) mengintegrasikan GitHub Copilot ke terminal — suggest command, explain output, dan bantuan shell.
+
+<Callout type="info">
+Fitur Copilot CLI memerlukan extension dan subscription Copilot. Instal dengan `gh extension install github/gh-copilot`.
+</Callout>
+
+```bash
+gh extension install github/gh-copilot
+gh copilot --help
+gh copilot suggest "list semua PR yang belum di-review"
+gh copilot explain "git rebase -i HEAD~3"
+```
+
+- **`gh copilot suggest`**: minta saran perintah shell/Git/gh berdasarkan deskripsi natural language.
+- **`gh copilot explain`**: jelaskan perintah yang Anda tempel — berguna saat belajar CLI baru.
+- **`gh extension`**: manajemen plugin — `list`, `upgrade`, `remove`.
+
+Perintah extension umum:
+
+```bash
+gh extension list
+gh extension upgrade --all
+gh extension install owner/repo-extension
+gh extension remove gh-copilot
+```
+
+---
+
+## Perintah Lain yang Berguna
+
+### `gh browse` — Buka di Browser
+
+```bash
+gh browse
+gh browse 42                                    # path: issue/PR #42
+gh browse --branch main
+gh browse --settings
+gh browse --actions
+gh browse --projects
+```
+
+- Tanpa argumen: buka halaman repo (atau file jika di dalam subfolder).
+- **`--actions`**: langsung ke tab Actions — shortcut saat debug CI.
+
+---
+
+### `gh search` — Cari di GitHub
+
+```bash
+gh search repos "nextjs blog mdx"
+gh search code "useState" --repo owner/repo
+gh search issues "bug login" --owner my-org
+gh search prs "is:open review:required" --repo owner/repo
+```
+
+- **`gh search code`**: cari string di kode — alternatif cepat tanpa buka github.com/search.
+- **`gh search prs`**: cari PR dengan query syntax GitHub.
+
+---
+
+### `gh label`, `gh milestone`, `gh project`
+
+```bash
+gh label list
+gh label create bug --color FF0000 --description "Something broken"
+gh milestone list
+gh milestone create "v2.0" --due-date 2025-12-31
+gh project list
+gh project view 1 --owner my-org
+```
+
+- **`gh label`**: kelola label repo — konsistensi kategorisasi issue/PR.
+- **`gh milestone`**: tracking versi/rilis lewat milestone.
+- **`gh project`**: integrasi GitHub Projects (v2) — board dan task management.
+
+---
+
+### `gh status` — Dashboard Ringkas
+
+```bash
+gh status
+```
+
+Menampilkan ringkasan: PR assigned, review request, issue assigned, dan mention — dashboard pagi hari di terminal.
+
+---
+
+### `gh ssh-key` & `gh gpg-key`
+
+```bash
+gh ssh-key list
+gh ssh-key add ~/.ssh/id_ed25519.pub --title "MacBook Pro"
+gh ssh-key delete KEY_ID
+gh gpg-key list
+gh gpg-key add KEY_ID
+```
+
+- **`gh ssh-key add`**: upload SSH public key ke GitHub — alternatif copy-paste lewat web.
+- **`gh gpg-key add`**: tambah GPG key untuk signed commit.
+
+---
+
+## Workflow Developer Sehari-hari dengan gh
+
+### Memulai kontribusi open source
+
+```bash
+gh repo fork owner/awesome-project --clone
+cd awesome-project
+git switch -c fix/typo-readme
+# ... edit file ...
+git add .
+git commit -m "fix: typo di README"
+git push -u origin fix/typo-readme
+gh pr create --fill --web
+```
+
+### Review PR rekan
+
+```bash
+gh pr list --search "review-requested:@me"
+gh pr checkout 42
+# ... test lokal, baca kode ...
+gh pr diff 42
+gh pr review 42 --approve --body "LGTM, sudah ditest lokal"
+```
+
+### Pantau CI setelah push
+
+```bash
+git push
+gh run watch --exit-status
+gh pr checks
+```
+
+### Release versi baru
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+gh release create v1.2.0 --generate-notes ./dist/app.zip
+```
+
+### Sync fork dengan upstream
+
+```bash
+gh repo sync owner/repo --force
+# atau manual:
+git fetch upstream
+git switch main
+git merge upstream/main
+git push
+```
+
+### Cek pekerjaan hari ini
+
+```bash
+gh status
+gh pr list --author @me --state open
+gh issue list --assignee @me
+```
+
+### Buat repo proyek baru dari nol
+
+```bash
+mkdir my-app && cd my-app
+git init
+echo "# my-app" > README.md
+git add . && git commit -m "initial commit"
+gh repo create my-app --public --source=. --push
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan lewat `gh alias set` atau edit `~/.config/gh/config.yml`:
+
+```bash
+gh alias set pv 'pr view'
+gh alias set pvw 'pr view --web'
+gh alias set pco 'pr checkout'
+gh alias set pmc 'pr merge --squash --delete-branch'
+gh alias set pl 'pr list --state open'
+gh alias set plm 'pr list --author @me'
+gh alias set il 'issue list --assignee @me'
+gh alias set ci 'pr checks'
+gh alias set runw 'run watch --exit-status'
+gh alias set --shell pr-review "f() { gh pr checkout \$1 && gh pr diff \$1 | less; }; f"
+```
+
+Contoh `config.yml`:
+
+```yaml
+aliases:
+  pv: pr view
+  pvw: pr view --web
+  pco: pr checkout
+  pl: pr list --state open
+  il: issue list --assignee @me --state open
+  ci: pr checks
+```
+
+---
+
+## Troubleshooting Umum
+
+### `gh: Not logged in`
+
+```bash
+gh auth status
+gh auth login
+# atau refresh token:
+gh auth refresh
+```
+
+### Permission denied / scope tidak cukup
+
+```bash
+gh auth refresh -s repo,read:org,workflow
+gh auth status
+```
+
+Scope umum:
+
+| Scope | Untuk |
+| --- | --- |
+| `repo` | Repo, PR, issue, release |
+| `read:org` | Akses repo organisasi |
+| `workflow` | Actions run, workflow dispatch |
+| `gist` | Buat/edit gist |
+
+---
+
+### `gh` tidak tahu repo mana (no git remotes)
+
+```bash
+# Pastikan di dalam git repo dengan remote origin
+git remote -v
+gh repo set-default owner/repo
+# atau specify explicit:
+gh pr list --repo owner/repo
+```
+
+- **`gh repo set-default`**: set repo default untuk folder saat ini — disimpan di config lokal.
+
+---
+
+### PR / issue tidak ditemukan
+
+```bash
+# Cek repo context
+gh repo view
+# Specify repo explicit
+gh pr view 42 --repo owner/repo
+```
+
+---
+
+### CI log tidak muncul
+
+```bash
+gh auth refresh -s workflow
+gh run view RUN_ID --log
+gh run view RUN_ID --log-failed
+```
+
+---
+
+### SSH vs HTTPS conflict
+
+```bash
+gh config get git_protocol
+gh config set git_protocol ssh
+# atau
+gh config set git_protocol https
+gh auth login -p ssh   # atau https
+```
+
+---
+
+### Extension error / outdated
+
+```bash
+gh extension list
+gh extension upgrade --all
+gh --version
+brew upgrade gh
+```
+
+---
+
+### Rate limit API
+
+```bash
+gh api rate_limit --jq '.rate'
+# Tunggu reset, atau gunakan authenticated request (gh sudah auth otomatis)
+```
+
+Authenticated request punya limit jauh lebih tinggi daripada anonymous.
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Auth** | `auth login`, `auth status`, `auth refresh`, `auth logout` |
+| **Repo** | `repo create`, `clone`, `fork`, `view`, `sync`, `list` |
+| **PR** | `pr create`, `list`, `view`, `checkout`, `diff`, `merge`, `review`, `checks` |
+| **Issue** | `issue create`, `list`, `view`, `edit`, `close`, `develop` |
+| **CI/Actions** | `run list`, `view`, `watch`, `download`, `workflow run` |
+| **Release** | `release create`, `list`, `view`, `download`, `upload` |
+| **Gist** | `gist create`, `list`, `view`, `edit`, `clone` |
+| **API** | `api`, `api graphql` |
+| **Config** | `config set`, `config get`, `config list` |
+| **Alias** | `alias set`, `alias list`, `alias delete` |
+| **Lainnya** | `browse`, `search`, `status`, `ssh-key`, `extension` |
+
+---
+
+## Penutup
+
+Enam perintah inti `gh` untuk developer sehari-hari: **`gh auth login`**, **`gh pr create`**, **`gh pr checkout`**, **`gh pr merge`**, **`gh run watch`**, dan **`gh repo view`**. Dengan keenamnya, Anda bisa mengelola hampir seluruh workflow GitHub tanpa meninggalkan terminal.
+
+`gh` dirancang melengkapi **`git`** — bukan menggantikannya. Git untuk commit dan branch lokal; `gh` untuk PR, review, CI, release, dan interaksi platform. Kuasai **`gh alias`** untuk perintah repetitif, **`gh api`** untuk otomasi custom, dan **`gh status`** sebagai dashboard pagi hari. Referensi lengkap: `gh help <command>` dan [dokumentasi resmi CLI GitHub](https://cli.github.com/manual/).

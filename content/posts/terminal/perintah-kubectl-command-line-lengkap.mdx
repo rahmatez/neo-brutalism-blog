@@ -1,0 +1,1369 @@
+---
+title: "Perintah kubectl Command Line Lengkap"
+description: "Panduan lengkap perintah CLI kubectl untuk Kubernetes: pod, deployment, service, namespace, apply, rollout, scale, debug, dan workflow DevOps sehari-hari."
+date: "2025-06-24"
+category: terminal
+tags: ["kubectl", "kubernetes", "k8s", "cli", "devops", "tutorial"]
+featured: true
+---
+
+**kubectl** adalah command-line tool resmi untuk berinteraksi dengan **Kubernetes (K8s)** — platform orkestrasi container yang mengelola deployment, scaling, networking, dan lifecycle aplikasi di cluster. Dengan `kubectl`, Anda bisa deploy aplikasi, memantau kesehatan pod, men-debug masalah production, dan mengelola seluruh resource cluster tanpa membuka dashboard.
+
+<Callout type="tip">
+Pastikan `kubectl` sudah terpasang dan terhubung ke cluster. Cek dengan `kubectl version --client` dan `kubectl cluster-info`. Di Mac: `brew install kubectl`. Untuk cluster lokal: [minikube](https://minikube.sigs.k8s.io/), [kind](https://kind.sigs.k8s.io/), atau [Docker Desktop Kubernetes](https://docs.docker.com/desktop/use-desktop/kubernetes/).
+</Callout>
+
+## Konsep Dasar Kubernetes
+
+Sebelum masuk ke perintah, pahami objek inti Kubernetes — istilah ini muncul terus di dokumentasi, manifest YAML, dan output `kubectl`:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Cluster** | Sekumpulan node (mesin) yang diorkestrasi Kubernetes — control plane + worker nodes |
+| **Node** | Mesin fisik atau VM yang menjalankan pod — worker node menjalankan workload |
+| **Pod** | Unit deployment terkecil — satu atau lebih container yang berbagi network & storage |
+| **Deployment** | Controller yang mengelola ReplicaSet dan rollout pod — deklaratif, self-healing |
+| **Service** | Abstraksi jaringan — expose pod ke traffic internal (ClusterIP) atau eksternal (LoadBalancer/NodePort) |
+| **Namespace** | Partisi virtual di dalam cluster — isolasi resource per tim/lingkungan |
+| **ConfigMap** | Penyimpanan konfigurasi non-sensitif sebagai key-value — inject ke pod sebagai env/volume |
+| **Secret** | Penyimpanan data sensitif (password, token, TLS cert) — di-encode base64 |
+| **Ingress** | Aturan routing HTTP/HTTPS dari luar cluster ke Service — dengan TLS termination |
+| **Label & Selector** | Metadata key-value untuk mengidentifikasi dan memilih grup resource |
+| **Manifest** | File YAML/JSON yang mendeskripsikan desired state resource K8s |
+
+### Arsitektur singkat
+
+```
+                    ┌─────────────────────────────────┐
+                    │         Control Plane           │
+                    │  API Server │ Scheduler │ etcd   │
+                    └──────────────┬──────────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+         ┌────▼────┐          ┌────▼────┐          ┌────▼────┐
+         │ Node 1  │          │ Node 2  │          │ Node 3  │
+         │  Pods   │          │  Pods   │          │  Pods   │
+         └─────────┘          └─────────┘          └─────────┘
+```
+
+### Perintah informasi dasar
+
+```bash
+kubectl version --client          # versi kubectl client
+kubectl version                   # versi client + server (cluster)
+kubectl cluster-info              # info endpoint API server
+kubectl cluster-info dump         # dump detail cluster (debug)
+kubectl api-resources             # daftar semua resource type yang didukung
+kubectl api-versions              # daftar API version
+kubectl help                      # daftar perintah
+kubectl <command> --help          # bantuan per perintah
+kubectl options                   # global flags yang tersedia
+```
+
+- **`kubectl version`**: langkah pertama saat troubleshooting — pastikan client dan server kompatibel (selisih major version ≤ 1).
+- **`kubectl api-resources`**: referensi cepat resource type (`pods`, `deployments`, `services`, dll.) beserta short name (`po`, `deploy`, `svc`).
+- **`kubectl cluster-info`**: verifikasi koneksi ke cluster — jika gagal, cek kubeconfig dan context.
+
+---
+
+## Instalasi & Koneksi Cluster
+
+### Instal kubectl
+
+`kubectl` adalah binary CLI yang berkomunikasi dengan Kubernetes API server lewat kubeconfig. Instalasi berbeda per OS, tapi binary-nya sama.
+
+Kapan dipakai: setup mesin development baru, CI/CD runner, atau server bastion untuk operasi cluster.
+
+```bash
+# macOS (Homebrew)
+brew install kubectl
+
+# Verifikasi
+kubectl version --client --output=yaml
+
+# Linux (curl — ganti versi sesuai kebutuhan)
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+
+# Cek path binary
+which kubectl
+```
+
+- **`brew install kubectl`**: cara termudah di Mac — update dengan `brew upgrade kubectl`.
+- **Versi client vs server**: kubectl mendukung skew ±1 minor version dari API server cluster.
+
+---
+
+### `kubectl config` — Kelola Kubeconfig & Context
+
+`kubectl config` mengelola file kubeconfig (`~/.kube/config`) — berisi cluster, user credential, dan context (kombinasi cluster + namespace + user).
+
+Kapan dipakai: switch antar cluster (dev/staging/prod), setup akses multi-cluster, atau troubleshoot koneksi.
+
+```bash
+# Lihat konfigurasi
+kubectl config view                   # tampilkan kubeconfig
+kubectl config view --minify            # hanya context aktif
+kubectl config view --raw               # termasuk certificate (hati-hati)
+
+# Context — cluster + user + namespace aktif
+kubectl config get-contexts             # daftar semua context
+kubectl config current-context          # context yang sedang dipakai
+kubectl config use-context prod-cluster # switch context
+kubectl config set-context --current --namespace=backend   # set namespace default
+
+# Tambah cluster & user
+kubectl config set-cluster dev-cluster \
+  --server=https://dev.k8s.example.com:6443 \
+  --certificate-authority=/path/to/ca.crt
+
+kubectl config set-credentials dev-user \
+  --client-certificate=/path/to/client.crt \
+  --client-key=/path/to/client.key
+
+kubectl config set-context dev-context \
+  --cluster=dev-cluster \
+  --user=dev-user \
+  --namespace=default
+
+# Rename & delete
+kubectl config rename-context old-name new-name
+kubectl config delete-context dev-context
+kubectl config delete-cluster dev-cluster
+kubectl config delete-user dev-user
+
+# Merge kubeconfig dari file lain
+export KUBECONFIG=~/.kube/config:~/.kube/config-staging
+kubectl config view --flatten > ~/.kube/config-merged
+```
+
+Struktur kubeconfig:
+
+| Komponen | Fungsi |
+| --- | --- |
+| **clusters** | Endpoint API server + CA certificate |
+| **users** | Credential (cert, token, atau exec plugin) |
+| **contexts** | Kombinasi cluster + user + namespace default |
+| **current-context** | Context yang aktif saat ini |
+
+<Callout type="info">
+Environment variable `KUBECONFIG` bisa menunjuk ke beberapa file (dipisah `:`). Berguna saat Anda punya akses ke banyak cluster dan ingin merge konfigurasi tanpa edit manual.
+</Callout>
+
+---
+
+### Autentikasi umum
+
+Kubernetes mendukung berbagai metode autentikasi — tergantung provider cluster (GKE, EKS, AKS, on-prem).
+
+```bash
+# Token (service account atau user token)
+kubectl config set-credentials token-user --token=eyJhbGciOiJSUzI1NiIs...
+
+# Exec plugin (GKE, EKS, AKS — otomatis via CLI provider)
+# GKE: gcloud container clusters get-credentials CLUSTER --zone=ZONE
+# EKS: aws eks update-kubeconfig --name CLUSTER --region REGION
+# AKS: az aks get-credentials --resource-group RG --name CLUSTER
+
+# Verifikasi identitas
+kubectl auth whoami                   # K8s 1.27+ — tampilkan user aktif
+kubectl auth can-i create pods          # cek permission
+kubectl auth can-i delete deployments --namespace=production
+kubectl auth can-i '*' '*' --all-namespaces   # cek admin access
+```
+
+- **`gcloud/aws/az get-credentials`**: cara standar setup kubeconfig untuk managed Kubernetes.
+- **`kubectl auth can-i`**: cek RBAC sebelum operasi — hemat waktu saat dapat error Forbidden.
+
+---
+
+## Namespace — Partisi Cluster
+
+### `kubectl get/create/delete namespace`
+
+Namespace mempartisi resource di dalam satu cluster fisik — tim berbeda, lingkungan berbeda, atau isolasi workload.
+
+Kapan dipakai: organisasi resource per tim/proyek, isolasi staging vs production di cluster shared, atau apply quota per namespace.
+
+```bash
+kubectl get namespaces                  # daftar namespace (short: ns)
+kubectl get ns -o wide
+kubectl create namespace backend        # buat namespace baru
+kubectl create ns frontend --dry-run=client -o yaml   # preview YAML
+
+kubectl delete namespace temp-env       # hapus namespace + semua resource di dalamnya
+kubectl describe namespace backend      # detail: quota, limits, status
+```
+
+Namespace bawaan:
+
+| Namespace | Fungsi |
+| --- | --- |
+| **default** | Namespace default jika tidak dispesifikasi |
+| **kube-system** | Komponen sistem K8s (CoreDNS, kube-proxy, dll.) |
+| **kube-public** | Resource publik (jarang disentuh) |
+| **kube-node-lease** | Heartbeat node — jangan edit manual |
+
+<Callout type="warning">
+Menghapus namespace (`kubectl delete ns`) menghapus **semua** resource di dalamnya — termasuk deployment, service, dan data yang tidak di-backup. Double-check sebelum eksekusi di production.
+</Callout>
+
+---
+
+## Membaca Resource — `get` & `describe`
+
+### `kubectl get` — Daftar Resource
+
+`kubectl get` menampilkan resource yang ada di cluster — perintah paling sering dipakai sehari-hari.
+
+Kapan dipakai: cek status pod, lihat deployment, audit resource di namespace, atau monitoring cepat.
+
+```bash
+# Pod
+kubectl get pods                        # pod di namespace default
+kubectl get pods -n backend             # pod di namespace tertentu
+kubectl get pods --all-namespaces       # semua namespace (short: -A)
+kubectl get pods -o wide                # info tambahan: IP, node, nomor restart
+kubectl get pods -w                     # watch — update real-time
+kubectl get pods -l app=nginx           # filter by label
+kubectl get pods --field-selector status.phase=Running
+
+# Deployment, ReplicaSet, Service
+kubectl get deployments                 # short: deploy
+kubectl get replicasets                 # short: rs
+kubectl get services                    # short: svc
+kubectl get ingress                     # short: ing
+kubectl get configmaps                  # short: cm
+kubectl get secrets                     # short: secret
+
+# Multi-resource sekaligus
+kubectl get pods,svc,deploy -n backend
+kubectl get all -n backend              # pod, svc, deploy, rs (bukan semua resource)
+
+# Output format
+kubectl get pods -o yaml                # output YAML lengkap
+kubectl get pods -o json                # output JSON
+kubectl get pods -o jsonpath='{.items[*].metadata.name}'   # ekstrak field
+kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
+kubectl get pods --sort-by=.metadata.creationTimestamp
+kubectl get pods --show-labels
+```
+
+- **`-n <namespace>`**: scope ke namespace tertentu — hindari operasi di namespace salah.
+- **`-A` / `--all-namespaces`**: tampilkan di seluruh cluster — berguna untuk audit.
+- **`-l app=nginx`**: filter dengan label selector — cara utama memilih grup pod.
+- **`-o wide`**: tambah kolom IP, Node, Nominated Node — debug scheduling.
+- **`-w`**: mode watch — pantau perubahan status (Pending → Running → CrashLoopBackOff).
+
+Output status pod yang umum:
+
+| Status | Arti |
+| --- | --- |
+| **Running** | Pod berjalan normal |
+| **Pending** | Menunggu scheduling atau pull image |
+| **CrashLoopBackOff** | Container crash berulang — cek logs |
+| **ImagePullBackOff** | Gagal pull image — cek nama image & registry auth |
+| **Completed** | Job selesai (normal untuk Job/CronJob) |
+| **Terminating** | Pod sedang dihapus — bisa stuck jika finalizer bermasalah |
+
+---
+
+### `kubectl describe` — Detail Resource
+
+`kubectl describe` menampilkan detail lengkap resource termasuk events — sangat berguna untuk troubleshooting.
+
+Kapan dipakai: pod tidak start, service tidak routing, deployment stuck, atau investigasi error.
+
+```bash
+kubectl describe pod my-pod -n backend
+kubectl describe deployment nginx-deploy -n backend
+kubectl describe service nginx-svc -n backend
+kubectl describe node worker-01              # detail node: capacity, conditions, pods
+kubectl describe namespace backend
+kubectl describe ingress api-ingress -n backend
+kubectl describe configmap app-config -n backend
+kubectl describe secret db-credentials -n backend
+
+# Events sering jadi kunci debug — bagian bawah output describe
+kubectl get events -n backend --sort-by='.lastTimestamp'
+kubectl get events -n backend --field-selector involvedObject.name=my-pod
+```
+
+- **Events**: bagian paling berharga di output `describe` — menunjukkan kenapa pod Pending, OOMKilled, FailedMount, dll.
+- **`kubectl get events`**: alternatif fokus ke events saja — sort by timestamp untuk kronologi.
+
+<Callout type="tip">
+Workflow debug standar: `kubectl get pods` → lihat STATUS → `kubectl describe pod <name>` → baca Events → `kubectl logs <name>` jika pod sudah pernah running.
+</Callout>
+
+---
+
+## Logs & Monitoring
+
+### `kubectl logs` — Lihat Log Container
+
+`kubectl logs` mengambil stdout/stderr dari container di pod — setara `docker logs` di dunia Kubernetes.
+
+Kapan dipakai: debug error aplikasi, investigasi crash, audit request, atau monitoring batch job.
+
+```bash
+kubectl logs my-pod -n backend
+kubectl logs my-pod -n backend -c sidecar       # container tertentu (multi-container pod)
+kubectl logs my-pod -n backend --previous       # log container sebelumnya (setelah crash/restart)
+kubectl logs my-pod -n backend -f               # follow (streaming, seperti tail -f)
+kubectl logs my-pod -n backend --tail=100       # 100 baris terakhir
+kubectl logs my-pod -n backend --since=1h       # log sejak 1 jam lalu
+kubectl logs my-pod -n backend --since-time=2025-06-24T10:00:00Z
+kubectl logs my-pod -n backend --timestamps       # sertakan timestamp
+
+# Log dari semua pod dengan label
+kubectl logs -l app=nginx -n backend --tail=50
+kubectl logs -l app=nginx -n backend -f --max-log-requests=10
+
+# Log dari semua container di pod
+kubectl logs my-pod -n backend --all-containers=true
+```
+
+- **`-c sidecar`**: wajib jika pod punya lebih dari satu container — tanpa flag, kubectl ambil container pertama.
+- **`--previous`**: log container instance sebelum restart — kunci debug CrashLoopBackOff.
+- **`-l app=nginx`**: agregasi log dari semua pod dengan label tersebut.
+- **`-f`**: streaming real-time — hentikan dengan `Ctrl+C`.
+
+---
+
+### `kubectl top` — Penggunaan Resource
+
+`kubectl top` menampilkan penggunaan CPU dan memory pod/node — butuh Metrics Server terpasang di cluster.
+
+Kapan dipakai: identifikasi pod yang boros resource, capacity planning, atau validasi request/limit.
+
+```bash
+kubectl top nodes
+kubectl top pods -n backend
+kubectl top pods -n backend --containers    # per-container breakdown
+kubectl top pods -n backend --sort-by=cpu
+kubectl top pods -n backend --sort-by=memory
+```
+
+<Callout type="info">
+Jika `kubectl top` error "metrics not available", install [Metrics Server](https://github.com/kubernetes-sigs/metrics-server) di cluster. Di minikube: `minikube addons enable metrics-server`.
+</Callout>
+
+---
+
+## Eksekusi di Container — `exec` & `attach`
+
+### `kubectl exec` — Jalankan Perintah di Pod
+
+`kubectl exec` menjalankan perintah di dalam container yang sedang berjalan — seperti `docker exec`.
+
+Kapan dipakai: debug interaktif, cek file konfigurasi, test koneksi database, atau jalankan one-off command.
+
+```bash
+kubectl exec my-pod -n backend -- ls -la /app
+kubectl exec my-pod -n backend -- env         # lihat environment variables
+kubectl exec my-pod -n backend -- cat /etc/config/app.yaml
+
+# Interactive shell
+kubectl exec -it my-pod -n backend -- /bin/sh       # Alpine (sh)
+kubectl exec -it my-pod -n backend -- /bin/bash     # Debian/Ubuntu (bash)
+kubectl exec -it my-pod -n backend -c app -- bash   # container tertentu
+
+# Multiple commands
+kubectl exec my-pod -n backend -- sh -c "cd /app && npm run migrate"
+
+# Debug pod sementara (ephemeral container — K8s 1.23+)
+kubectl debug my-pod -n backend -it --image=busybox --target=my-container
+```
+
+- **`-it`**: interactive + TTY — wajib untuk shell session.
+- **`--`**: pemisah antara flag kubectl dan perintah yang dijalankan di container.
+- **`-c app`**: pilih container jika pod multi-container.
+- **`kubectl debug`**: attach debug container ke pod yang running — tanpa restart pod utama.
+
+---
+
+### `kubectl attach` — Attach ke Proses Utama
+
+`kubectl attach` terhubung ke stdin/stdout proses utama container — berbeda dari exec yang spawn proses baru.
+
+Kapan dipakai: reconnect ke proses interaktif, atau debug container yang proses utamanya masih running.
+
+```bash
+kubectl attach my-pod -n backend -c app
+kubectl attach my-pod -n backend -c app -i    # kirim stdin
+```
+
+<Callout type="warning">
+`kubectl attach` ke proses utama bisa mengganggu aplikasi production. Untuk debug rutin, prefer `kubectl exec` yang menjalankan proses terpisah.
+</Callout>
+
+---
+
+## Deploy & Kelola Resource — `apply` & `create`
+
+### `kubectl apply` — Deklaratif (Imperative vs Declarative)
+
+`kubectl apply` menerapkan konfigurasi dari file YAML/JSON ke cluster — cara **deklaratif** yang direkomendasikan untuk production.
+
+Kapan dipakai: deploy aplikasi, update konfigurasi, GitOps workflow, atau manage infrastructure as code.
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl apply -f deployment.yaml -n backend
+kubectl apply -f k8s/                     # apply semua YAML di folder
+kubectl apply -f https://raw.githubusercontent.com/user/repo/main/k8s/deploy.yaml
+kubectl apply -k overlays/production/     # Kustomize overlay
+
+# Dry-run — preview tanpa apply
+kubectl apply -f deployment.yaml --dry-run=client -o yaml
+kubectl apply -f deployment.yaml --dry-run=server    # validasi di API server
+
+# Apply dengan prune — hapus resource yang tidak ada di manifest
+kubectl apply -f k8s/ --prune -l app=myapp
+
+# Force replace conflicting field (hati-hati)
+kubectl apply -f deployment.yaml --force
+```
+
+Contoh `deployment.yaml` minimal:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deploy
+  namespace: backend
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+```
+
+Penjelasan manifest di atas:
+
+- **`replicas: 3`**: Deployment menjaga 3 pod identik — self-healing jika ada yang mati.
+- **`selector.matchLabels`**: harus cocok dengan `template.metadata.labels` — wajib konsisten.
+- **`resources.requests/limits`**: CPU (`100m` = 0.1 core) dan memory — penting untuk scheduling dan stabilitas.
+- **`containerPort: 80`**: dokumentasi port container — expose ke luar butuh Service.
+
+Contoh `service.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-svc
+  namespace: backend
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
+```
+
+- **`selector.app: nginx`**: Service route traffic ke pod dengan label `app=nginx`.
+- **`type: ClusterIP`**: hanya accessible dari dalam cluster — ubah ke `LoadBalancer` atau `NodePort` untuk akses eksternal.
+
+- **`kubectl apply -f k8s/`**: apply rekursif semua manifest di folder — standar struktur proyek.
+- **`--dry-run=client`**: render YAML tanpa kirim ke cluster — validasi syntax.
+- **`--dry-run=server`**: validasi di API server — tangkap error admission controller.
+- **`-k`**: apply Kustomize overlay — base + patch per environment.
+
+---
+
+### `kubectl create` — Imperatif (Cepat untuk Eksperimen)
+
+`kubectl create` membuat resource langsung dari CLI — cara **imperatif**, cepat untuk prototyping tapi kurang ideal untuk production.
+
+Kapan dipakai: eksperimen cepat, demo, one-off resource, atau belajar tanpa menulis YAML.
+
+```bash
+# Deployment imperatif
+kubectl create deployment nginx --image=nginx:1.27-alpine -n backend
+kubectl create deployment api --image=myregistry/api:v2 --replicas=3 -n backend
+
+# Service
+kubectl create service clusterip nginx-svc --tcp=80:80 -n backend
+kubectl create service nodeport nginx-np --tcp=80:30080 -n backend
+
+# ConfigMap & Secret
+kubectl create configmap app-config --from-literal=LOG_LEVEL=debug -n backend
+kubectl create configmap app-config --from-file=app.properties -n backend
+kubectl create secret generic db-secret \
+  --from-literal=username=admin \
+  --from-literal=password=s3cret -n backend
+kubectl create secret tls tls-cert --cert=tls.crt --key=tls.key -n backend
+
+# Namespace, ServiceAccount, Role
+kubectl create namespace staging
+kubectl create serviceaccount app-sa -n backend
+kubectl create role pod-reader --verb=get,list --resource=pods -n backend
+kubectl create rolebinding read-pods --role=pod-reader --serviceaccount=backend:app-sa -n backend
+
+# Job & CronJob
+kubectl create job hello --image=busybox -- echo "Hello K8s"
+kubectl create cronjob backup --image=backup-tool --schedule="0 2 * * *" -- /backup.sh -n backend
+```
+
+- **`kubectl create deployment`**: cara tercepat spin up app — tapi tidak ada history versi manifest di Git.
+- **`--from-literal` / `--from-file`**: buat ConfigMap/Secret tanpa YAML — praktis untuk secret sementara.
+- **Best practice production**: tulis YAML → simpan di Git → `kubectl apply` (GitOps).
+
+<Callout type="info">
+`kubectl create` gagal jika resource sudah ada (error AlreadyExists). `kubectl apply` idempotent — create jika belum ada, update jika sudah ada. Untuk production, selalu prefer `apply`.
+</Callout>
+
+---
+
+### `kubectl replace` & `kubectl patch` — Update Targeted
+
+`kubectl replace` mengganti resource seluruhnya; `kubectl patch` mengubah field tertentu saja.
+
+Kapan dipakai: update cepat satu field tanpa edit YAML lengkap, atau automation/scripting.
+
+```bash
+# Replace (butuh resourceVersion — hati-hati conflict)
+kubectl replace -f deployment.yaml
+
+# Patch — ubah field spesifik
+kubectl patch deployment nginx-deploy -n backend -p '{"spec":{"replicas":5}}'
+kubectl patch deployment nginx-deploy -n backend --type=strategic -p '{"spec":{"template":{"spec":{"containers":[{"name":"nginx","image":"nginx:1.28-alpine"}]}}}}'
+
+# Patch dari file
+kubectl patch deployment nginx-deploy -n backend --patch-file patch.json
+
+# Set image (shortcut umum)
+kubectl set image deployment/nginx-deploy nginx=nginx:1.28-alpine -n backend
+```
+
+- **`kubectl patch`**: surgical update — tidak perlu apply seluruh manifest.
+- **`kubectl set image`**: shortcut paling umum untuk update image container.
+
+---
+
+## Menghapus Resource — `delete`
+
+### `kubectl delete` — Hapus Resource
+
+`kubectl delete` menghapus resource dari cluster — bisa dari file manifest, nama, atau label selector.
+
+Kapan dipakai: teardown environment, hapus resource usang, cleanup setelah testing, atau scale-to-zero dengan hapus deployment.
+
+```bash
+kubectl delete pod my-pod -n backend
+kubectl delete deployment nginx-deploy -n backend
+kubectl delete -f deployment.yaml
+kubectl delete -f k8s/                     # hapus semua resource di manifest
+
+# Hapus by label
+kubectl delete pods -l app=nginx -n backend
+kubectl delete all -l app=nginx -n backend
+
+# Force delete pod yang stuck Terminating
+kubectl delete pod my-pod -n backend --grace-period=0 --force
+
+# Hapus semua resource di namespace (hati-hati!)
+kubectl delete all --all -n temp-env
+
+# Finalizer stuck — edit manual jika perlu
+kubectl patch pod my-pod -n backend -p '{"metadata":{"finalizers":null}}' --type=merge
+```
+
+- **`--grace-period=0 --force`**: hapus paksa — gunakan hanya jika pod stuck Terminating.
+- **`kubectl delete all`**: tidak menghapus PVC, Ingress, CronJob — hanya core workload resources.
+- **Finalizer**: jika pod/namespace stuck Terminating, cek finalizer di `kubectl get <resource> -o yaml`.
+
+<Callout type="warning">
+`kubectl delete namespace production` atau `kubectl delete all --all` di namespace production adalah operasi destruktif. Selalu verifikasi context (`kubectl config current-context`) dan namespace (`-n`) sebelum eksekusi.
+</Callout>
+
+---
+
+## Rollout & Deployment Strategy
+
+### `kubectl rollout` — Kelola Deployment Rollout
+
+`kubectl rollout` mengelola proses update Deployment — status, history, pause, undo.
+
+Kapan dipakai: deploy versi baru, rollback ke versi sebelumnya, canary/blue-green dengan pause, atau investigasi rollout yang gagal.
+
+```bash
+# Status rollout
+kubectl rollout status deployment/nginx-deploy -n backend
+kubectl rollout status deployment/nginx-deploy -n backend --timeout=5m
+
+# History
+kubectl rollout history deployment/nginx-deploy -n backend
+kubectl rollout history deployment/nginx-deploy -n backend --revision=3
+
+# Undo (rollback)
+kubectl rollout undo deployment/nginx-deploy -n backend              # ke revision sebelumnya
+kubectl rollout undo deployment/nginx-deploy -n backend --to-revision=2
+
+# Pause & resume (untuk canary manual)
+kubectl rollout pause deployment/nginx-deploy -n backend
+# ... update image bertahap, verifikasi ...
+kubectl rollout resume deployment/nginx-deploy -n backend
+
+# Restart deployment (rolling restart — image sama, recreate pods)
+kubectl rollout restart deployment/nginx-deploy -n backend
+```
+
+Strategi rollout (di Deployment spec):
+
+| Strategi | Perilaku |
+| --- | --- |
+| **RollingUpdate** (default) | Ganti pod secara bertahap — zero downtime jika health check benar |
+| **Recreate** | Hapus semua pod lama, buat baru — ada downtime singkat |
+
+Contoh konfigurasi rolling update di YAML:
+
+```yaml
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # pod tambahan saat update (default 25%)
+      maxUnavailable: 0    # minimal pod unavailable (default 25%)
+```
+
+- **`kubectl rollout status`**: block sampai rollout selesai — ideal untuk CI/CD pipeline.
+- **`kubectl rollout undo`**: rollback cepat — bergantung pada Deployment history (default 10 revision).
+- **`kubectl rollout restart`**: restart semua pod tanpa ubah image — berguna setelah update ConfigMap/Secret.
+
+---
+
+## Scaling
+
+### `kubectl scale` — Ubah Jumlah Replica
+
+`kubectl scale` mengubah jumlah replica Deployment, ReplicaSet, StatefulSet, atau ReplicationController.
+
+Kapan dipakai: handle traffic spike, scale down di luar jam sibuk, testing dengan satu replica, atau manual scaling sebelum HPA aktif.
+
+```bash
+kubectl scale deployment nginx-deploy --replicas=5 -n backend
+kubectl scale deployment nginx-deploy --replicas=0 -n backend    # scale to zero
+kubectl scale deployment nginx-deploy --replicas=3 -n backend
+
+# Scale multiple sekaligus
+kubectl scale deployment nginx-deploy api-deploy --replicas=3 -n backend
+
+# Scale by resource file
+kubectl scale --replicas=5 -f deployment.yaml
+
+# Current replicas
+kubectl get deployment nginx-deploy -n backend -o jsonpath='{.spec.replicas}'
+```
+
+- **`--replicas=0`**: hentikan semua pod tanpa hapus Deployment — bisa scale up lagi kapan saja.
+- **HPA (Horizontal Pod Autoscaler)**: untuk auto-scaling berdasarkan CPU/memory/custom metrics — `kubectl autoscale`.
+
+```bash
+# Buat HPA
+kubectl autoscale deployment nginx-deploy --min=2 --max=10 --cpu-percent=70 -n backend
+kubectl get hpa -n backend
+kubectl describe hpa nginx-deploy -n backend
+```
+
+<Callout type="tip">
+Untuk production, kombinasikan `kubectl scale` manual untuk intervensi darurat dengan HPA untuk scaling otomatis. Pastikan `resources.requests` sudah diset — HPA butuh metrics yang akurat.
+</Callout>
+
+---
+
+## Port Forwarding & Akses Lokal
+
+### `kubectl port-forward` — Tunnel ke Pod/Service
+
+`kubectl port-forward` membuat tunnel dari localhost ke port di pod atau service — akses aplikasi cluster dari mesin lokal.
+
+Kapan dipakai: test aplikasi di cluster tanpa expose ke internet, debug database di cluster, atau akses admin UI secara aman.
+
+```bash
+# Forward ke pod
+kubectl port-forward pod/my-pod 8080:80 -n backend
+kubectl port-forward pod/my-pod 3000:3000 -n backend
+
+# Forward ke service (load balance ke salah satu pod)
+kubectl port-forward service/nginx-svc 8080:80 -n backend
+
+# Forward ke deployment (via service selector)
+kubectl port-forward deployment/nginx-deploy 8080:80 -n backend
+
+# Bind address tertentu
+kubectl port-forward --address 0.0.0.0 service/nginx-svc 8080:80 -n backend
+
+# Multiple port
+kubectl port-forward pod/my-pod 8080:80 8443:443 -n backend
+```
+
+- **`8080:80`**: `localhost:8080` → port `80` di pod/service.
+- **Service vs Pod**: forward ke Service lebih stabil — tidak putus saat pod restart.
+- **Keamanan**: port-forward hanya dari mesin Anda — tidak expose ke internet.
+
+Setelah port-forward aktif, buka `http://localhost:8080` di browser atau `curl http://localhost:8080`.
+
+---
+
+### `kubectl proxy` — Proxy ke API Server
+
+`kubectl proxy` menjalankan proxy ke Kubernetes API server di localhost — berguna untuk akses API atau dashboard secara lokal.
+
+```bash
+kubectl proxy                              # default localhost:8001
+kubectl proxy --port=9090
+kubectl proxy --address=127.0.0.1 --port=8001
+
+# Akses API via proxy
+curl http://localhost:8001/api/v1/namespaces/backend/pods
+```
+
+---
+
+## ConfigMap & Secret
+
+### `kubectl` untuk ConfigMap
+
+ConfigMap menyimpan konfigurasi non-sensitif — inject ke pod sebagai environment variable atau volume mount.
+
+Kapan dipakai: konfigurasi aplikasi per environment, feature flags, atau file konfigurasi yang sering berubah.
+
+```bash
+# Buat ConfigMap
+kubectl create configmap app-config \
+  --from-literal=APP_ENV=production \
+  --from-literal=LOG_LEVEL=info \
+  -n backend
+
+kubectl create configmap nginx-config --from-file=nginx.conf -n backend
+kubectl create configmap app-config --from-env-file=.env -n backend
+
+# Lihat isi
+kubectl get configmap app-config -n backend -o yaml
+kubectl describe configmap app-config -n backend
+
+# Edit langsung (buka editor)
+kubectl edit configmap app-config -n backend
+
+# Export & apply
+kubectl get configmap app-config -n backend -o yaml > app-config.yaml
+```
+
+Contoh inject ConfigMap ke Deployment:
+
+```yaml
+spec:
+  containers:
+    - name: app
+      image: myapp:v1
+      envFrom:
+        - configMapRef:
+            name: app-config
+      volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+  volumes:
+    - name: config-volume
+      configMap:
+        name: nginx-config
+```
+
+- **`envFrom`**: semua key di ConfigMap jadi environment variable.
+- **`volumeMounts`**: ConfigMap di-mount sebagai file di path tertentu.
+
+<Callout type="info">
+Setelah update ConfigMap, pod **tidak** otomatis reload. Restart deployment: `kubectl rollout restart deployment/my-deploy -n backend`, atau gunakan sidecar reloader.
+</Callout>
+
+---
+
+### `kubectl` untuk Secret
+
+Secret menyimpan data sensitif — password, API key, TLS certificate. Nilai di-encode base64 (bukan enkripsi!).
+
+Kapan dipakai: credential database, API token, TLS cert, atau registry pull secret.
+
+```bash
+# Buat Secret
+kubectl create secret generic db-credentials \
+  --from-literal=username=admin \
+  --from-literal=password=s3cretP@ss \
+  -n backend
+
+kubectl create secret tls tls-secret \
+  --cert=tls.crt --key=tls.key -n backend
+
+kubectl create secret docker-registry regcred \
+  --docker-server=ghcr.io \
+  --docker-username=user \
+  --docker-password=ghp_xxxx \
+  --docker-email=user@example.com \
+  -n backend
+
+# Lihat (values base64-encoded)
+kubectl get secret db-credentials -n backend -o yaml
+
+# Decode value
+kubectl get secret db-credentials -n backend -o jsonpath='{.data.password}' | base64 -d
+
+# Edit
+kubectl edit secret db-credentials -n backend
+```
+
+- **Base64 bukan enkripsi**: siapa pun dengan akses `get secrets` bisa decode — gunakan RBAC ketat dan external secret manager (Vault, AWS Secrets Manager) untuk production.
+- **`docker-registry` secret**: diperlukan untuk pull image dari private registry — referensikan di `imagePullSecrets` di Pod spec.
+
+---
+
+## Ingress & Networking
+
+### `kubectl` untuk Ingress
+
+Ingress mengatur routing HTTP/HTTPS dari luar cluster ke Service — dengan TLS, path-based routing, dan virtual host.
+
+Kapan dipakai: expose multiple service di satu IP/domain, TLS termination, atau path-based routing (`/api` → api-svc, `/` → web-svc).
+
+```bash
+kubectl get ingress -n backend
+kubectl describe ingress api-ingress -n backend
+kubectl apply -f ingress.yaml
+
+# Lihat IP/hostname Ingress (setelah controller assign)
+kubectl get ingress -n backend -o wide
+```
+
+Contoh `ingress.yaml`:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  namespace: backend
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.example.com
+      secretName: tls-secret
+  rules:
+    - host: api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-svc
+                port:
+                  number: 80
+```
+
+- **`ingressClassName`**: tentukan Ingress Controller (nginx, traefik, alb, dll.).
+- **`annotations`**: konfigurasi spesifik per controller — rewrite, rate limit, CORS, dll.
+- **`tls.secretName`**: referensi ke Secret berisi TLS cert.
+
+---
+
+### NetworkPolicy & DNS debug
+
+```bash
+kubectl get networkpolicies -n backend
+kubectl run tmp-shell --rm -it --image=busybox -n backend -- sh   # pod debug sementara
+# Di dalam pod: nslookup kubernetes.default, wget, ping
+kubectl exec -it my-pod -n backend -- nslookup api-svc.backend.svc.cluster.local
+```
+
+DNS internal Kubernetes: `<service>.<namespace>.svc.cluster.local`
+
+---
+
+## Job & CronJob
+
+### `kubectl` untuk Job dan CronJob
+
+Job menjalankan pod sampai selesai (batch); CronJob menjalankan Job berdasarkan jadwal cron.
+
+Kapan dipakai: backup, migrasi database, report generation, atau task terjadwal.
+
+```bash
+kubectl create job data-migration --image=migrate-tool:v1 -n backend
+kubectl get jobs -n backend
+kubectl describe job data-migration -n backend
+kubectl logs job/data-migration -n backend
+
+kubectl create cronjob nightly-backup \
+  --image=backup-tool \
+  --schedule="0 3 * * *" \
+  -- /scripts/backup.sh -n backend
+
+kubectl get cronjobs -n backend
+kubectl get jobs -n backend --watch
+
+# Suspend CronJob
+kubectl patch cronjob nightly-backup -n backend -p '{"spec":{"suspend":true}}'
+```
+
+- **Job**: pod dijalankan sampai `completions` tercapai — restart jika gagal (sesuai `restartPolicy`).
+- **CronJob**: wrapper terjadwal — format schedule sama dengan cron Linux.
+
+---
+
+## StatefulSet & PersistentVolume
+
+### `kubectl` untuk Stateful Workload
+
+StatefulSet untuk aplikasi stateful (database, message queue) — pod dengan identitas stabil dan storage persisten.
+
+```bash
+kubectl get statefulsets -n backend          # short: sts
+kubectl describe statefulset postgres -n backend
+kubectl scale statefulset postgres --replicas=3 -n backend
+
+# PersistentVolumeClaim
+kubectl get pvc -n backend
+kubectl describe pvc data-postgres-0 -n backend
+kubectl get pv
+```
+
+- **StatefulSet**: pod dinamai `postgres-0`, `postgres-1`, dll. — urutan start/stop terjamin.
+- **PVC**: request storage — bound ke PersistentVolume (PV) oleh provisioner.
+
+<Callout type="warning">
+Scale down StatefulSet dengan data tidak otomatis dihapus — PVC tetap ada. Hapus PVC manual jika ingin benar-benar bersihkan data.
+</Callout>
+
+---
+
+## Debug & Troubleshooting
+
+### Toolkit debug kubectl
+
+Kumpulan perintah untuk investigasi masalah di cluster — dari pod gagal start hingga networking.
+
+Kapan dipakai: incident production, pod CrashLoopBackOff, service tidak reachable, atau node NotReady.
+
+```bash
+# 1. Cek status cepat
+kubectl get pods -n backend -o wide
+kubectl get events -n backend --sort-by='.lastTimestamp' | tail -20
+
+# 2. Detail pod bermasalah
+kubectl describe pod failing-pod -n backend
+
+# 3. Logs
+kubectl logs failing-pod -n backend
+kubectl logs failing-pod -n backend --previous
+
+# 4. Exec ke pod (jika masih running)
+kubectl exec -it failing-pod -n backend -- sh
+
+# 5. Pod debug ephemeral
+kubectl debug failing-pod -n backend -it --image=nicolaka/netshoot --target=app
+# netshoot punya: curl, dig, tcpdump, netstat
+
+# 6. Jalankan pod debug sementara
+kubectl run debug --rm -it --image=busybox -n backend -- sh
+kubectl run curl-test --rm -it --image=curlimages/curl -n backend -- curl http://api-svc
+
+# 7. Copy file dari/ke pod
+kubectl cp backend/my-pod:/var/log/app.log ./app.log
+kubectl cp ./config.yaml backend/my-pod:/etc/config/config.yaml
+
+# 8. Cek resource & limit
+kubectl describe pod my-pod -n backend | grep -A5 "Limits\|Requests"
+kubectl top pod my-pod -n backend
+
+# 9. Cek endpoint service
+kubectl get endpoints nginx-svc -n backend
+kubectl describe svc nginx-svc -n backend
+
+# 10. Validasi manifest
+kubectl apply -f deployment.yaml --dry-run=server
+kubectl diff -f deployment.yaml
+```
+
+Masalah umum dan solusi:
+
+| Masalah | Penyebab Umum | Perintah Debug |
+| --- | --- | --- |
+| **ImagePullBackOff** | Image tidak ada / salah tag / auth registry | `kubectl describe pod` → Events |
+| **CrashLoopBackOff** | App crash saat start | `kubectl logs --previous` |
+| **Pending** | Resource tidak cukup / PVC tidak bound | `kubectl describe pod`, `kubectl describe node` |
+| **OOMKilled** | Memory limit terlampaui | `kubectl describe pod` → Last State |
+| **Service tidak reachable** | Selector salah / port mismatch | `kubectl get endpoints`, `kubectl describe svc` |
+| **Ingress 404** | Path/host rule salah | `kubectl describe ingress` |
+
+---
+
+### `kubectl explain` — Dokumentasi di Terminal
+
+`kubectl explain` menampilkan dokumentasi field resource — seperti `man` page untuk schema K8s.
+
+```bash
+kubectl explain pod
+kubectl explain pod.spec
+kubectl explain pod.spec.containers
+kubectl explain deployment.spec.strategy
+kubectl explain ingress.spec.rules
+kubectl explain pod --recursive
+```
+
+- **`kubectl explain`**: referensi schema tanpa buka browser — sangat berguna saat menulis manifest YAML.
+
+---
+
+## Node & Cluster Management
+
+### `kubectl` untuk Node
+
+```bash
+kubectl get nodes -o wide
+kubectl describe node worker-01
+kubectl top nodes
+
+# Cordon — tandai node tidak terima pod baru (maintenance)
+kubectl cordon worker-01
+kubectl uncordon worker-01
+
+# Drain — evict semua pod dari node (sebelum maintenance)
+kubectl drain worker-01 --ignore-daemonsets --delete-emptydir-data
+
+# Taint & toleration
+kubectl taint nodes worker-01 dedicated=gpu:NoSchedule
+kubectl taint nodes worker-01 dedicated=gpu:NoSchedule-   # hapus taint
+```
+
+- **`cordon`**: node tidak menerima pod baru — pod existing tetap jalan.
+- **`drain`**: evict semua pod — wajib sebelum shutdown node untuk maintenance.
+
+---
+
+### Context safety — Cek sebelum operasi destruktif
+
+```bash
+# Selalu cek sebelum operasi di production
+kubectl config current-context
+kubectl config get-contexts
+kubectl auth whoami
+
+# Prompt konfirmasi di shell (tambahkan ke .zshrc)
+alias k='kubectl'
+alias kgp='kubectl get pods'
+alias kcn='kubectl config set-context --current --namespace'
+```
+
+<Callout type="warning">
+Salah context = operasi di cluster production. Kebiasaan baik: prompt shell yang menampilkan context aktif, atau tool seperti [kubectx](https://github.com/ahmetb/kubectx) dan [kube-ps1](https://github.com/jonmosco/kube-ps1).
+</Callout>
+
+---
+
+## Helm — Package Manager Kubernetes (Singkat)
+
+**Helm** adalah package manager untuk Kubernetes — mengelola chart (template YAML terpaket) untuk deploy aplikasi kompleks.
+
+Kapan dipakai: deploy aplikasi third-party (Prometheus, Grafana, PostgreSQL), manage release multi-resource, atau template deployment yang reusable.
+
+```bash
+# Install Helm (Mac)
+brew install helm
+
+# Tambah repo & install chart
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm search repo nginx
+helm install my-nginx bitnami/nginx --namespace backend --create-namespace
+
+# Kelola release
+helm list -n backend
+helm status my-nginx -n backend
+helm upgrade my-nginx bitnami/nginx --set replicaCount=3 -n backend
+helm rollback my-nginx 1 -n backend
+helm uninstall my-nginx -n backend
+
+# Debug template tanpa install
+helm template my-nginx bitnami/nginx --namespace backend > rendered.yaml
+helm install my-nginx bitnami/nginx --dry-run --debug -n backend
+```
+
+- **Chart**: paket template YAML + values — seperti "recipe" deploy.
+- **Release**: instance chart yang terinstall di cluster — bisa banyak release dari chart sama.
+- **`helm upgrade`**: update release — setara `kubectl apply` tapi dengan versioning dan rollback built-in.
+- **Hub**: [artifacthub.io](https://artifacthub.io/) — katalog chart publik.
+
+<Callout type="info">
+Helm dan `kubectl apply` bisa dipakai bersamaan. Helm untuk aplikasi packaged; plain YAML + `kubectl apply` (atau Kustomize) untuk manifest custom. Pilih satu strategi per proyek agar tidak conflict ownership label `app.kubernetes.io/managed-by`.
+</Callout>
+
+---
+
+## Kustomize — Overlay Environment
+
+Kustomize built-in di kubectl (`-k`) — base manifest + patch per environment tanpa template engine.
+
+```bash
+# Struktur folder
+# k8s/base/kustomization.yaml
+# k8s/overlays/dev/kustomization.yaml
+# k8s/overlays/prod/kustomization.yaml
+
+kubectl apply -k k8s/overlays/dev/
+kubectl apply -k k8s/overlays/prod/
+kubectl diff -k k8s/overlays/prod/
+```
+
+---
+
+## Workflow DevOps Sehari-hari
+
+### Deploy aplikasi baru
+
+```bash
+# 1. Pastikan context & namespace benar
+kubectl config current-context
+kubectl config set-context --current --namespace=backend
+
+# 2. Apply manifest
+kubectl apply -f k8s/
+
+# 3. Pantau rollout
+kubectl rollout status deployment/api -n backend --timeout=3m
+
+# 4. Verifikasi
+kubectl get pods -l app=api -n backend
+kubectl logs -l app=api -n backend --tail=20
+```
+
+### Update image (rolling deploy)
+
+```bash
+kubectl set image deployment/api api=myregistry/api:v2.0 -n backend
+kubectl rollout status deployment/api -n backend
+kubectl rollout history deployment/api -n backend
+```
+
+### Rollback darurat
+
+```bash
+kubectl rollout undo deployment/api -n backend
+kubectl rollout status deployment/api -n backend
+```
+
+### Debug production issue
+
+```bash
+kubectl get pods -n backend -l app=api
+kubectl describe pod api-7d8f9c-xyz -n backend
+kubectl logs api-7d8f9c-xyz -n backend --previous
+kubectl exec -it api-7d8f9c-xyz -n backend -- sh
+kubectl port-forward service/api-svc 8080:80 -n backend
+```
+
+### Cleanup environment testing
+
+```bash
+kubectl delete -f k8s/ --ignore-not-found
+kubectl delete namespace temp-test
+```
+
+### Sync dari cluster ke file lokal
+
+```bash
+kubectl get deployment api -n backend -o yaml > api-deploy-backup.yaml
+# Hapus field metadata yang di-generate server sebelum commit ke Git
+```
+
+---
+
+## Alias & Shell Integration
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# Alias dasar
+alias k='kubectl'
+alias kg='kubectl get'
+alias kd='kubectl describe'
+alias kl='kubectl logs'
+alias kx='kubectl exec -it'
+alias ka='kubectl apply -f'
+alias kdel='kubectl delete'
+
+# Get resources
+alias kgp='kubectl get pods'
+alias kgd='kubectl get deployments'
+alias kgs='kubectl get services'
+alias kgn='kubectl get nodes'
+alias kgi='kubectl get ingress'
+alias kgpa='kubectl get pods --all-namespaces'
+
+# Dengan namespace
+alias kgb='kubectl -n backend'
+alias kgpw='kubectl get pods -w'
+
+# Context & namespace
+alias kctx='kubectl config use-context'
+alias kcur='kubectl config current-context'
+alias kns='kubectl config set-context --current --namespace'
+
+# Kustomize
+alias kk='kubectl apply -k'
+
+# Debug cepat
+alias klogf='kubectl logs -f'
+alias kprev='kubectl logs --previous'
+```
+
+Fungsi berguna:
+
+```bash
+# Hapus pod — auto pick jika hanya satu
+kdelpod() {
+  kubectl delete pod "$1" -n "${2:-default}"
+}
+
+# Logs dari pod by label
+klogs() {
+  kubectl logs -l "app=$1" -n "${2:-default}" --tail=100 -f
+}
+
+# Port-forward cepat
+kpf() {
+  kubectl port-forward "service/$1" "${2:-8080}:${3:-80}" -n "${4:-default}"
+}
+```
+
+Plugin direkomendasikan:
+
+| Tool | Fungsi |
+| --- | --- |
+| **[kubectx](https://github.com/ahmetb/kubectx)** | Switch context/namespace cepat |
+| **[kube-ps1](https://github.com/jonmosco/kube-ps1)** | Tampilkan context di shell prompt |
+| **[k9s](https://github.com/derailed/k9s)** | TUI untuk navigasi cluster |
+| **[stern](https://github.com/stern/stern)** | Multi-pod log tailing |
+| **[lens](https://k8slens.dev/)** | GUI desktop untuk Kubernetes |
+
+---
+
+## Troubleshooting Umum
+
+### Koneksi cluster gagal
+
+```bash
+# Cek kubeconfig
+kubectl config view --minify
+kubectl cluster-info
+
+# Test API server
+curl -k $(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+
+# Refresh credential (contoh EKS)
+aws eks update-kubeconfig --name my-cluster --region ap-southeast-1
+
+# Refresh credential (contoh GKE)
+gcloud container clusters get-credentials my-cluster --zone asia-southeast1-a
+```
+
+### Error Forbidden (RBAC)
+
+```bash
+kubectl auth whoami
+kubectl auth can-i create deployments -n backend
+kubectl auth can-i get secrets -n backend
+
+# Lihat RoleBinding
+kubectl get rolebindings -n backend
+kubectl describe rolebinding my-binding -n backend
+```
+
+### Pod stuck Pending
+
+```bash
+kubectl describe pod pending-pod -n backend    # lihat Events
+kubectl describe nodes                          # cek resource tersedia
+kubectl get pvc -n backend                      # PVC bound?
+kubectl top nodes                               # resource exhaustion?
+```
+
+### Pod stuck Terminating
+
+```bash
+kubectl describe pod stuck-pod -n backend
+kubectl get pod stuck-pod -n backend -o yaml | grep finalizers
+
+# Force delete (last resort)
+kubectl delete pod stuck-pod -n backend --grace-period=0 --force
+```
+
+### DNS tidak resolve di cluster
+
+```bash
+kubectl run dns-test --rm -it --image=busybox -n backend -- nslookup kubernetes.default
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+kubectl logs -n kube-system -l k8s-app=kube-dns
+```
+
+### Context/namespace salah
+
+```bash
+# Tampilkan di prompt — cegah salah cluster
+kubectl config current-context
+kubectl config view --minify --output 'jsonpath={..namespace}'
+echo "Context: $(kubectl config current-context), NS: $(kubectl config view --minify -o jsonpath='{..namespace}')"
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Info** | `version`, `cluster-info`, `api-resources`, `explain` |
+| **Config** | `config get-contexts`, `config use-context`, `auth can-i` |
+| **Baca** | `get`, `describe`, `logs`, `top` |
+| **Deploy** | `apply`, `create`, `set image`, `patch` |
+| **Hapus** | `delete` |
+| **Rollout** | `rollout status`, `rollout undo`, `rollout restart` |
+| **Scale** | `scale`, `autoscale` |
+| **Akses** | `port-forward`, `proxy`, `exec` |
+| **Config** | `create configmap`, `create secret` |
+| **Debug** | `debug`, `run`, `cp`, `get events` |
+| **Node** | `cordon`, `drain`, `taint` |
+| **Package** | `helm install/upgrade` (Helm CLI) |
+
+---
+
+## Penutup
+
+Enam perintah inti kubectl: **`kubectl get`**, **`kubectl describe`**, **`kubectl logs`**, **`kubectl apply`**, **`kubectl exec`**, dan **`kubectl rollout`**. Dengan keenamnya, Anda sudah menutup workflow deploy, monitoring, dan debug sehari-hari di Kubernetes.
+
+Langkah berikutnya: kuasai **`kubectl port-forward`** untuk akses lokal, **`kubectl config`** untuk multi-cluster, **`ConfigMap`/`Secret`** untuk konfigurasi, dan **`helm`** untuk deploy aplikasi packaged. Kubernetes punya ekosistem luas — manfaatkan `kubectl explain`, `kubectl <command> --help`, dan [dokumentasi resmi Kubernetes](https://kubernetes.io/docs/reference/kubectl/) sebagai referensi terbaru.

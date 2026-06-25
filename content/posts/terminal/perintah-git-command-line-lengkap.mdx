@@ -1,0 +1,1004 @@
+---
+title: "Perintah Git Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Git: init, clone, commit, branch, merge, rebase, stash, remote, push, pull, tag, dan workflow sehari-hari developer."
+date: "2025-06-24"
+category: terminal
+tags: ["git", "cli", "version-control", "devops", "tutorial"]
+featured: true
+---
+
+**Git** adalah sistem kontrol versi yang paling banyak dipakai developer di dunia. Dengan perintah `git` di terminal, Anda bisa melacak perubahan kode, berkolaborasi lewat branch, dan menyinkronkan pekerjaan dengan remote repository (GitHub, GitLab, Bitbucket, dll.).
+
+<Callout type="tip">
+Pastikan Git sudah terpasang. Cek dengan `git --version`. Di Mac: `brew install git` atau sudah tersedia lewat Xcode Command Line Tools (`xcode-select --install`).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti Git — istilah ini muncul terus di dokumentasi dan output terminal:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Repository (repo)** | Folder proyek yang dilacak Git, berisi history commit dan branch |
+| **Working tree** | File di disk yang sedang Anda edit — area kerja aktif |
+| **Staging area (index)** | Area persiapan — file yang sudah `git add` dan siap di-commit |
+| **Commit** | Snapshot permanen perubahan dengan pesan, hash unik, dan metadata |
+| **Branch** | Cabang pengembangan independen — mis. `main`, `feature/login` |
+| **HEAD** | Pointer ke commit/branch tempat Anda berada saat ini |
+| **Remote** | Salinan repo di server (biasanya `origin`) |
+| **Merge** | Menggabungkan history dua branch |
+| **Rebase** | Memindahkan commit ke atas base branch lain — history lebih linear |
+| **.gitignore** | File yang memberitahu Git file/folder mana yang tidak perlu dilacak |
+
+### Tiga area kerja Git
+
+```
+Working Tree  ──git add──►  Staging Area  ──git commit──►  Repository
+  (edit file)                  (siap commit)                  (history)
+```
+
+### Perintah informasi dasar
+
+```bash
+git --version           # tampilkan versi Git yang terinstal
+git help                # daftar semua perintah
+git help commit         # bantuan detail untuk satu perintah
+git <command> -h        # bantuan singkat
+```
+
+- **`git --version`**: langkah pertama saat troubleshooting — pastikan Git tidak terlalu usang.
+- **`git help <command>`**: referensi lengkap tanpa buka browser.
+
+---
+
+## Setup & Konfigurasi
+
+### `git init` — Buat Repository Baru
+
+`git init` menginisialisasi repository Git kosong di folder saat ini — membuat folder tersembunyi `.git/` yang menyimpan seluruh history.
+
+Kapan dipakai: memulai proyek baru dari nol, atau mengaktifkan version control di folder yang sudah ada.
+
+```bash
+git init                        # init di folder saat ini
+git init my-project             # buat folder + init sekaligus
+git init --bare repo.git        # bare repo (untuk server, tanpa working tree)
+```
+
+- **`--bare`**: repo tanpa working directory — dipakai di server Git atau sebagai remote pusat.
+- Setelah `init`, langkah berikutnya biasanya: `git add`, `git commit`, lalu `git remote add`.
+
+---
+
+### `git clone` — Clone Repository
+
+`git clone` mengunduh repository remote beserta seluruh history-nya ke mesin lokal.
+
+Kapan dipakai: pertama kali checkout proyek tim, fork open source, atau setup mesin development baru.
+
+```bash
+git clone https://github.com/user/repo.git
+git clone git@github.com:user/repo.git     # via SSH
+git clone https://github.com/user/repo.git my-folder   # clone ke folder custom
+git clone --depth 1 https://github.com/user/repo.git   # shallow clone (history terbatas)
+git clone --branch develop https://github.com/user/repo.git   # clone branch tertentu
+git clone --recursive https://github.com/user/repo.git   # termasuk submodule
+```
+
+- **`--depth 1`**: unduh hanya commit terbaru — lebih cepat untuk CI atau repo besar.
+- **`--branch`**: langsung checkout branch tertentu setelah clone.
+- **`--recursive`**: clone submodule bersamaan — penting jika proyek punya dependensi repo lain.
+
+---
+
+### `git config` — Konfigurasi Git
+
+`git config` mengatur identitas, editor, default branch, alias, dan preferensi lain — level global (user) atau lokal (per-repo).
+
+Kapan dipakai: setup pertama kali Git di mesin baru, atau konfigurasi khusus per proyek.
+
+```bash
+# Identitas (wajib untuk commit)
+git config --global user.name "Rahmat Eza"
+git config --global user.email "rahmat@example.com"
+
+# Default branch
+git config --global init.defaultBranch main
+
+# Editor default
+git config --global core.editor "code --wait"    # VS Code
+git config --global core.editor "vim"
+
+# Lihat konfigurasi
+git config --list
+git config user.name
+git config --global --list
+git config --local --list
+
+# Set per-repo saja
+git config user.email "work@company.com"
+
+# Hapus setting
+git config --global --unset user.name
+```
+
+Level konfigurasi:
+
+| Level | Flag | Lokasi file |
+| --- | --- | --- |
+| **System** | `--system` | `/etc/gitconfig` |
+| **Global** | `--global` | `~/.gitconfig` |
+| **Local** | `--local` | `.git/config` (per repo) |
+
+Konfigurasi berguna lainnya:
+
+```bash
+git config --global pull.rebase false          # pull = merge (default)
+git config --global pull.rebase true           # pull = rebase
+git config --global push.autoSetupRemote true  # push branch baru otomatis set upstream
+git config --global color.ui auto              # warna di terminal
+git config --global core.autocrlf input        # line ending (Mac/Linux)
+git config --global credential.helper osxkeychain   # simpan credential di Keychain (Mac)
+```
+
+---
+
+## Workflow Dasar: Status, Add, Commit
+
+### `git status` — Lihat Status Working Tree
+
+`git status` menampilkan file yang dimodifikasi, di-stage, belum dilacak, atau diabaikan — snapshot kondisi repo saat ini.
+
+Kapan dipakai: sebelum dan sesudah setiap operasi Git — perintah paling sering dipakai sehari-hari.
+
+```bash
+git status                      # output lengkap
+git status -s                   # short format (ringkas)
+git status -sb                  # short + info branch
+git status --porcelain          # format machine-readable (untuk script)
+git status -u                   # tampilkan untracked files detail
+```
+
+Output short format (`-s`):
+
+| Kode | Arti |
+| --- | --- |
+| `M` (kiri) | Dimodifikasi di staging area |
+| `M` (kanan) | Dimodifikasi di working tree |
+| `A` | File baru di-staging |
+| `D` | Dihapus |
+| `??` | Untracked (belum dilacak Git) |
+
+---
+
+### `git add` — Stage Perubahan
+
+`git add` memindahkan perubahan dari working tree ke staging area — menyiapkan file untuk di-commit.
+
+Kapan dipakai: setelah mengedit file dan sebelum `git commit`.
+
+```bash
+git add file.txt                # stage satu file
+git add src/                    # stage seluruh folder
+git add .                       # stage semua perubahan di folder saat ini
+git add -A                      # stage semua (termasuk file dihapus)
+git add -u                      # stage hanya file yang sudah dilacak (update/delete)
+git add -p file.txt             # stage interaktif per hunk (patch mode)
+git add *.ts                    # stage dengan glob pattern
+```
+
+- **`.`**: stage semua perubahan di direktori saat ini dan subfolder.
+- **`-A` / `--all`**: stage di seluruh repo, termasuk file yang dihapus.
+- **`-p` / `--patch`**: pilih bagian perubahan mana yang di-stage — berguna saat satu file punya beberapa perubahan tidak terkait.
+
+---
+
+### `git commit` — Simpan Snapshot
+
+`git commit` merekam perubahan yang sudah di-staging sebagai snapshot permanen di history repository.
+
+Kapan dipakai: setelah `git add`, saat satu unit pekerjaan selesai dan siap disimpan ke history.
+
+```bash
+git commit -m "feat: add login page"           # commit dengan pesan
+git commit -m "fix: resolve null pointer" -m "Closes #42"   # body tambahan
+git commit -am "quick fix"                     # add tracked files + commit sekaligus
+git commit --amend                             # ubah commit terakhir
+git commit --amend -m "pesan baru"             # amend dengan pesan baru
+git commit --amend --no-edit                   # amend tanpa ubah pesan
+git commit --allow-empty -m "trigger CI"       # commit kosong (tanpa perubahan file)
+```
+
+- **`-m`**: pesan commit — wajib deskriptif; ikuti konvensi tim (Conventional Commits, dll.).
+- **`-a`**: stage semua file **yang sudah dilacak** lalu commit — tidak include file baru/untracked.
+- **`--amend`**: gabung perubahan ke commit terakhir — hati-hati jika sudah di-push (butuh force push).
+- **`--allow-empty`**: commit tanpa perubahan file — trigger CI, marker, atau dokumentasi.
+
+Contoh Conventional Commits:
+
+```bash
+git commit -m "feat(auth): add OAuth2 login"
+git commit -m "fix(api): handle timeout error"
+git commit -m "docs: update README installation"
+git commit -m "refactor(utils): extract date formatter"
+git commit -m "chore: bump dependencies"
+```
+
+---
+
+### `git diff` — Lihat Perbedaan
+
+`git diff` menampilkan perbedaan baris antar working tree, staging area, dan commit.
+
+Kapan dipakai: review perubahan sebelum commit, cek apa yang berubah di branch, atau debug merge conflict.
+
+```bash
+git diff                        # perubahan belum di-stage (working vs staging)
+git diff --staged               # perubahan sudah di-stage (staging vs HEAD)
+git diff --cached               # sama dengan --staged
+git diff HEAD                   # semua perubahan (working + staging vs HEAD)
+git diff main                   # bandingkan branch saat ini dengan main
+git diff main..feature          # diff antara dua branch
+git diff abc123 def456          # diff antara dua commit
+git diff --stat                 # ringkasan statistik (berapa file/baris)
+git diff --name-only            # hanya nama file yang berubah
+git diff -w                     # abaikan perubahan whitespace
+git diff file.txt               # diff satu file saja
+```
+
+- **Tanpa flag**: lihat apa yang **belum** di-`add` — perubahan di working tree.
+- **`--staged`**: lihat apa yang **akan** masuk commit berikutnya.
+- **`--stat`**: ringkasan cepat tanpa detail baris — cocok untuk overview.
+
+---
+
+### `git show` — Detail Commit/Object
+
+`git show` menampilkan detail commit tertentu — metadata, pesan, dan diff perubahan.
+
+Kapan dipakai: investigasi commit spesifik, review perubahan historis, atau debug bug yang diperkenalkan commit tertentu.
+
+```bash
+git show                        # commit terakhir (HEAD)
+git show abc1234                # commit dengan hash
+git show HEAD~2                 # 2 commit sebelum HEAD
+git show main:src/app.ts        # isi file di branch main
+git show --stat abc1234         # ringkasan statistik saja
+git show --name-only abc1234    # hanya nama file
+```
+
+---
+
+## History & Log
+
+### `git log` — Riwayat Commit
+
+`git log` menampilkan history commit — siapa, kapan, pesan apa, dan hash commit.
+
+Kapan dipakai: melacak kapan fitur diintroduce, mencari commit tertentu, atau audit perubahan.
+
+```bash
+git log                         # history lengkap (pager interaktif)
+git log --oneline               # satu baris per commit (ringkas)
+git log --oneline --graph       # dengan grafik branch
+git log --oneline --graph --all --decorate   # semua branch + tag
+git log -5                      # 5 commit terakhir
+git log -p                      # tampilkan diff setiap commit
+git log --stat                  # statistik per commit
+git log --author="Rahmat"       # filter by author
+git log --since="2025-01-01"    # sejak tanggal
+git log --until="2025-06-01"    # sampai tanggal
+git log --grep="fix login"      # cari di pesan commit
+git log -S "functionName"       # commit yang mengubah string tertentu (pickaxe)
+git log -- path/to/file.ts      # history satu file
+git log main..feature           # commit di feature yang belum ada di main
+git log --follow -- path/file   # history file termasuk rename
+```
+
+Format custom:
+
+```bash
+git log --pretty=format:"%h %ad | %s [%an]" --date=short
+# %h = hash pendek, %ad = tanggal, %s = subject, %an = author name
+```
+
+Navigasi di pager (`less`):
+
+- `Space` — halaman berikutnya
+- `q` — keluar
+- `/teks` — cari
+
+---
+
+### `git blame` — Siapa Mengubah Baris
+
+`git blame` menampilkan siapa dan commit mana yang terakhir mengubah setiap baris file.
+
+Kapan dipakai: investigasi bug per baris, memahami konteks perubahan, atau code review historis.
+
+```bash
+git blame file.ts
+git blame -L 10,20 file.ts      # baris 10–20 saja
+git blame -w file.ts            # abaikan whitespace
+git blame -C file.ts            # detect baris yang dipindah dari file lain
+```
+
+---
+
+### `git reflog` — Log Referensi HEAD
+
+`git reflog` mencatat setiap perpindahan HEAD — termasuk commit yang "hilang" setelah reset atau rebase.
+
+Kapan dipakai: recovery setelah `reset --hard` yang salah, atau menemukan commit yang tidak terlihat di `git log`.
+
+```bash
+git reflog
+git reflog show main
+git checkout abc1234            # kembali ke commit dari reflog
+git reset --hard HEAD@{2}       # reset ke posisi reflog ke-2
+```
+
+<Callout type="info">
+`reflog` menyimpan history lokal selama ~90 hari (default). Commit yang "dihapus" masih bisa dipulihkan lewat reflog selama belum di-garbage-collect.
+</Callout>
+
+---
+
+## Branch & Navigasi
+
+### `git branch` — Kelola Branch
+
+`git branch` membuat, melihat, menghapus, atau mengelola branch lokal.
+
+Kapan dipakai: memulai fitur baru, membersihkan branch lama, atau melihat daftar branch aktif.
+
+```bash
+git branch                      # daftar branch lokal (* = aktif)
+git branch -a                   # semua branch (lokal + remote)
+git branch -r                   # hanya remote branch
+git branch -v                   # dengan commit terakhir
+git branch -vv                  # dengan info upstream tracking
+git branch feature/login        # buat branch baru
+git branch -d feature/old         # hapus branch (sudah merged)
+git branch -D feature/wip         # paksa hapus (belum merged)
+git branch -m old-name new-name # rename branch
+git branch --merged main        # branch yang sudah merged ke main
+git branch --no-merged main     # branch yang belum merged
+```
+
+- **`-d`**: safe delete — gagal jika branch belum di-merge.
+- **`-D`**: force delete — hapus meski belum merged (hati-hati).
+- **`-m`**: rename branch saat ini atau branch tertentu.
+
+---
+
+### `git switch` — Pindah Branch (Modern)
+
+`git switch` adalah cara modern untuk pindah branch — lebih jelas daripada `git checkout` untuk navigasi branch.
+
+Kapan dipakai: berpindah antar branch saat development — menggantikan `git checkout <branch>`.
+
+```bash
+git switch main                 # pindah ke branch main
+git switch feature/api            # pindah ke branch lain
+git switch -c feature/new         # buat branch baru + langsung switch
+git switch -                     # kembali ke branch sebelumnya
+git switch -c hotfix main         # buat branch dari main
+```
+
+- **`-c`**: create — buat branch baru dan langsung checkout.
+- **`-`**: toggle ke branch sebelumnya — seperti `cd -`.
+
+---
+
+### `git checkout` — Checkout (Legacy, Masih Umum)
+
+`git checkout` bisa pindah branch, restore file, atau checkout commit — lebih multi-fungsi dari `git switch`.
+
+Kapan dipakai: masih sangat umum di tutorial dan codebase lama; untuk pindah branch, prefer `git switch`.
+
+```bash
+git checkout main               # pindah ke main (legacy)
+git checkout -b feature/new     # buat + switch branch
+git checkout -- file.txt        # buang perubahan file (restore dari HEAD)
+git checkout abc1234            # detached HEAD — checkout commit tertentu
+git checkout -B main abc1234    # reset branch main ke commit tertentu
+```
+
+<Callout type="warning">
+`git checkout abc1234` masuk mode **detached HEAD** — commit baru tidak terikat branch. Buat branch jika ingin menyimpan pekerjaan: `git switch -c my-branch`.
+</Callout>
+
+---
+
+## Merge, Rebase & History
+
+### `git merge` — Gabungkan Branch
+
+`git merge` menggabungkan history satu branch ke branch saat ini — membuat merge commit (kecuali fast-forward).
+
+Kapan dipakai: mengintegrasikan fitur branch ke `main`, sync perubahan tim, atau menyelesaikan PR.
+
+```bash
+git switch main
+git merge feature/login           # merge feature/login ke main
+git merge --no-ff feature/login   # selalu buat merge commit
+git merge --ff-only feature/login # gagal jika tidak bisa fast-forward
+git merge --squash feature/login  # gabung semua commit jadi satu (belum commit)
+git merge --abort                 # batalkan merge yang conflict
+git merge --continue              # lanjutkan setelah resolve conflict
+```
+
+Tipe merge:
+
+| Tipe | Kondisi | Hasil |
+| --- | --- | --- |
+| **Fast-forward** | Tidak ada commit baru di target | HEAD maju, tanpa merge commit |
+| **Three-way** | Ada divergensi | Merge commit baru dibuat |
+| **Squash** | `--squash` | Satu commit gabungan, history branch hilang |
+
+Saat conflict:
+
+```bash
+# 1. Git tandai file conflict
+# 2. Edit file, hapus marker <<<<<<< ======= >>>>>>>
+# 3. Stage file yang sudah diperbaiki
+git add conflicted-file.ts
+git merge --continue
+```
+
+---
+
+### `git rebase` — Pindahkan Commit ke Base Baru
+
+`git rebase` memindahkan commit branch Anda ke atas tip branch lain — menghasilkan history linear tanpa merge commit.
+
+Kapan dipakai: update feature branch dengan `main` terbaru, membersihkan history sebelum merge, atau interactive rebase untuk squash/reorder commit.
+
+```bash
+git switch feature/api
+git rebase main                   # pindahkan commit feature/api di atas main
+git rebase -i HEAD~3              # interactive rebase 3 commit terakhir
+git rebase --continue             # lanjut setelah resolve conflict
+git rebase --abort                # batalkan rebase
+git rebase --skip                 # skip commit yang conflict
+git rebase --onto main feature/old-base feature/api   # rebase onto custom base
+```
+
+Interactive rebase (`-i`) — perintah di editor:
+
+| Perintah | Fungsi |
+| --- | --- |
+| `pick` | Gunakan commit apa adanya |
+| `reword` | Ubah pesan commit |
+| `squash` | Gabung ke commit sebelumnya |
+| `fixup` | Squash tanpa ubah pesan |
+| `drop` | Hapus commit |
+| `edit` | Hentikan untuk amend commit |
+
+<Callout type="warning">
+Jangan rebase commit yang **sudah di-push** ke remote bersama (shared branch) — mengubah history dan membingungkan tim. Rebase aman untuk branch pribadi/feature branch.
+</Callout>
+
+---
+
+### `git reset` — Set Ulang HEAD/Index
+
+`git reset` memindahkan HEAD (dan opsional staging/working tree) ke commit tertentu.
+
+Kapan dipakai: undo commit, unstage file, atau bersihkan working tree — **hati-hati**, bisa menghapus pekerjaan.
+
+```bash
+git reset HEAD~1                  # undo commit terakhir, keep changes staged
+git reset --soft HEAD~1           # undo commit, changes tetap staged
+git reset --mixed HEAD~1          # undo commit + unstage (default)
+git reset --hard HEAD~1           # undo commit + hapus semua perubahan
+git reset HEAD file.txt           # unstage file (tidak ubah working tree)
+git reset --hard origin/main      # samakan persis dengan remote main
+```
+
+| Mode | Commit | Staging | Working Tree |
+| --- | --- | --- | --- |
+| `--soft` | Undo | Tetap | Tetap |
+| `--mixed` (default) | Undo | Reset | Tetap |
+| `--hard` | Undo | Reset | Reset (hapus!) |
+
+---
+
+### `git restore` — Pulihkan File (Modern)
+
+`git restore` mengembalikan file di working tree atau staging area — pengganti modern untuk `git checkout -- file`.
+
+Kapan dipakai: buang perubahan yang tidak diinginkan, atau unstage file.
+
+```bash
+git restore file.txt              # buang perubahan working tree
+git restore --staged file.txt     # unstage file (keep working changes)
+git restore --source=main file.ts # restore file dari branch main
+git restore .                     # buang semua perubahan belum di-commit
+```
+
+- **Tanpa flag**: kembalikan file ke kondisi HEAD (buang edit).
+- **`--staged`**: unstage saja — perubahan di working tree tetap ada.
+
+---
+
+### `git revert` — Buat Commit Pembalik
+
+`git revert` membuat commit **baru** yang membalik perubahan commit tertentu — aman untuk history yang sudah di-push.
+
+Kapan dipakai: undo commit di production/shared branch tanpa rewrite history.
+
+```bash
+git revert abc1234                # revert satu commit
+git revert HEAD                   # revert commit terakhir
+git revert -m 1 merge-commit-hash   # revert merge commit (pilih parent)
+git revert --no-commit abc1234    # revert tanpa auto-commit
+```
+
+- **`revert` vs `reset`**: revert aman untuk remote (tidak ubah history); reset mengubah history lokal.
+
+---
+
+### `git cherry-pick` — Ambil Commit Tertentu
+
+`git cherry-pick` menerapkan commit dari branch lain ke branch saat ini — tanpa merge seluruh branch.
+
+Kapan dipakai: port fix dari `main` ke release branch, atau ambil satu commit spesifik dari PR lain.
+
+```bash
+git cherry-pick abc1234           # apply satu commit
+git cherry-pick abc1234 def5678   # apply beberapa commit
+git cherry-pick -n abc1234        # apply tanpa commit (stage saja)
+git cherry-pick --continue        # lanjut setelah resolve conflict
+git cherry-pick --abort           # batalkan cherry-pick
+```
+
+---
+
+## Stash — Simpan Sementara
+
+### `git stash` — Simpan Perubahan Tanpa Commit
+
+`git stash` menyimpan perubahan working tree sementara — working tree jadi bersih tanpa commit.
+
+Kapan dipakai: switch branch mendadak, pull dengan perubahan lokal, atau simpan WIP (work in progress).
+
+```bash
+git stash                         # stash perubahan (tracked files)
+git stash push -m "WIP login"     # stash dengan pesan
+git stash -u                      # termasuk untracked files
+git stash -a                      # termasuk ignored files
+git stash list                    # daftar stash
+git stash show                    # diff stash terbaru
+git stash show -p stash@{1}       # diff stash tertentu
+git stash pop                     # apply + hapus stash terbaru
+git stash apply                   # apply tanpa hapus stash
+git stash apply stash@{2}         # apply stash tertentu
+git stash drop stash@{0}          # hapus stash
+git stash clear                   # hapus semua stash
+git stash branch feature/wip      # buat branch dari stash
+```
+
+- **`pop` vs `apply`**: `pop` menghapus stash setelah apply; `apply` menyimpan stash.
+- **`stash@{n}`**: indeks stash — `stash@{0}` adalah yang terbaru.
+
+---
+
+## Remote & Kolaborasi
+
+### `git remote` — Kelola Remote
+
+`git remote` mengelola koneksi ke repository di server (GitHub, GitLab, dll.).
+
+Kapan dipakai: setup repo baru, tambah remote kedua (upstream fork), atau cek URL remote.
+
+```bash
+git remote                        # daftar remote
+git remote -v                     # dengan URL fetch/push
+git remote add origin https://github.com/user/repo.git
+git remote add upstream https://github.com/original/repo.git
+git remote rename origin old-origin
+git remote remove origin
+git remote set-url origin git@github.com:user/repo.git   # ubah URL
+git remote show origin            # detail remote (branch tracking, dll.)
+```
+
+---
+
+### `git fetch` — Unduh dari Remote
+
+`git fetch` mengunduh commit dan branch dari remote **tanpa** menggabungkan ke working tree — aman untuk sync.
+
+Kapan dipakai: lihat perubahan remote sebelum merge/rebase, atau update referensi remote branch.
+
+```bash
+git fetch                         # fetch dari default remote (origin)
+git fetch origin                  # fetch dari origin
+git fetch --all                   # fetch semua remote
+git fetch origin main             # fetch branch main saja
+git fetch --prune                 # hapus referensi remote branch yang sudah dihapus
+git fetch origin feature/api:feature/api   # fetch + buat branch lokal
+```
+
+- **`fetch` vs `pull`**: fetch hanya unduh; pull = fetch + merge/rebase ke branch saat ini.
+
+---
+
+### `git pull` — Fetch + Merge/Rebase
+
+`git pull` mengunduh perubahan remote lalu menggabungkannya ke branch saat ini.
+
+Kapan dipakai: sync branch lokal dengan remote sebelum push, atau update `main` setelah rekan push.
+
+```bash
+git pull                          # fetch + merge
+git pull origin main              # pull branch main dari origin
+git pull --rebase                 # fetch + rebase (history lebih bersih)
+git pull --ff-only                # gagal jika tidak fast-forward
+```
+
+- **`--rebase`**: prefer di feature branch — menghindari merge commit yang tidak perlu.
+- **`--ff-only`**: aman di CI — gagal jika butuh merge commit.
+
+---
+
+### `git push` — Kirim ke Remote
+
+`git push` mengirim commit lokal ke remote repository.
+
+Kapan dipakai: share pekerjaan ke tim, buka/update PR, atau deploy via push trigger.
+
+```bash
+git push                          # push branch saat ini ke upstream
+git push origin main              # push main ke origin
+git push -u origin feature/api    # push + set upstream tracking
+git push --all                    # push semua branch
+git push --tags                   # push semua tag
+git push origin :feature/old      # hapus branch di remote
+git push origin --delete feature/old   # sama — hapus remote branch
+git push --force-with-lease       # force push aman (cek remote tidak berubah)
+git push --force                   # force push (hati-hati!)
+```
+
+- **`-u` / `--set-upstream`**: hubungkan branch lokal ke remote — setelah ini cukup `git push` tanpa argumen.
+- **`--force-with-lease`**: force push yang lebih aman — gagal jika ada push baru dari orang lain.
+- **`--force`**: timpa history remote — hanya untuk branch pribadi yang sudah di-rebase.
+
+---
+
+## Tag & Release
+
+### `git tag` — Buat & Kelola Tag
+
+`git tag` menandai commit tertentu — biasanya untuk release version (v1.0.0, v2.1.3).
+
+Kapan dipakai: mark release production, semantic versioning, atau checkpoint historis.
+
+```bash
+git tag                           # daftar tag
+git tag -l "v1.*"                 # filter tag
+git tag v1.0.0                    # lightweight tag di HEAD
+git tag -a v1.0.0 -m "Release 1.0.0"   # annotated tag (direkomendasikan)
+git tag v1.0.0 abc1234            # tag di commit tertentu
+git show v1.0.0                   # detail tag
+git tag -d v1.0.0                 # hapus tag lokal
+git push origin v1.0.0            # push tag ke remote
+git push origin --tags            # push semua tag
+git push origin --delete v1.0.0   # hapus tag di remote
+```
+
+- **Lightweight vs annotated**: annotated tag menyimpan tagger, tanggal, dan pesan — prefer untuk release.
+
+---
+
+## File & Pembersihan
+
+### `git rm` — Hapus File dari Repo
+
+`git rm` menghapus file dari working tree **dan** staging area — Git melacak penghapusan untuk commit berikutnya.
+
+```bash
+git rm file.txt                   # hapus file
+git rm -r folder/                 # hapus folder rekursif
+git rm --cached file.txt          # hapus dari index saja (keep file di disk)
+git rm -f file.txt                # paksa hapus meski ada perubahan
+```
+
+- **`--cached`**: stop tracking file tapi biarkan file tetap di disk — berguna untuk file yang seharusnya di `.gitignore`.
+
+---
+
+### `git mv` — Pindah/Rename File
+
+`git mv` memindahkan atau mengganti nama file — Git melacak sebagai rename, bukan delete + add.
+
+```bash
+git mv old-name.ts new-name.ts
+git mv file.ts src/file.ts
+```
+
+---
+
+### `git clean` — Hapus Untracked Files
+
+`git clean` menghapus file dan folder yang **tidak dilacak** Git — tidak mempengaruhi file tracked.
+
+Kapan dipakai: bersihkan build artifact, file sementara, atau reset working tree ke kondisi bersih.
+
+```bash
+git clean -n                      # dry-run — tampilkan yang akan dihapus
+git clean -f                      # hapus untracked files
+git clean -fd                     # hapus files + directories
+git clean -fdx                    # + ignored files (node_modules, dist, dll.)
+```
+
+<Callout type="warning">
+`git clean -fdx` menghapus `node_modules`, `dist`, dan file ignored lainnya. Selalu jalankan `git clean -n` dulu untuk preview.
+</Callout>
+
+---
+
+### `.gitignore` — Abaikan File
+
+File `.gitignore` di root proyek memberitahu Git file/folder mana yang tidak perlu dilacak.
+
+```gitignore
+# Dependencies
+node_modules/
+.pnp/
+
+# Build output
+dist/
+.next/
+build/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+```
+
+Perintah terkait:
+
+```bash
+git check-ignore -v file.txt      # cek kenapa file di-ignore
+git status --ignored              # tampilkan file ignored
+```
+
+---
+
+## Debugging & Investigasi
+
+### `git bisect` — Cari Commit yang Memperkenalkan Bug
+
+`git bisect` menggunakan binary search untuk menemukan commit pertama yang memperkenalkan bug.
+
+Kapan dipakai: regression — bug ada di versi baru tapi tidak di versi lama, dan Anda tidak tahu commit mana penyebabnya.
+
+```bash
+git bisect start
+git bisect bad                    # commit saat ini bermasalah
+git bisect good v1.0.0            # commit lama yang masih baik
+# Git checkout commit tengah, Anda test:
+git bisect good                   # jika commit ini baik
+git bisect bad                    # jika commit ini bermasalah
+# Ulangi sampai ketemu commit penyebab
+git bisect reset                  # kembali ke branch semula
+```
+
+---
+
+### `git grep` — Cari di Repository
+
+`git grep` mencari string di file yang dilacak Git — lebih cepat dari `grep` biasa karena menghormati `.gitignore`.
+
+```bash
+git grep "functionName"
+git grep -n "TODO"                # dengan nomor baris
+git grep -i "error"               # case-insensitive
+git grep "import" -- "*.ts"       # filter by extension
+git grep "pattern" HEAD~5..HEAD   # cari di range commit
+```
+
+---
+
+## Worktree & Submodule
+
+### `git worktree` — Multiple Working Directory
+
+`git worktree` memungkinkan checkout beberapa branch sekaligus di folder berbeda — tanpa stash/switch bolak-balik.
+
+```bash
+git worktree list
+git worktree add ../repo-hotfix hotfix/urgent   # checkout branch di folder lain
+git worktree remove ../repo-hotfix
+git worktree prune                # bersihkan worktree yang sudah dihapus
+```
+
+Kapan dipakai: review PR sambil development di branch lain, atau hotfix production tanpa ganggu WIP.
+
+---
+
+### `git submodule` — Repo di Dalam Repo
+
+Submodule mengaitkan repository lain sebagai subfolder — versi commit submodule di-lock di parent repo.
+
+```bash
+git submodule add https://github.com/user/lib.git libs/lib
+git submodule update --init --recursive
+git submodule status
+git submodule update --remote     # update submodule ke commit terbaru
+```
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek baru
+
+```bash
+git clone git@github.com:user/repo.git
+cd repo
+git switch -c feature/my-feature
+# ... edit file ...
+git add .
+git commit -m "feat: implement my feature"
+git push -u origin feature/my-feature
+```
+
+### Sync dengan main
+
+```bash
+git switch main
+git pull
+git switch feature/my-feature
+git rebase main                   # atau: git merge main
+```
+
+### Review sebelum commit
+
+```bash
+git status -sb
+git diff
+git diff --staged
+git log --oneline -5
+```
+
+### Undo yang umum
+
+```bash
+# Ubah pesan commit terakhir (belum push)
+git commit --amend -m "pesan baru"
+
+# Unstage file
+git restore --staged file.txt
+
+# Buang perubahan file
+git restore file.txt
+
+# Undo commit, keep changes
+git reset --soft HEAD~1
+
+# Recovery commit hilang
+git reflog
+git reset --hard HEAD@{n}
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.gitconfig` atau jalankan via `git config --global`:
+
+```bash
+git config --global alias.st 'status -sb'
+git config --global alias.co 'checkout'
+git config --global alias.br 'branch'
+git config --global alias.ci 'commit'
+git config --global alias.cm 'commit -m'
+git config --global alias.lg "log --oneline --graph --all --decorate"
+git config --global alias.last 'log -1 HEAD --stat'
+git config --global alias.unstage 'restore --staged'
+git config --global alias.amend 'commit --amend --no-edit'
+git config --global alias.undo 'reset --soft HEAD~1'
+```
+
+Atau di `~/.gitconfig`:
+
+```ini
+[alias]
+  st = status -sb
+  lg = log --oneline --graph --all --decorate -20
+  last = log -1 HEAD --stat
+  unstage = restore --staged
+  amend = commit --amend --no-edit
+```
+
+---
+
+## Troubleshooting Umum
+
+### Merge conflict
+
+```bash
+git status                        # lihat file conflict
+# Edit file, resolve marker <<<<<<< ======= >>>>>>>
+git add resolved-file.ts
+git merge --continue              # atau: git rebase --continue
+```
+
+### Push ditolak (non-fast-forward)
+
+```bash
+git pull --rebase
+git push
+# Jika sudah rebase branch yang pernah di-push:
+git push --force-with-lease
+```
+
+### Salah branch — pindahkan commit
+
+```bash
+# Commit di branch salah, pindah ke branch benar:
+git switch branch-benar
+git cherry-pick commit-hash
+git switch branch-salah
+git reset --hard HEAD~1
+```
+
+### Lupa add file ke commit terakhir
+
+```bash
+git add forgotten-file.ts
+git commit --amend --no-edit
+```
+
+### Credential / SSH error
+
+```bash
+# Cek remote URL
+git remote -v
+# HTTPS → SSH
+git remote set-url origin git@github.com:user/repo.git
+# Test SSH
+ssh -T git@github.com
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Setup** | `init`, `clone`, `config` |
+| **Dasar** | `status`, `add`, `commit`, `diff`, `show` |
+| **History** | `log`, `blame`, `reflog` |
+| **Branch** | `branch`, `switch`, `checkout` |
+| **Gabung** | `merge`, `rebase`, `cherry-pick` |
+| **Undo** | `reset`, `restore`, `revert` |
+| **Sementara** | `stash` |
+| **Remote** | `remote`, `fetch`, `pull`, `push` |
+| **Release** | `tag` |
+| **File** | `rm`, `mv`, `clean`, `.gitignore` |
+| **Debug** | `bisect`, `grep` |
+
+---
+
+## Penutup
+
+Enam perintah inti Git: **`git status`**, **`git add`**, **`git commit`**, **`git push`**, **`git pull`**, dan **`git branch`**. Dengan keenamnya, Anda sudah menutup workflow kolaborasi sehari-hari.
+
+Langkah berikutnya: kuasai **`git rebase`**, **`git stash`**, **`git log`** dengan filter, dan **`git reset`/`restore`** untuk undo yang lebih presisi. Git punya banyak perintah — manfaatkan `git help <command>` dan [dokumentasi resmi](https://git-scm.com/doc) sebagai referensi terbaru.

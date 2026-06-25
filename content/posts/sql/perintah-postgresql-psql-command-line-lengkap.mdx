@@ -1,0 +1,1490 @@
+---
+title: "Perintah PostgreSQL (psql) Command Line Lengkap"
+description: "Panduan lengkap perintah CLI PostgreSQL: psql, pg_dump, pg_restore, meta-command, SQL dasar, backup, restore, roles, vacuum, explain, dan workflow developer."
+date: "2025-06-24"
+category: sql
+tags: ["postgresql", "psql", "sql", "database", "cli", "tutorial"]
+featured: true
+---
+
+**PostgreSQL** (sering disingkat **Postgres**) adalah database relasional open source yang andal, kaya fitur, dan banyak dipakai di production — dari startup hingga enterprise. **psql** adalah client CLI bawaan PostgreSQL untuk menjalankan SQL, mengelola schema, dan mengeksplorasi database langsung dari terminal.
+
+Selain `psql`, ekosistem CLI Postgres mencakup **`pg_dump`**, **`pg_restore`**, **`pg_dumpall`**, **`createdb`**, **`dropdb`**, **`createuser`**, dan utilitas lain — semuanya berguna untuk development, backup, migrasi, dan troubleshooting.
+
+<Callout type="tip">
+Pastikan PostgreSQL sudah terpasang. Cek dengan `psql --version` dan `postgres --version`. Di Mac: `brew install postgresql@16` lalu `brew services start postgresql@16`. Di Ubuntu: `sudo apt install postgresql postgresql-contrib`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti PostgreSQL — istilah ini muncul terus di dokumentasi, output `psql`, dan diskusi tim:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Cluster / Instance** | Satu instalasi PostgreSQL yang berjalan — bisa punya banyak database |
+| **Database** | Kumpulan schema terisolasi — mis. `myapp_production`, `myapp_test` |
+| **Schema** | Namespace di dalam database — default `public` |
+| **Table** | Kumpulan baris data terstruktur dengan kolom bertipe tertentu |
+| **Role** | Identitas untuk login dan/atau hak akses — di Postgres, *user* = *role* |
+| **Connection** | Sesi klien ke server Postgres lewat host, port, user, dan database |
+| **Transaction** | Unit kerja atomik — `BEGIN` … `COMMIT` atau `ROLLBACK` |
+| **Index** | Struktur data untuk mempercepat query — B-tree, GIN, GiST, dll. |
+| **WAL (Write-Ahead Log)** | Log perubahan untuk durability dan replication |
+| **Vacuum** | Proses maintenance — reclaim space, update statistics visibility |
+
+### Arsitektur singkat
+
+```
+Client (psql, app)  ──TCP 5432──►  PostgreSQL Server
+                                        ├── database: myapp
+                                        │     ├── schema: public
+                                        │     │     ├── table: users
+                                        │     │     └── table: orders
+                                        │     └── schema: analytics
+                                        └── database: postgres (default)
+```
+
+### Perintah informasi dasar
+
+```bash
+psql --version              # versi client psql
+postgres --version          # versi server PostgreSQL
+pg_config --version         # versi dari pg_config
+which psql                  # lokasi binary psql
+psql --help                 # bantuan psql
+man psql                    # manual lengkap (Unix)
+```
+
+- **`psql --version`**: langkah pertama saat troubleshooting — pastikan client dan server kompatibel.
+- **`postgres --version`**: versi server — penting saat upgrade atau debug fitur tertentu.
+- **`man psql`**: dokumentasi lengkap meta-command dan flag CLI.
+
+---
+
+## Instalasi & Menjalankan Server
+
+### Menjalankan PostgreSQL di Mac (Homebrew)
+
+Homebrew adalah cara paling umum menginstal Postgres di Mac untuk development lokal.
+
+Kapan dipakai: setup mesin baru, proyek yang butuh database lokal, atau belajar SQL tanpa Docker.
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16     # jalankan sebagai service (background)
+brew services stop postgresql@16      # hentikan service
+brew services list | grep postgres    # cek status
+```
+
+- **`brew services start`**: Postgres berjalan otomatis di background — restart saat reboot Mac (jika dikonfigurasi).
+- **Port default**: `5432` — bisa diubah di `postgresql.conf`.
+- **Data directory** (Homebrew): biasanya `/opt/homebrew/var/postgresql@16/` (Apple Silicon) atau `/usr/local/var/postgresql@16/` (Intel).
+
+---
+
+### Menjalankan PostgreSQL dengan Docker
+
+Docker memudahkan menjalankan Postgres versi tertentu tanpa mengotori sistem host.
+
+Kapan dipakai: proyek tim yang butuh versi Postgres konsisten, CI/CD, atau isolasi environment.
+
+```bash
+docker run --name postgres-dev \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_USER=dev \
+  -e POSTGRES_DB=myapp \
+  -p 5432:5432 \
+  -d postgres:16-alpine
+
+docker ps                          # cek container berjalan
+docker logs postgres-dev           # lihat log startup
+docker exec -it postgres-dev psql -U dev -d myapp   # masuk psql di dalam container
+```
+
+- **`-e POSTGRES_PASSWORD`**: password untuk superuser — wajib di-set saat first run.
+- **`-p 5432:5432`**: map port container ke host — `psql` di host bisa connect ke `localhost:5432`.
+- **`postgres:16-alpine`**: image ringan dengan Postgres 16 — cocok untuk development.
+
+---
+
+### `pg_ctl` — Kontrol Server PostgreSQL
+
+`pg_ctl` mengontrol lifecycle server Postgres — start, stop, restart, reload konfigurasi.
+
+Kapan dipakai: instalasi manual (bukan Homebrew/Docker), troubleshooting server, atau reload config tanpa restart penuh.
+
+```bash
+pg_ctl -D /path/to/data start       # start server
+pg_ctl -D /path/to/data stop        # stop server (graceful)
+pg_ctl -D /path/to/data restart     # restart
+pg_ctl -D /path/to/data reload      # reload postgresql.conf tanpa restart
+pg_ctl -D /path/to/data status      # cek apakah server berjalan
+pg_ctl -D /path/to/data promote     # promote standby ke primary (replication)
+```
+
+- **`-D`**: path ke data directory — lokasi file database di disk.
+- **`reload`**: terapkan perubahan `postgresql.conf` dan `pg_hba.conf` tanpa putuskan koneksi aktif (kecuali parameter yang butuh restart).
+- **`stop`**: menunggu semua koneksi selesai sebelum shutdown — lebih aman dari `kill -9`.
+
+---
+
+## Koneksi ke PostgreSQL (`psql`)
+
+### `psql` — Masuk ke Interactive Shell
+
+`psql` adalah client CLI utama PostgreSQL — shell interaktif untuk menjalankan SQL, meta-command, dan scripting.
+
+Kapan dipakai: eksplorasi database, debug query, administrasi schema, atau menjalankan migration manual.
+
+```bash
+psql                                    # connect ke database default (nama user)
+psql -d myapp                           # connect ke database myapp
+psql -U postgres -d myapp               # sebagai user postgres
+psql -h localhost -p 5432 -U dev -d myapp   # host + port eksplisit
+psql "postgresql://dev:secret@localhost:5432/myapp"   # connection string
+psql -h db.example.com -U app_user -d production -W   # prompt password (-W)
+```
+
+- **`-d` / `--dbname`**: nama database target.
+- **`-U` / `--username`**: user/role untuk autentikasi.
+- **`-h` / `--host`**: hostname server — `localhost` atau IP/hostname remote.
+- **`-p` / `--port`**: port — default `5432`.
+- **`-W` / `--password`**: paksa prompt password — jangan simpan password di command history.
+
+---
+
+### Connection String — Format URL
+
+Connection string (URI) adalah cara standar menyimpan dan meneruskan kredensial koneksi — dipakai oleh `psql`, ORM, dan tool lain.
+
+Kapan dipakai: environment variable (`DATABASE_URL`), konfigurasi aplikasi, CI/CD secret, atau dokumentasi tim.
+
+```bash
+# Format dasar
+postgresql://[user[:password]@][host][:port][/dbname][?param=value]
+
+# Contoh
+postgresql://dev:secret@localhost:5432/myapp
+postgresql://app_user@db.example.com:5432/production?sslmode=require
+postgresql://postgres@/myapp?host=/var/run/postgresql   # Unix socket
+```
+
+Parameter query umum:
+
+| Parameter | Fungsi |
+| --- | --- |
+| `sslmode` | `disable`, `require`, `verify-full` — keamanan TLS |
+| `connect_timeout` | Timeout koneksi dalam detik |
+| `application_name` | Nama app di `pg_stat_activity` |
+| `options` | Opsi server, mis. `-c search_path=analytics` |
+
+Contoh di environment variable:
+
+```bash
+export DATABASE_URL="postgresql://dev:secret@localhost:5432/myapp"
+psql "$DATABASE_URL"
+```
+
+---
+
+### File `.pgpass` — Simpan Password Aman
+
+File `.pgpass` menyimpan password per host/database/user — `psql` membacanya otomatis tanpa prompt.
+
+Kapan dipakai: development lokal, script otomatis, atau menghindari ketik password berulang.
+
+```bash
+# Format: hostname:port:database:username:password
+# File: ~/.pgpass (permission harus 0600)
+
+echo "localhost:5432:myapp:dev:secret" >> ~/.pgpass
+chmod 600 ~/.pgpass
+psql -h localhost -U dev -d myapp    # tanpa prompt password
+```
+
+- **Permission `0600`**: wajib — Postgres menolak file dengan permission terlalu terbuka.
+- **Wildcard**: gunakan `*` untuk match semua — mis. `*:*:*:dev:secret`.
+- **Keamanan**: jangan commit `.pgpass` ke git — hanya untuk mesin lokal/development.
+
+---
+
+### `psql` Non-Interactive — Flag `-c` dan `-f`
+
+Menjalankan SQL dari command line tanpa masuk shell interaktif — ideal untuk scripting dan CI.
+
+Kapan dipakai: automation, health check, migration script, cron job, atau one-liner query.
+
+```bash
+psql -d myapp -c "SELECT count(*) FROM users;"           # satu perintah
+psql -d myapp -c "SELECT 1;" -c "SELECT 2;"             # multiple -c
+psql -d myapp -f migration.sql                           # jalankan file SQL
+psql -d myapp -f schema.sql -f seed.sql                  # multiple file
+psql -d myapp -f query.sql -o result.txt                 # output ke file (-o)
+psql -d myapp -f query.sql --single-transaction          # semua dalam satu transaksi
+psql -d myapp -f migration.sql -v ON_ERROR_STOP=1        # stop jika error
+psql -d myapp -f migration.sql --echo-all                # echo setiap perintah
+```
+
+- **`-c` / `--command`**: jalankan satu perintah SQL lalu keluar.
+- **`-f` / `--file`**: baca dan jalankan perintah dari file.
+- **`--single-transaction`**: wrap seluruh file dalam `BEGIN` … `COMMIT` — rollback otomatis jika ada error.
+- **`-v ON_ERROR_STOP=1`**: hentikan eksekusi saat error — default psql lanjut ke perintah berikutnya.
+- **`-o`**: redirect output query ke file — berguna untuk export hasil.
+
+Contoh scripting:
+
+```bash
+#!/bin/bash
+COUNT=$(psql -d myapp -t -A -c "SELECT count(*) FROM users WHERE active = true;")
+echo "Active users: $COUNT"
+```
+
+- **`-t`**: tuples only — tanpa header dan footer.
+- **`-A`**: unaligned output — tanpa padding spasi — mudah di-parse script.
+
+---
+
+## Meta-Command psql (`\`)
+
+Meta-command diawali backslash (`\`) — perintah khusus `psql`, bukan SQL standar. Mereka adalah alat eksplorasi dan administrasi paling cepat.
+
+### `\?` dan `\h` — Bantuan
+
+Menampilkan daftar meta-command dan bantuan SQL.
+
+Kapan dipakai: saat lupa sintaks meta-command atau butuh referensi cepat di dalam psql.
+
+```sql
+\?              -- daftar semua meta-command
+\h              -- daftar perintah SQL
+\h SELECT       -- bantuan untuk perintah SELECT
+\h CREATE TABLE -- bantuan untuk CREATE TABLE
+```
+
+- **`\?`**: cheat sheet meta-command — bookmark ini di kepala.
+- **`\h`**: dokumentasi SQL built-in — setara `HELP` di beberapa DBMS lain.
+
+---
+
+### `\conninfo` — Info Koneksi Saat Ini
+
+Menampilkan detail koneksi aktif — user, database, host, port, socket.
+
+Kapan dipakai: memastikan Anda terhubung ke database yang benar sebelum menjalankan query destruktif.
+
+```sql
+\conninfo
+-- Output contoh: You are connected to database "myapp" as user "dev" on host "localhost" at port "5432".
+```
+
+---
+
+### `\c` / `\connect` — Pindah Database atau Koneksi
+
+Beralih ke database lain, user lain, atau host lain tanpa keluar dari psql.
+
+Kapan dipakai: bekerja dengan multiple database, switch antara dev/staging lokal, atau reconnect setelah error.
+
+```sql
+\c myapp                    -- pindah ke database myapp (user & host sama)
+\c myapp dev                -- pindah ke myapp sebagai user dev
+\c postgresql://dev@localhost/otherdb   -- connection string
+\c - dev                    -- reconnect sebagai user dev (database sama)
+```
+
+- **`\c dbname`**: paling umum — switch database dalam cluster yang sama.
+- **`\c - user`**: ganti user — akan prompt password jika perlu.
+- Setelah `\c`, prompt psql berubah menunjukkan database aktif: `myapp=#`.
+
+---
+
+### `\l` / `\l+` — Daftar Database
+
+Menampilkan semua database di cluster PostgreSQL.
+
+Kapan dipakai: audit database yang ada, cek owner, atau verifikasi database baru sudah dibuat.
+
+```sql
+\l              -- daftar database
+\l+             -- dengan ukuran dan deskripsi
+```
+
+Output kolom penting:
+
+| Kolom | Arti |
+| --- | --- |
+| **Name** | Nama database |
+| **Owner** | Role pemilik database |
+| **Encoding** | Character encoding — biasanya `UTF8` |
+| **Collate / Ctype** | Locale sorting dan classification |
+| **Access privileges** | Hak akses role ke database |
+
+---
+
+### `\dt` — Daftar Table
+
+Menampilkan table di schema saat ini (default: `public`).
+
+Kapan dipakai: eksplorasi schema, cek apakah migration sudah jalan, atau audit struktur database.
+
+```sql
+\dt             -- table di schema aktif
+\dt+            -- dengan ukuran dan deskripsi
+\dt *.*         -- semua table di semua schema
+\dt analytics.* -- table di schema analytics
+\dt user*       -- filter pattern (wildcard)
+```
+
+- **`\dt+`**: tambah kolom size — berguna untuk identifikasi table besar.
+- **`*.*`**: format `schema.table` — eksplorasi lintas schema.
+- **Pattern**: `\*` sebagai wildcard — mirip `LIKE` di SQL.
+
+---
+
+### `\d` — Deskripsi Object Database
+
+Menampilkan detail struktur table, view, index, sequence, atau object lain.
+
+Kapan dipakai: inspeksi kolom dan tipe data, cek constraint, review index, atau debug schema mismatch.
+
+```sql
+\d users              -- detail table users
+\d+ users             -- dengan storage, deskripsi, statistics
+\d users_id_seq       -- detail sequence
+\di                   -- daftar semua index
+\di users*            -- index dengan pattern
+\dv                   -- daftar view
+\dv+                  -- view dengan definisi
+\df                   -- daftar function
+\df+ public.my_func   -- detail function
+\dn                   -- daftar schema
+\dn+                  -- schema dengan owner & privileges
+\du                   -- daftar role/user
+\du+                  -- role dengan detail
+\dp                   -- privileges (GRANT) per table
+\z users              -- privileges table users (sama \dp users)
+```
+
+- **`\d table`**: kolom, tipe, nullable, default, constraint — referensi paling sering dipakai.
+- **`\d+`**: tambah info storage (tablespace, size) dan comment.
+- **`\di`**: audit index — penting untuk optimasi query.
+- **`\du`**: manajemen role — siapa saja yang bisa login.
+
+---
+
+### `\x` — Expanded Display (Vertical Output)
+
+Mengubah format output query — horizontal (default) vs vertikal (satu kolom per baris).
+
+Kapan dipakai: table dengan banyak kolom, row dengan field panjang (JSON, text), atau readability di terminal sempit.
+
+```sql
+\x              -- toggle expanded display on/off
+\x on           -- paksa expanded
+\x off          -- kembali ke format tabel
+\x auto         -- otomatis expanded jika lebar terminal tidak cukup
+```
+
+Contoh perbedaan output:
+
+```sql
+-- Format normal (lebar)
+SELECT * FROM users WHERE id = 1;
+
+-- Expanded (vertikal) — lebih mudah dibaca untuk banyak kolom
+\x on
+SELECT * FROM users WHERE id = 1;
+```
+
+- **`\x auto`**: mode terbaik untuk sehari-hari — psql memutuskan format optimal.
+- Berguna untuk kolom `JSONB`, `TEXT`, atau `BYTEA` yang panjang.
+
+---
+
+### `\timing` — Ukur Waktu Eksekusi Query
+
+Menampilkan durasi setiap query yang dijalankan — dalam milidetik.
+
+Kapan dipakai: benchmark cepat, bandingkan performa sebelum/sesudah index, atau debug query lambat.
+
+```sql
+\timing         -- toggle timing on/off
+\timing on
+SELECT * FROM orders WHERE created_at > '2025-01-01';
+-- Time: 45.123 ms
+```
+
+- **`\timing on`**: aktifkan di awal sesi debug performa.
+- Kombinasikan dengan `EXPLAIN ANALYZE` untuk analisis lebih mendalam.
+
+---
+
+### Meta-Command Navigasi & Editing Lainnya
+
+```sql
+\g              -- eksekusi ulang query terakhir
+\gx             -- eksekusi query terakhir dengan expanded display
+\s              -- tampilkan history perintah
+\s filename     -- simpan history ke file
+\i filename.sql -- jalankan file SQL (sama -f dari CLI)
+\o filename     -- redirect output ke file
+\o              -- kembali ke stdout
+\q              -- keluar dari psql
+\! clear        -- jalankan shell command (mis. clear terminal)
+\cd /path       -- ganti direktori kerja psql
+\dfn            -- daftar function dengan argumen
+\dT+            -- daftar custom data types
+\dy             -- daftar event triggers
+\ef [name]      -- edit function di editor ($EDITOR)
+\ev [name]      -- edit view di editor
+```
+
+- **`\g`**: re-run query terakhir — cepat saat iterasi query.
+- **`\i`**: jalankan migration/seed file dari dalam psql.
+- **`\o`**: capture output ke file — alternatif `-o` di CLI.
+- **`\ef` / `\ev`**: edit function/view di `$EDITOR` — workflow DDL interaktif.
+
+---
+
+### `\copy` — Import/Export Data (Client-Side)
+
+`\copy` adalah perintah psql untuk import/export CSV — berjalan di sisi client, bukan server.
+
+Kapan dipakai: import data CSV ke table, export hasil query ke file, atau migrasi data tanpa akses filesystem server.
+
+```sql
+-- Import CSV ke table
+\copy users(name, email) FROM '/tmp/users.csv' WITH (FORMAT csv, HEADER true);
+
+-- Export table ke CSV
+\copy users TO '/tmp/users_export.csv' WITH (FORMAT csv, HEADER true);
+
+-- Export hasil query
+\copy (SELECT id, name FROM users WHERE active = true) TO '/tmp/active_users.csv' CSV HEADER
+```
+
+Perbedaan `\copy` vs `COPY` SQL:
+
+| Aspek | `\copy` (psql) | `COPY` (SQL server) |
+| --- | --- | --- |
+| **Jalankan di** | Client (mesin Anda) | Server PostgreSQL |
+| **Akses file** | File lokal client | File di filesystem server |
+| **Permission** | User OS Anda | Superuser atau `pg_read_server_files` |
+| **Kapan dipakai** | Development, laptop | ETL di server, superuser |
+
+- **`HEADER true`**: baris pertama CSV adalah nama kolom.
+- **`FORMAT csv`**: delimiter koma — default untuk CSV standar.
+- Path file: absolut atau relatif terhadap direktori kerja psql (`\cd`).
+
+---
+
+## SQL Dasar di psql
+
+### Menjalankan Query SELECT
+
+SQL standar berjalan di psql seperti di client GUI lain — dengan tambahan fitur editing dan history.
+
+Kapan dipakai: eksplorasi data, validasi hasil migration, analisis ad-hoc, atau debug aplikasi.
+
+```sql
+-- Query dasar
+SELECT * FROM users LIMIT 10;
+
+-- Filter
+SELECT id, name, email FROM users WHERE active = true ORDER BY created_at DESC;
+
+-- Agregasi
+SELECT status, count(*) FROM orders GROUP BY status;
+
+-- Join
+SELECT u.name, o.total
+FROM users u
+JOIN orders o ON o.user_id = u.id
+WHERE o.created_at > '2025-01-01';
+
+-- Subquery
+SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 1000);
+```
+
+Tips di psql:
+
+- **Semicolon (`;`)** wajib untuk mengeksekusi query multi-baris.
+- **Panah atas/bawah**: navigasi history query.
+- **Tab**: auto-complete nama table, kolom, dan keyword.
+- **`Ctrl+C`**: batalkan query yang sedang berjalan.
+
+---
+
+### INSERT, UPDATE, DELETE
+
+Manipulasi data langsung dari psql — hati-hati di production.
+
+Kapan dipakai: seed data manual, hotfix data darurat, testing, atau cleanup data development.
+
+```sql
+-- INSERT
+INSERT INTO users (name, email, active)
+VALUES ('Rahmat', 'rahmat@example.com', true);
+
+INSERT INTO users (name, email) VALUES
+  ('Alice', 'alice@example.com'),
+  ('Bob', 'bob@example.com');
+
+-- UPDATE
+UPDATE users SET active = false WHERE email = 'old@example.com';
+
+-- DELETE
+DELETE FROM orders WHERE status = 'cancelled' AND created_at < '2024-01-01';
+
+-- RETURNING — kembalikan row yang terpengaruh
+INSERT INTO users (name, email) VALUES ('Charlie', 'charlie@example.com')
+RETURNING id, created_at;
+
+UPDATE users SET name = 'Charles' WHERE email = 'charlie@example.com'
+RETURNING *;
+```
+
+<Callout type="warning">
+Selalu gunakan `WHERE` pada `UPDATE` dan `DELETE` — tanpa `WHERE`, seluruh table terpengaruh. Di production, wrap dalam transaksi dan cek dengan `SELECT` dulu.
+</Callout>
+
+---
+
+### Transaksi — BEGIN, COMMIT, ROLLBACK
+
+Transaksi memastikan sekumpulan operasi berjalan atomik — semua berhasil atau semua dibatalkan.
+
+Kapan dipakai: operasi multi-step yang harus konsisten, testing perubahan sebelum commit, atau migration manual.
+
+```sql
+BEGIN;                                    -- mulai transaksi
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+
+-- Cek hasil sebelum commit
+SELECT * FROM accounts WHERE id IN (1, 2);
+
+COMMIT;                                   -- simpan perubahan
+-- atau
+ROLLBACK;                                 -- batalkan semua perubahan
+```
+
+- **`BEGIN`**: implisit dimulai jika Anda jalankan SQL tanpa transaksi eksplisit — setiap statement adalah transaksi sendiri (autocommit).
+- **`ROLLBACK`**: undo semua perubahan sejak `BEGIN` — safety net saat testing.
+- Di psql, error otomatis mengakhiri transaksi — Anda harus `ROLLBACK` sebelum lanjut.
+
+---
+
+### DDL — CREATE, ALTER, DROP
+
+Data Definition Language untuk membuat dan mengubah struktur database.
+
+Kapan dipakai: setup schema awal, migration manual, prototyping, atau hotfix constraint/index.
+
+```sql
+-- CREATE TABLE
+CREATE TABLE users (
+  id          BIGSERIAL PRIMARY KEY,
+  name        VARCHAR(100) NOT NULL,
+  email       VARCHAR(255) UNIQUE NOT NULL,
+  active      BOOLEAN DEFAULT true,
+  metadata    JSONB DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- CREATE INDEX
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_metadata ON users USING GIN(metadata);
+
+-- ALTER TABLE
+ALTER TABLE users ADD COLUMN phone VARCHAR(20);
+ALTER TABLE users ALTER COLUMN name TYPE TEXT;
+ALTER TABLE users ADD CONSTRAINT users_email_check CHECK (email LIKE '%@%');
+
+-- DROP
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users CASCADE;
+```
+
+- **`BIGSERIAL`**: auto-increment integer — setara `IDENTITY` di SQL modern.
+- **`TIMESTAMPTZ`**: timestamp with timezone — selalu prefer ini daripada `TIMESTAMP` tanpa timezone.
+- **`CASCADE`**: drop dependensi (foreign key, view) bersamaan — hati-hati di production.
+- **`IF EXISTS` / `IF NOT EXISTS`**: idempotent — aman di script migration yang dijalankan ulang.
+
+---
+
+## Manajemen Database — `createdb` & `dropdb`
+
+### `createdb` — Buat Database Baru
+
+`createdb` adalah wrapper CLI untuk `CREATE DATABASE` — membuat database baru di cluster.
+
+Kapan dipakai: setup proyek baru, buat database test terpisah, atau provisioning environment development.
+
+```bash
+createdb myapp                          # database dengan nama user sebagai owner
+createdb -U postgres myapp              # sebagai superuser postgres
+createdb -O dev myapp                   # owner eksplisit: dev
+createdb -E UTF8 -l en_US.UTF-8 myapp   # encoding dan locale
+createdb -T template0 myapp_clean       # dari template kosong (tanpa objek bawaan)
+createdb -h localhost -p 5432 myapp     # host dan port
+```
+
+- **`-O` / `--owner`**: tentukan role pemilik database — owner punya hak penuh.
+- **`-E` / `--encoding`**: character encoding — `UTF8` adalah standar modern.
+- **`-T` / `--template`**: `template0` = database benar-benar kosong; `template1` = default dengan extension/objek bawaan.
+- **`createdb` gagal** jika database sudah ada — gunakan `dropdb` dulu atau pilih nama lain.
+
+---
+
+### `dropdb` — Hapus Database
+
+`dropdb` menghapus database beserta seluruh isinya — operasi destruktif dan tidak bisa di-undo.
+
+Kapan dipakai: cleanup environment development, reset database test, atau hapus database yang tidak terpakai.
+
+```bash
+dropdb myapp                            # hapus database myapp
+dropdb -U postgres myapp_test           # sebagai superuser
+dropdb --if-exists myapp                # tidak error jika tidak ada
+dropdb -f myapp                         # force disconnect semua koneksi aktif
+dropdb -h localhost myapp               # host remote
+```
+
+<Callout type="warning">
+`dropdb` menghapus **seluruh data** di database — tidak ada recycle bin. Pastikan backup (`pg_dump`) sebelum drop di environment non-development.
+</Callout>
+
+- **`-f` / `--force`**: terminate koneksi aktif ke database — diperlukan jika ada app yang masih connect.
+- **`--if-exists`**: idempotent — berguna di script cleanup.
+- Tidak bisa drop database yang sedang Anda connect — `\c postgres` dulu, lalu `dropdb myapp`.
+
+---
+
+## Manajemen Role & User — `createuser` & SQL
+
+### `createuser` — Buat Role/User Baru
+
+`createuser` adalah wrapper CLI untuk `CREATE ROLE` — membuat role untuk login dan akses database.
+
+Kapan dipakai: provisioning user aplikasi, user read-only untuk analytics, atau setup development team.
+
+```bash
+createuser dev                          # role dengan privilege login
+createuser -U postgres app_user           # sebagai superuser
+createuser -P app_user                  # prompt password interaktif
+createuser -d dev                       # boleh create database
+createuser -s admin                     # superuser (hati-hati!)
+createuser --no-superuser --no-createdb --no-createrole readonly
+```
+
+- **`-P` / `--pwprompt`**: prompt password — lebih aman daripada password di command line.
+- **`-d`**: role bisa menjalankan `CREATE DATABASE`.
+- **`-s`**: superuser — bypass semua permission check — jangan untuk aplikasi production.
+- **`--no-*`**: eksplisit deny privilege — pola least privilege.
+
+---
+
+### Role & Permission dengan SQL
+
+Manajemen hak akses granular lewat SQL — standar untuk production.
+
+Kapan dipakai: setup permission aplikasi, read-only user, schema isolation, atau audit compliance.
+
+```sql
+-- Buat role
+CREATE ROLE app_user WITH LOGIN PASSWORD 'secure_password';
+CREATE ROLE readonly WITH LOGIN PASSWORD 'readonly_pass';
+
+-- Beri akses ke database
+GRANT CONNECT ON DATABASE myapp TO app_user;
+GRANT CONNECT ON DATABASE myapp TO readonly;
+
+-- Beri akses ke schema
+GRANT USAGE ON SCHEMA public TO app_user;
+GRANT USAGE ON SCHEMA public TO readonly;
+
+-- Permission table
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly;
+
+-- Permission sequence (untuk SERIAL/IDENTITY)
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_user;
+
+-- Default privilege untuk table baru
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO readonly;
+
+-- Revoke
+REVOKE DELETE ON users FROM readonly;
+
+-- Lihat role
+\du+
+```
+
+Model permission PostgreSQL:
+
+| Level | Contoh GRANT |
+| --- | --- |
+| **Database** | `CONNECT`, `CREATE`, `TEMPORARY` |
+| **Schema** | `USAGE`, `CREATE` |
+| **Table** | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` |
+| **Column** | `SELECT (col)`, `UPDATE (col)` |
+| **Sequence** | `USAGE`, `SELECT`, `UPDATE` |
+
+- **Prinsip least privilege**: aplikasi production hanya dapat permission yang dibutuhkan.
+- **`readonly`**: hanya `SELECT` — aman untuk BI tool, Metabase, atau analytics.
+- **`\dp` / `\z`**: audit permission per table — verifikasi setelah GRANT.
+
+---
+
+## Backup & Restore — `pg_dump`, `pg_restore`, `pg_dumpall`
+
+### `pg_dump` — Backup Satu Database
+
+`pg_dump` mengekspor satu database ke file SQL plain text atau format custom/archive.
+
+Kapan dipakai: backup rutin, migrasi database, clone environment, atau sebelum migration berisiko.
+
+```bash
+# Plain SQL (human-readable, restore dengan psql)
+pg_dump myapp > backup.sql
+pg_dump -U postgres -h localhost myapp > backup.sql
+
+# Custom format (compressed, selective restore)
+pg_dump -Fc myapp > backup.dump
+pg_dump -Fd myapp -f backup_dir/          # directory format
+
+# Opsi berguna
+pg_dump --schema-only myapp > schema.sql  # hanya DDL, tanpa data
+pg_dump --data-only myapp > data.sql      # hanya data, tanpa DDL
+pg_dump -t users myapp > users.sql        # hanya table users
+pg_dump -t 'order*' myapp > orders.sql    # pattern table
+pg_dump -n public myapp > public_schema.sql   # hanya schema public
+pg_dump --exclude-table=logs myapp > no_logs.sql
+pg_dump -j 4 -Fd myapp -f backup_dir/      # parallel dump (4 jobs)
+```
+
+Format output:
+
+| Format | Flag | Restore dengan | Kelebihan |
+| --- | --- | --- | --- |
+| **Plain SQL** | default | `psql -f` | Readable, editable, universal |
+| **Custom** | `-Fc` | `pg_restore` | Compressed, selective table restore |
+| **Directory** | `-Fd` | `pg_restore` | Parallel dump/restore |
+| **Tar** | `-Ft` | `pg_restore` | Single tar file |
+
+- **`--schema-only`**: backup struktur saja — cocok untuk version control DDL.
+- **`-t`**: backup table tertentu — partial backup cepat.
+- **`-j 4`**: parallel — jauh lebih cepat untuk database besar (directory format).
+- **`pg_dump` tidak block** operasi normal — menggunakan MVCC snapshot.
+
+---
+
+### `pg_restore` — Restore dari Custom/Directoy Format
+
+`pg_restore` mengimpor backup format custom (`-Fc`), directory (`-Fd`), atau tar (`-Ft`).
+
+Kapan dipakai: restore dari `pg_dump -Fc`, selective restore table, atau parallel restore database besar.
+
+```bash
+# Restore ke database baru
+createdb myapp_restored
+pg_restore -d myapp_restored backup.dump
+
+# Opsi restore
+pg_restore -d myapp_restored --schema-only backup.dump   # hanya DDL
+pg_restore -d myapp_restored --data-only backup.dump     # hanya data
+pg_restore -d myapp_restored -t users backup.dump        # hanya table users
+pg_restore -d myapp_restored --clean backup.dump         # DROP objek dulu sebelum create
+pg_restore -d myapp_restored -j 4 backup_dir/            # parallel restore
+pg_restore -d myapp_restored --no-owner backup.dump      # abaikan ownership asli
+pg_restore -d myapp_restored --role=app_user backup.dump # set owner ke app_user
+pg_restore -l backup.dump                                # list isi backup
+```
+
+- **`--clean`**: `DROP` object sebelum `CREATE` — hati-hati di production (data hilang).
+- **`--no-owner`**: skip `SET OWNER` — berguna saat restore ke environment dengan role berbeda.
+- **`-l`**: list content — preview isi backup tanpa restore.
+- **`-j`**: parallel restore — butuh directory format dan cukup CPU.
+
+Restore plain SQL (dari `pg_dump` tanpa `-Fc`):
+
+```bash
+psql -d myapp_restored -f backup.sql
+```
+
+---
+
+### `pg_dumpall` — Backup Seluruh Cluster
+
+`pg_dumpall` mengekspor **semua database** plus global object (role, tablespace) dalam satu file SQL.
+
+Kapan dipakai: backup full cluster, migrasi server PostgreSQL, disaster recovery, atau clone seluruh instance.
+
+```bash
+pg_dumpall > full_cluster.sql             # semua database + roles
+pg_dumpall --globals-only > globals.sql   # hanya roles & tablespaces
+pg_dumpall -U postgres -h localhost > full.sql
+```
+
+- **`pg_dumpall`**: output selalu plain SQL — restore dengan `psql`, bukan `pg_restore`.
+- **`--globals-only`**: backup role dan tablespace tanpa data database — berguna saat sync permission.
+- Untuk database besar, pertimbangkan `pg_dump` per-database daripada `pg_dumpall` — lebih fleksibel dan bisa parallel.
+
+Workflow restore full cluster:
+
+```bash
+# Di server baru
+psql -U postgres -f full_cluster.sql
+```
+
+---
+
+## Maintenance — `VACUUM`, `ANALYZE`, `REINDEX`
+
+### `VACUUM` — Reclaim Space & Update Visibility
+
+`VACUUM` membersihkan dead tuple dari UPDATE/DELETE — reclaim disk space dan update visibility map.
+
+Kapan dipakai: database dengan banyak UPDATE/DELETE, bloat table, atau setelah bulk delete besar.
+
+```sql
+-- Di psql
+VACUUM;                          -- semua table di database saat ini
+VACUUM users;                    -- satu table
+VACUUM FULL users;               -- rewrite table — lock exclusive, reclaim maksimal
+VACUUM ANALYZE users;            -- vacuum + update statistics sekaligus
+VACUUM VERBOSE users;            -- output detail proses
+```
+
+Dari CLI:
+
+```bash
+vacuumdb myapp                          # vacuum seluruh database
+vacuumdb --analyze myapp                # vacuum + analyze
+vacuumdb --full --table=users myapp     # VACUUM FULL satu table
+vacuumdb --verbose myapp
+```
+
+- **`VACUUM` biasa**: non-blocking — table tetap bisa diakses.
+- **`VACUUM FULL`**: rewrite seluruh table — **lock exclusive** — jangan di production peak hours.
+- **Autovacuum**: Postgres menjalankan vacuum otomatis — monitor jika tertinggal (`pg_stat_user_tables`).
+- Setelah bulk `DELETE`, jalankan `VACUUM ANALYZE` untuk reclaim space dan refresh statistics.
+
+---
+
+### `ANALYZE` — Update Query Planner Statistics
+
+`ANALYZE` mengumpulkan statistik table — jumlah row, distribusi nilai — untuk optimizer query.
+
+Kapan dipakai: setelah bulk INSERT/UPDATE, migration besar, atau query plan tiba-tiba buruk.
+
+```sql
+ANALYZE;                         -- semua table
+ANALYZE users;                   -- satu table
+ANALYZE users (email, status);   -- kolom tertentu saja
+```
+
+```bash
+vacuumdb --analyze-only myapp           # hanya analyze, tanpa vacuum
+```
+
+- **Optimizer** memakai statistics untuk memilih index vs sequential scan.
+- Tanpa `ANALYZE` terbaru, query bisa lambat meski index sudah ada.
+- Autovacuum juga menjalankan analyze — tapi manual analyze berguna setelah bulk load.
+
+---
+
+### `REINDEX` — Rebuild Index
+
+`REINDEX` membangun ulang index — fix bloat index, corruption, atau setelah perubahan collation.
+
+Kapan dipakai: index bloated, performa query menurun meski statistics fresh, atau setelah `pg_upgrade`.
+
+```sql
+REINDEX TABLE users;                     -- semua index di table users
+REINDEX INDEX idx_users_email;           -- satu index
+REINDEX SCHEMA public;                   -- semua index di schema
+REINDEX DATABASE myapp;                  -- seluruh database (hati-hati — lock)
+```
+
+```bash
+reindexdb myapp
+reindexdb --table=users myapp
+reindexdb --index=idx_users_email myapp
+```
+
+- **`REINDEX`**: lock table saat rebuild — pertimbangkan `REINDEX CONCURRENTLY` (Postgres 12+) untuk production.
+- **`REINDEX INDEX CONCURRENTLY idx_users_email`**: tanpa block write — lebih lambat tapi aman di production.
+
+---
+
+## Optimasi Query — `EXPLAIN` & `EXPLAIN ANALYZE`
+
+### `EXPLAIN` — Lihat Query Plan
+
+`EXPLAIN` menampilkan rencana eksekusi query — bagaimana optimizer akan (atau sudah) menjalankan query.
+
+Kapan dipakai: debug query lambat, validasi index dipakai, atau optimasi sebelum deploy ke production.
+
+```sql
+EXPLAIN SELECT * FROM users WHERE email = 'rahmat@example.com';
+
+EXPLAIN (FORMAT JSON) SELECT * FROM orders WHERE user_id = 1;
+
+EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+SELECT o.*, u.name
+FROM orders o
+JOIN users u ON u.id = o.user_id
+WHERE o.created_at > '2025-01-01';
+```
+
+Opsi `EXPLAIN` penting:
+
+| Opsi | Fungsi |
+| --- | --- |
+| **`ANALYZE`** | Jalankan query sebenarnya — tampilkan waktu aktual |
+| **`BUFFERS`** | Tampilkan buffer hit/read — insight I/O |
+| **`FORMAT JSON/YAML/XML`** | Output terstruktur — untuk tool parsing |
+| **`VERBOSE`** | Detail kolom output |
+| **`COSTS`** | Estimasi cost (default on) |
+
+Membaca output plan:
+
+```
+Seq Scan on users          -- sequential scan (baca seluruh table)
+Index Scan using idx_users_email on users   -- pakai index (bagus)
+Bitmap Heap Scan on orders   -- kombinasi bitmap index
+Nested Loop                  -- join method
+Hash Join                    -- join dengan hash table
+Sort                         -- sorting — cek jika besar
+```
+
+- **`Seq Scan` pada table besar**: pertimbangkan index pada kolom `WHERE`.
+- **`EXPLAIN ANALYZE`**: waktu **aktual** — bandingkan dengan estimasi untuk deteksi stale statistics.
+- **`BUFFERS`**: `shared hit` = dari cache (cepat), `read` = dari disk (lambat).
+
+---
+
+### Tips Optimasi Query di psql
+
+```sql
+-- Cek apakah index dipakai
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'test@example.com';
+
+-- Lihat index yang ada
+\di users*
+
+-- Lihat ukuran table dan index
+SELECT
+  relname AS object,
+  pg_size_pretty(pg_total_relation_size(relid)) AS total_size
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC
+LIMIT 10;
+
+-- Query lambat yang sedang berjalan
+SELECT pid, now() - query_start AS duration, query, state
+FROM pg_stat_activity
+WHERE state != 'idle'
+ORDER BY duration DESC;
+
+-- Kill query yang menggantung
+SELECT pg_cancel_backend(12345);    -- cancel query (pid dari pg_stat_activity)
+SELECT pg_terminate_backend(12345); -- terminate koneksi (lebih agresif)
+```
+
+- **`pg_stat_activity`**: dashboard real-time koneksi dan query — essential untuk DBA.
+- **`pg_cancel_backend`**: kirim signal cancel — query bisa cleanup gracefully.
+- **`pg_terminate_backend`**: putus koneksi paksa — untuk koneksi stuck.
+
+---
+
+## Konfigurasi & File Penting
+
+### File Konfigurasi PostgreSQL
+
+| File | Fungsi |
+| --- | --- |
+| **`postgresql.conf`** | Parameter server — memory, connections, logging, autovacuum |
+| **`pg_hba.conf`** | Host-Based Authentication — siapa boleh connect dari mana |
+| **`pg_ident.conf`** | User name mapping — Unix user → Postgres role |
+
+Lokasi file (Homebrew Mac):
+
+```bash
+/opt/homebrew/var/postgresql@16/postgresql.conf
+/opt/homebrew/var/postgresql@16/pg_hba.conf
+```
+
+Reload setelah ubah config:
+
+```bash
+pg_ctl -D /opt/homebrew/var/postgresql@16 reload
+# atau
+psql -c "SELECT pg_reload_conf();"
+```
+
+---
+
+### `pg_hba.conf` — Aturan Autentikasi
+
+Menentukan metode autentikasi per kombinasi host, database, dan user.
+
+Kapan dipakai: allow remote connection, setup trust untuk local dev, atau enforce `scram-sha-256`.
+
+```
+# TYPE  DATABASE  USER    ADDRESS         METHOD
+
+# Local socket — development
+local   all       all                     trust
+
+# IPv4 local
+host    all       all     127.0.0.1/32    scram-sha-256
+
+# Allow dari subnet kantor
+host    myapp     app_user  10.0.0.0/8    scram-sha-256
+
+# Semua user, semua DB, dari mana saja (hati-hati!)
+# host  all       all     0.0.0.0/0       scram-sha-256
+```
+
+Metode autentikasi umum:
+
+| Method | Kapan dipakai |
+| --- | --- |
+| **`trust`** | Development lokal — tanpa password (jangan di production) |
+| **`scram-sha-256`** | Production — password hashing modern (default Postgres 14+) |
+| **`md5`** | Legacy — masih umum, tapi prefer scram |
+| **`peer`** | Linux — map Unix user ke Postgres role |
+| **`cert`** | Client certificate — high security |
+
+- Setelah edit `pg_hba.conf`, **reload** server — tidak perlu restart.
+- Untuk remote access, pastikan `listen_addresses` di `postgresql.conf` bukan hanya `localhost`.
+
+---
+
+## Monitoring & Statistik
+
+### Query Monitoring di psql
+
+```sql
+-- Koneksi aktif
+SELECT * FROM pg_stat_activity;
+
+-- Ukuran database
+SELECT pg_size_pretty(pg_database_size('myapp'));
+
+-- Ukuran semua table
+SELECT
+  schemaname,
+  relname,
+  pg_size_pretty(pg_total_relation_size(relid)) AS size
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;
+
+-- Table dengan dead tuple terbanyak (butuh vacuum)
+SELECT schemaname, relname, n_dead_tup, last_vacuum, last_autovacuum
+FROM pg_stat_user_tables
+ORDER BY n_dead_tup DESC
+LIMIT 10;
+
+-- Index yang tidak pernah dipakai
+SELECT indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- Lock yang sedang menunggu
+SELECT blocked_locks.pid AS blocked_pid,
+       blocking_locks.pid AS blocking_pid,
+       blocked_activity.query AS blocked_query
+FROM pg_catalog.pg_locks blocked_locks
+JOIN pg_catalog.pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
+JOIN pg_catalog.pg_locks blocking_locks ON blocking_locks.locktype = blocked_locks.locktype
+JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
+WHERE NOT blocked_locks.granted;
+```
+
+- **`pg_stat_*` views**: monitoring built-in — tidak perlu extension untuk dasar.
+- **`n_dead_tup` tinggi**: indikasi perlu `VACUUM` — atau autovacuum tertinggal.
+- **Index `idx_scan = 0`**: kandidat index yang tidak terpakai — pertimbangkan drop untuk save space.
+
+---
+
+## Extension & Fitur Lanjutan
+
+### Mengelola Extension
+
+Extension menambah fitur ke Postgres — `uuid-ossp`, `pg_trgm`, `PostGIS`, dll.
+
+```sql
+-- Lihat extension terpasang
+\dx
+
+-- Install extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;      -- fuzzy search / trigram index
+CREATE EXTENSION IF NOT EXISTS pgcrypto;     -- hashing & encryption
+
+-- Cari extension tersedia
+SELECT * FROM pg_available_extensions ORDER BY name;
+
+-- Drop extension
+DROP EXTENSION IF EXISTS uuid-ossp;
+```
+
+Extension populer untuk development:
+
+| Extension | Fungsi |
+| --- | --- |
+| **`uuid-ossp`** | Generate UUID |
+| **`pg_trgm`** | Trigram similarity — fuzzy search |
+| **`pgcrypto`** | `gen_random_uuid()`, hashing |
+| **`citext`** | Case-insensitive text |
+| **`hstore`** | Key-value store dalam satu kolom |
+| **`postgis`** | Geospatial data |
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Setup proyek baru
+
+```bash
+# Buat database dan user
+createuser -P app_user
+createdb -O app_user myapp_dev
+
+# Connect dan setup schema
+psql -U app_user -d myapp_dev -f schema.sql
+psql -U app_user -d myapp_dev -f seed.sql
+
+# Set environment variable
+export DATABASE_URL="postgresql://app_user:password@localhost:5432/myapp_dev"
+```
+
+---
+
+### Eksplorasi database yang sudah ada
+
+```bash
+psql "$DATABASE_URL"
+```
+
+```sql
+\conninfo
+\dt
+\d users
+\x auto
+\timing on
+SELECT * FROM users LIMIT 5;
+```
+
+---
+
+### Menjalankan migration
+
+```bash
+# Satu file migration
+psql -d myapp_dev -f migrations/001_create_users.sql -v ON_ERROR_STOP=1 --single-transaction
+
+# Dengan tool migration (Prisma, Drizzle, Flyway, dll.) — tetap berguna untuk debug:
+psql -d myapp_dev -c "\d users"
+```
+
+---
+
+### Backup sebelum perubahan berisiko
+
+```bash
+pg_dump -Fc myapp_dev > backup_$(date +%Y%m%d_%H%M%S).dump
+# ... jalankan migration ...
+# Jika gagal:
+pg_restore -d myapp_dev --clean backup_20250624_120000.dump
+```
+
+---
+
+### Debug query lambat
+
+```sql
+\timing on
+EXPLAIN (ANALYZE, BUFFERS) SELECT ... ;
+
+-- Cek index
+\di
+
+-- Refresh statistics
+ANALYZE target_table;
+```
+
+---
+
+### Reset database development
+
+```bash
+dropdb -f myapp_dev
+createdb -O app_user myapp_dev
+psql -U app_user -d myapp_dev -f schema.sql
+psql -U app_user -d myapp_dev -f seed.sql
+```
+
+---
+
+### Export/import data CSV
+
+```bash
+psql -d myapp_dev
+```
+
+```sql
+\copy users TO '/tmp/users_backup.csv' CSV HEADER
+\copy users FROM '/tmp/users_restored.csv' CSV HEADER
+```
+
+---
+
+## Environment Variable Berguna
+
+```bash
+export PGHOST=localhost
+export PGPORT=5432
+export PGUSER=dev
+export PGDATABASE=myapp
+export PGPASSWORD=secret          # atau gunakan .pgpass
+export PGSSLMODE=require
+export PGAPPNAME=my-script
+
+# Setelah export, cukup:
+psql
+psql -c "SELECT current_database();"
+```
+
+- **`PG*`** variables: dihormati oleh semua client Postgres (`psql`, `pg_dump`, `createdb`, dll.).
+- **`PGAPPNAME`**: muncul di `pg_stat_activity.application_name` — berguna untuk identifikasi sumber query.
+- Prefer `.pgpass` atau `DATABASE_URL` daripada `PGPASSWORD` di shell history.
+
+---
+
+## Troubleshooting Umum
+
+### `psql: error: connection refused`
+
+Server PostgreSQL tidak berjalan atau port salah.
+
+```bash
+# Cek apakah server berjalan
+brew services list | grep postgres
+pg_ctl -D /opt/homebrew/var/postgresql@16 status
+
+# Start server
+brew services start postgresql@16
+
+# Cek port
+lsof -i :5432
+nc -zv localhost 5432
+```
+
+---
+
+### `FATAL: password authentication failed`
+
+Password salah atau user tidak ada.
+
+```bash
+# Reset password (sebagai superuser OS)
+psql -U postgres -c "ALTER USER dev WITH PASSWORD 'newpassword';"
+
+# Cek user ada
+psql -U postgres -c "\du"
+```
+
+---
+
+### `FATAL: database "myapp" does not exist`
+
+Database belum dibuat.
+
+```bash
+createdb myapp
+# atau
+psql -U postgres -c "CREATE DATABASE myapp OWNER dev;"
+```
+
+---
+
+### `FATAL: role "dev" does not exist`
+
+Role belum dibuat.
+
+```bash
+createuser -P dev
+# atau
+psql -U postgres -c "CREATE ROLE dev WITH LOGIN PASSWORD 'secret';"
+```
+
+---
+
+### `permission denied for table users`
+
+Role tidak punya GRANT yang cukup.
+
+```sql
+-- Sebagai owner/superuser
+GRANT SELECT, INSERT, UPDATE, DELETE ON users TO app_user;
+GRANT USAGE ON SCHEMA public TO app_user;
+```
+
+---
+
+### `could not connect to server: No such file or directory`
+
+Biasanya mencoba connect via Unix socket tapi server listen di TCP, atau sebaliknya.
+
+```bash
+# Paksa TCP
+psql -h localhost -U dev -d myapp
+
+# Cek listen_addresses di postgresql.conf
+grep listen_addresses /opt/homebrew/var/postgresql@16/postgresql.conf
+```
+
+---
+
+### `pg_dump: error: query failed: ERROR: permission denied`
+
+User tidak punya permission cukup untuk dump.
+
+```bash
+# Dump sebagai owner atau superuser
+pg_dump -U postgres myapp > backup.sql
+
+# Atau beri role yang dibutuhkan
+psql -c "GRANT pg_read_all_data TO readonly_backup;"
+```
+
+---
+
+### Query tidak selesai / hang
+
+```sql
+-- Cari query yang berjalan lama
+SELECT pid, now() - query_start AS duration, state, query
+FROM pg_stat_activity
+WHERE state = 'active'
+ORDER BY duration DESC;
+
+-- Cancel query
+SELECT pg_cancel_backend(<pid>);
+
+-- Jika tidak merespons
+SELECT pg_terminate_backend(<pid>);
+```
+
+---
+
+### Disk penuh / database besar
+
+```bash
+# Cek ukuran
+psql -c "SELECT pg_size_pretty(pg_database_size('myapp'));"
+
+# Vacuum full (butuh lock, maintenance window)
+vacuumdb --full --analyze myapp
+
+# Cek table terbesar
+psql -d myapp -c "
+SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;"
+```
+
+---
+
+### Too many connections
+
+```sql
+-- Lihat batas dan penggunaan
+SHOW max_connections;
+SELECT count(*) FROM pg_stat_activity;
+
+-- Terminate idle connection lama
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE state = 'idle'
+  AND query_start < now() - interval '1 hour';
+```
+
+Tingkatkan di `postgresql.conf`:
+
+```
+max_connections = 200
+```
+
+<Callout type="info">
+Setiap koneksi memakai memory. Naikkan `max_connections` dengan hati-hati — pertimbangkan **connection pooler** (PgBouncer) untuk aplikasi dengan banyak koneksi singkat.
+</Callout>
+
+---
+
+## Alias & `.psqlrc` — Personalisasi psql
+
+File `~/.psqlrc` dijalankan otomatis saat `psql` start — konfigurasi prompt, timing, dan alias.
+
+```sql
+-- ~/.psqlrc
+
+\timing on
+\x auto
+SET search_path TO public;
+
+-- Prompt custom: user@host:database=>
+\set PROMPT1 '%n@%M:%/%R%# '
+
+-- Alias berguna
+\set dt '\\dt'
+\set d '\\d'
+\set l '\\l'
+\set du '\\du'
+\set x '\\x'
+
+-- Jalankan query dengan argumen: :q 'SELECT 1'
+\set q 'SELECT :argv'
+```
+
+- **`.psqlrc`**: personalisasi per user — tidak mempengaruhi user lain.
+- **`\set PROMPT1`**: custom prompt — tampilkan context koneksi.
+- **`\set dt '\\dt'`**: shortcut — ketik `:dt` untuk `\dt`.
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Koneksi** | `psql`, `psql -d db -U user -h host`, connection string |
+| **Meta-command** | `\dt`, `\d`, `\l`, `\c`, `\du`, `\x`, `\timing`, `\?` |
+| **SQL dasar** | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `BEGIN/COMMIT` |
+| **DDL** | `CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`, `DROP` |
+| **Database** | `createdb`, `dropdb` |
+| **Role** | `createuser`, `CREATE ROLE`, `GRANT`, `REVOKE` |
+| **Backup** | `pg_dump`, `pg_dumpall` |
+| **Restore** | `pg_restore`, `psql -f` |
+| **Maintenance** | `VACUUM`, `ANALYZE`, `REINDEX`, `vacuumdb` |
+| **Optimasi** | `EXPLAIN`, `EXPLAIN ANALYZE`, `pg_stat_activity` |
+| **Import/Export** | `\copy`, `COPY` |
+| **CLI scripting** | `psql -c`, `psql -f`, `-t -A`, `ON_ERROR_STOP` |
+
+---
+
+## Penutup
+
+Enam perintah inti PostgreSQL CLI: **`psql`**, **`\dt` / `\d`**, **`pg_dump`**, **`createdb`**, **`EXPLAIN ANALYZE`**, dan **`GRANT`**. Dengan keenamnya, Anda sudah menutup workflow development database sehari-hari — dari setup, eksplorasi schema, backup, hingga debug performa query.
+
+Langkah berikutnya: kuasai **`pg_restore`** selective restore, **`\copy`** untuk ETL ringan, monitoring **`pg_stat_*`**, dan konfigurasi **`pg_hba.conf`** untuk keamanan koneksi. PostgreSQL punya ekosistem CLI yang kaya — manfaatkan `psql \?`, `man psql`, dan [dokumentasi resmi](https://www.postgresql.org/docs/) sebagai referensi terbaru.

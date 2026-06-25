@@ -1,0 +1,1477 @@
+---
+title: "Perintah Nginx Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Nginx: test config (-t), reload/stop/quit (-s), struktur nginx.conf, virtual host, reverse proxy, SSL, gzip, logging, rate limiting, dan troubleshooting."
+date: "2025-06-24"
+category: terminal
+tags: ["nginx", "web-server", "cli", "devops", "tutorial"]
+featured: true
+---
+
+**Nginx** (dibaca "engine-x") adalah web server, reverse proxy, dan load balancer yang ringan dan cepat. Dengan perintah `nginx` di terminal, Anda bisa menjalankan server, menguji konfigurasi, reload tanpa downtime, dan mengelola virtual host, SSL, serta logging — tanpa membuka panel GUI.
+
+<Callout type="tip">
+Pastikan Nginx sudah terpasang. Cek dengan `nginx -v`. Di Mac: `brew install nginx`, lalu `brew services start nginx`. Config default Homebrew: Apple Silicon `/opt/homebrew/etc/nginx/`, Intel Mac `/usr/local/etc/nginx/`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami komponen inti Nginx — istilah ini muncul terus di `nginx.conf` dan dokumentasi:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Master process** | Proses induk yang membaca config, bind port, dan mengelola worker |
+| **Worker process** | Proses yang menangani request HTTP secara konkuren |
+| **Directive** | Instruksi di file config — mis. `listen`, `server_name`, `root` |
+| **Context** | Blok hierarki config: `main`, `events`, `http`, `server`, `location`, `upstream` |
+| **Server block** | Virtual host — satu instance Nginx bisa melayani banyak domain |
+| **Location block** | Aturan routing berdasarkan URI — `/api`, `/static`, dll. |
+| **Upstream** | Grup backend server untuk load balancing dan reverse proxy |
+| **Reverse proxy** | Nginx menerima request klien lalu meneruskannya ke aplikasi backend |
+| **Access log** | Catatan setiap request HTTP yang masuk |
+| **Error log** | Catatan error, warning, dan debug dari Nginx |
+
+### Hierarki context Nginx
+
+```
+main (global)
+├── events { ... }
+└── http {
+      ├── upstream backend { ... }
+      ├── server {                    # virtual host
+      │     ├── location / { ... }
+      │     └── location /api { ... }
+      │   }
+      └── server { ... }
+    }
+```
+
+### Perintah informasi dasar
+
+```bash
+nginx -v                  # versi singkat
+nginx -V                  # versi + compile flags & modul
+nginx -h                  # bantuan singkat
+nginx -t                  # test syntax config
+nginx -T                  # test + dump seluruh config yang aktif
+```
+
+- **`nginx -v`**: cek versi cepat — langkah pertama saat troubleshooting kompatibilitas.
+- **`nginx -V`**: tampilkan modul yang dikompilasi (SSL, HTTP/2, gzip, realip, dll.) dan path default config.
+- **`nginx -t`**: validasi config sebelum reload — **selalu jalankan** setelah mengedit `nginx.conf`.
+- **`nginx -T`**: berguna untuk audit config aktif di server production tanpa membuka file manual.
+
+---
+
+## Instalasi di Mac (Homebrew)
+
+### `brew install nginx` — Pasang Nginx
+
+Homebrew adalah cara paling praktis menginstal Nginx di Mac untuk development lokal.
+
+Kapan dipakai: setup mesin baru, proyek yang butuh reverse proxy lokal, atau belajar konfigurasi web server.
+
+```bash
+brew install nginx
+nginx -v
+nginx -V                  # lihat path config default
+```
+
+Path penting setelah instalasi Homebrew:
+
+| Item | Apple Silicon (M1/M2/M3) | Intel Mac |
+| --- | --- | --- |
+| **Config utama** | `/opt/homebrew/etc/nginx/nginx.conf` | `/usr/local/etc/nginx/nginx.conf` |
+| **Sites (opsional)** | `/opt/homebrew/etc/nginx/servers/` | `/usr/local/etc/nginx/servers/` |
+| **Log** | `/opt/homebrew/var/log/nginx/` | `/usr/local/var/log/nginx/` |
+| **Document root default** | `/opt/homebrew/var/www` | `/usr/local/var/www` |
+| **Binary** | `/opt/homebrew/bin/nginx` | `/usr/local/bin/nginx` |
+
+- **`brew install nginx`**: menginstal versi stabil terbaru dari formula Homebrew.
+- Setelah instal, config default sudah siap — port **8080** (bukan 80) agar tidak butuh `sudo`.
+
+---
+
+### `brew services` — Kelola Nginx sebagai Service
+
+Homebrew Services menjalankan Nginx di background dan otomatis start saat login (opsional).
+
+Kapan dipakai: development harian — tidak perlu menjalankan `nginx` manual setiap kali buka terminal.
+
+```bash
+brew services start nginx       # jalankan di background + auto-start
+brew services stop nginx        # hentikan service
+brew services restart nginx     # restart penuh (lebih berat dari reload)
+brew services list              # cek status semua service Homebrew
+```
+
+- **`start`**: Nginx berjalan sebagai daemon lewat `launchctl` — persisten antar sesi terminal.
+- **`restart`**: stop lalu start ulang — gunakan jika reload gagal atau setelah upgrade versi besar.
+- Untuk reload config tanpa stop service, pakai `nginx -s reload` (lebih ringan).
+
+---
+
+## Perintah CLI Inti
+
+### `nginx` — Jalankan Nginx
+
+Perintah `nginx` tanpa flag memulai master process dan worker process sesuai config.
+
+Kapan dipakai: pertama kali menjalankan server, atau setelah `nginx -s stop` menghentikan semua proses.
+
+```bash
+nginx                           # start dengan config default
+sudo nginx                      # butuh root jika bind port 80/443
+nginx -c /path/to/nginx.conf    # gunakan config custom
+```
+
+- Tanpa `sudo`, Homebrew Nginx listen di **port 8080** — akses `http://localhost:8080`.
+- Port 80/443 membutuhkan privilege root di Unix — di production biasanya dijalankan sebagai service systemd.
+
+---
+
+### `nginx -t` — Test Konfigurasi
+
+`nginx -t` memvalidasi syntax dan path file yang direferensikan di config **tanpa** menerapkan perubahan.
+
+Kapan dipakai: **setiap kali** mengedit `nginx.conf` atau file di `servers/` — sebelum `reload`.
+
+```bash
+nginx -t
+sudo nginx -t                   # jika config di /etc/nginx (Linux production)
+
+# Output sukses:
+# nginx: the configuration file ... syntax is ok
+# nginx: configuration file ... test is successful
+```
+
+Contoh output error:
+
+```bash
+nginx -t
+# nginx: [emerg] unexpected "}" in /opt/homebrew/etc/nginx/nginx.conf:42
+# nginx: configuration file ... test failed
+```
+
+- **`syntax is ok`**: struktur directive benar — titik koma, kurung kurawal, nesting context valid.
+- **`test is successful`**: file yang di-`include` ada dan path log/root dapat diakses.
+- Jangan pernah `reload` jika `-t` gagal — Nginx menolak config rusak, tapi lebih aman cek dulu.
+
+---
+
+### `nginx -s reload` — Reload Tanpa Downtime
+
+`nginx -s reload` memuat ulang config: master process membaca config baru, worker lama menyelesaikan request yang sedang berjalan, worker baru mengambil alih.
+
+Kapan dipakai: setelah mengubah virtual host, SSL, location, upstream — workflow paling umum di production.
+
+```bash
+nginx -t && nginx -s reload     # test dulu, baru reload (best practice)
+sudo nginx -t && sudo nginx -s reload   # di server Linux
+```
+
+- **Zero-downtime**: koneksi aktif tidak terputus secara brutal.
+- Worker lama tetap hidup sampai request selesai — transisi halus.
+- Jika config baru invalid, reload bisa gagal — makanya `-t` wajib dijalankan terlebih dahulu.
+
+---
+
+### `nginx -s stop` — Hentikan dengan Graceful Timeout
+
+`nginx -s stop` mengirim sinyal `SIGTERM` ke master process — worker diberi waktu menyelesaikan request, lalu proses berhenti.
+
+Kapan dipakai: maintenance plan, sebelum upgrade versi Nginx, atau saat ingin benar-benar mengosongkan port.
+
+```bash
+nginx -s stop
+sudo nginx -s stop
+```
+
+- Lebih "bersih" daripada `kill -9` — tidak memutus request di tengah jalan secara paksa.
+- Jika worker tidak selesai dalam waktu tertentu, master akan memaksa exit.
+
+---
+
+### `nginx -s quit` — Hentikan dengan Graceful Penuh
+
+`nginx -s quit` mengirim sinyal `SIGQUIT` — worker menyelesaikan **semua** request yang sedang diproses sebelum exit.
+
+Kapan dipakai: deploy besar, migrasi server, atau situasi di mana Anda ingin zero request terpotong.
+
+```bash
+nginx -s quit
+```
+
+- Perbedaan dengan `stop`: `quit` menunggu semua worker selesai; `stop` punya timeout lebih agresif.
+- Di praktik sehari-hari, `reload` jauh lebih sering dipakai daripada `stop`/`quit`.
+
+---
+
+### `nginx -s reopen` — Rotasi Log
+
+`nginx -s reopen` membuka ulang file log — dipakai bersamaan dengan `logrotate` tanpa restart Nginx.
+
+Kapan dipakai: rotasi log harian/mingguan di production agar file log tidak membesar tanpa batas.
+
+```bash
+# Setelah logrotate memindahkan/rename file log:
+nginx -s reopen
+# atau lewat USR1:
+kill -USR1 $(cat /opt/homebrew/var/run/nginx.pid)
+```
+
+- Nginx tetap menulis ke file descriptor lama sampai `reopen` — tanpa ini, log baru tidak tercatat setelah rename.
+- Alternatif: gunakan `copytruncate` di logrotate (kurang ideal tapi lebih sederhana).
+
+---
+
+### `nginx -c` — Tentukan Path Config
+
+Flag `-c` menunjuk ke file konfigurasi alternatif — berguna untuk environment terpisah atau testing.
+
+Kapan dipakai: menjalankan instance Nginx kedua, testing config staging, atau proyek dengan config di luar path default.
+
+```bash
+nginx -c /path/to/custom/nginx.conf
+nginx -t -c /path/to/staging/nginx.conf
+nginx -s reload -c /path/to/custom/nginx.conf
+```
+
+- Path harus **absolut** — relative path tidak didukung untuk `-c`.
+- Pastikan `error_log` dan `pid` di config custom tidak bentrok dengan instance Nginx lain.
+
+---
+
+### Sinyal proses alternatif
+
+Jika `nginx -s` tidak tersedia (PATH berbeda), kirim sinyal langsung ke master PID:
+
+```bash
+# Cari PID
+cat /opt/homebrew/var/run/nginx.pid     # Homebrew Mac
+cat /var/run/nginx.pid                  # Linux umum
+
+kill -HUP  $(cat /opt/homebrew/var/run/nginx.pid)   # reload (setara -s reload)
+kill -TERM $(cat /opt/homebrew/var/run/nginx.pid)   # stop
+kill -QUIT $(cat /opt/homebrew/var/run/nginx.pid)   # quit
+kill -USR1 $(cat /opt/homebrew/var/run/nginx.pid)   # reopen logs
+```
+
+| Sinyal | Setara CLI | Efek |
+| --- | --- | --- |
+| **HUP** | `nginx -s reload` | Reload config |
+| **TERM** | `nginx -s stop` | Stop graceful |
+| **QUIT** | `nginx -s quit` | Quit setelah request selesai |
+| **USR1** | `nginx -s reopen` | Buka ulang file log |
+
+---
+
+## Struktur `nginx.conf`
+
+### Anatomy file config utama
+
+File `nginx.conf` adalah titik masuk semua konfigurasi. Homebrew menyertakan template minimal yang bisa Anda perluas.
+
+Kapan dipakai: memahami di mana menaruh directive global vs per-site — fondasi sebelum menulis virtual host.
+
+```nginx
+# /opt/homebrew/etc/nginx/nginx.conf (contoh disederhanakan)
+
+user  nobody;
+worker_processes  auto;          # atau angka = jumlah CPU
+
+error_log  /opt/homebrew/var/log/nginx/error.log warn;
+pid        /opt/homebrew/var/run/nginx.pid;
+
+events {
+    worker_connections  1024;    # koneksi simultan per worker
+    # multi_accept on;           # terima multiple koneksi sekaligus
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # Log format & path global
+    log_format main '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+
+    access_log  /opt/homebrew/var/log/nginx/access.log  main;
+
+    # Include virtual host terpisah
+    include servers/*;
+
+    server {
+        listen       8080;
+        server_name  localhost;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+```
+
+- **`worker_processes auto`**: Nginx otomatis sesuaikan jumlah worker dengan CPU — umum di production.
+- **`include servers/*`**: pola modular — satu file per site di folder `servers/`.
+- **`http { }`**: semua directive web (server, upstream, gzip, limit) hidup di dalam context ini.
+
+---
+
+### Context `events` — Koneksi Worker
+
+Block `events` mengatur bagaimana worker menangani koneksi — tidak ada directive HTTP di sini.
+
+Kapan dipakai: tuning performa server dengan traffic tinggi, atau saat mendekati batas `worker_connections`.
+
+```nginx
+events {
+    worker_connections  2048;
+    use epoll;              # Linux — di Mac/BSD: kqueue (otomatis)
+    multi_accept on;
+}
+```
+
+- **`worker_connections`**: maksimum koneksi simultan **per worker** — total ≈ `workers × connections`.
+- **`multi_accept on`**: worker menerima semua koneksi baru sekaligus saat ada event — sedikit lebih efisien di load tinggi.
+
+---
+
+### Context `http` — Pengaturan Global Web
+
+Semua pengaturan yang berlaku untuk seluruh virtual host didefinisikan di `http { }` kecuali di-override di `server` atau `location`.
+
+Kapan dipakai: set default gzip, timeout, buffer, rate limit zone, dan format log sekali untuk semua site.
+
+```nginx
+http {
+    # Timeout
+    client_body_timeout   12;
+    client_header_timeout 12;
+    send_timeout          10;
+
+    # Buffer
+    client_max_body_size  20m;    # max upload size
+
+    # Hide versi Nginx (keamanan)
+    server_tokens off;
+
+    # Proxy defaults (jika banyak reverse proxy)
+    proxy_connect_timeout  60s;
+    proxy_send_timeout     60s;
+    proxy_read_timeout     60s;
+
+    include servers/*;
+}
+```
+
+- **`client_max_body_size`**: batas ukuran body request — penting untuk upload file; default 1m sering terlalu kecil.
+- **`server_tokens off`**: sembunyikan versi Nginx di header `Server` dan halaman error — hardening dasar.
+
+---
+
+## Server Block & Virtual Host
+
+### Satu domain — server block dasar
+
+`server { }` mendefinisikan virtual host: domain, port, root document, dan location.
+
+Kapan dipakai: melayani satu site statis atau sebagai kerangka sebelum menambah reverse proxy / SSL.
+
+```nginx
+# /opt/homebrew/etc/nginx/servers/mysite.conf
+
+server {
+    listen       8080;
+    server_name  mysite.local www.mysite.local;
+
+    root   /opt/homebrew/var/www/mysite;
+    index  index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+```
+
+Test dan aktifkan:
+
+```bash
+# Tambahkan ke /etc/hosts untuk development lokal:
+# 127.0.0.1  mysite.local www.mysite.local
+
+nginx -t && nginx -s reload
+curl -I http://mysite.local:8080
+```
+
+- **`server_name`**: Nginx memilih server block berdasarkan header `Host` dari request.
+- **`try_files`**: coba file → direktori → fallback 404 — pola umum untuk static site / SPA.
+
+---
+
+### Banyak domain — multiple virtual host
+
+Satu proses Nginx bisa melayani puluhan domain dengan server block terpisah.
+
+Kapan dipakai: hosting beberapa proyek di satu mesin, staging + production domain, atau microservices dengan subdomain.
+
+```nginx
+# api.mysite.local
+server {
+    listen 8080;
+    server_name api.mysite.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+# static.mysite.local
+server {
+    listen 8080;
+    server_name static.mysite.local;
+
+    root /opt/homebrew/var/www/static;
+    location / {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+# catch-all / default
+server {
+    listen 8080 default_server;
+    server_name _;
+    return 444;    # tutup koneksi tanpa response
+}
+```
+
+- **`default_server`**: server block ini menangani request yang tidak cocok `server_name` lain.
+- **`return 444`**: kode khusus Nginx — drop koneksi; berguna untuk menolak request ke IP langsung atau domain tidak dikenal.
+
+---
+
+### `listen` — Port, SSL, dan HTTP/2
+
+Directive `listen` menentukan alamat dan port (serta opsi SSL/HTTP2) yang dibuka server block.
+
+Kapan dipakai: setup HTTPS, IPv6, atau memisahkan traffic HTTP (redirect) dan HTTPS.
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;                    # IPv6
+    server_name example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;                          # Nginx 1.25.1+ — atau: listen 443 ssl http2;
+
+    server_name example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+}
+```
+
+- **`return 301`**: redirect permanen HTTP → HTTPS — pola wajib di production.
+- **`http2 on`**: aktifkan HTTP/2 untuk performa multiplexing — pastikan modul SSL terpasang (`nginx -V`).
+
+---
+
+## Location Block
+
+### Matching URI — prefix, exact, regex
+
+`location` mengarahkan request berdasarkan path URI — fondasi routing di Nginx.
+
+Kapan dipakai: memisahkan API, file statis, admin panel, atau cache policy per path.
+
+```nginx
+server {
+    listen 8080;
+    server_name app.local;
+
+    # Exact match (=) — prioritas tertinggi
+    location = /health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    # Prefix match — paling umum
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/;
+    }
+
+    # Regex case-sensitive (~)
+    location ~ \.php$ {
+        # fastcgi_pass ...
+    }
+
+    # Regex case-insensitive (~*)
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+        expires 7d;
+    }
+
+    # Prefix prioritas tinggi (^~)
+    location ^~ /static/ {
+        root /opt/homebrew/var/www;
+    }
+
+    location / {
+        root /opt/homebrew/var/www/app;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Urutan prioritas matching:
+
+| Modifier | Contoh | Prioritas |
+| --- | --- | --- |
+| **`=`** | `location = /exact` | 1 — exact match |
+| **`^~`** | `location ^~ /static/` | 2 — prefix, stop cari regex |
+| **`~` / `~*`** | `location ~ \.php$` | 3 — regex (berurutan) |
+| *(none)* | `location /api/` | 4 — prefix biasa |
+
+---
+
+### `try_files` — Fallback routing
+
+`try_files` mengecek keberadaan file/direktori secara berurutan — sangat penting untuk SPA (React, Vue, Next static export).
+
+Kapan dipakai: single-page application, static site generator, atau fallback ke `index.php`.
+
+```nginx
+location / {
+    root /opt/homebrew/var/www/spa;
+    try_files $uri $uri/ /index.html;
+}
+
+# WordPress-style
+location / {
+    try_files $uri $uri/ /index.php?$args;
+}
+```
+
+- **`$uri`**: path request apa adanya.
+- **`$uri/`**: coba sebagai direktori (Nginx cari index file).
+- **`/index.html`**: internal redirect jika keduanya tidak ada — SPA routing client-side.
+
+---
+
+## Upstream & Load Balancing
+
+### Definisi upstream — grup backend
+
+Block `upstream` mendefinisikan satu atau lebih server backend — dipakai bersama `proxy_pass`.
+
+Kapan dipakai: load balancing ke beberapa instance aplikasi, blue-green deployment, atau failover.
+
+```nginx
+upstream app_backend {
+    server 127.0.0.1:3001;
+    server 127.0.0.1:3002;
+    server 127.0.0.1:3003;
+}
+
+server {
+    listen 8080;
+    server_name app.local;
+
+    location / {
+        proxy_pass http://app_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+- Tanpa metode eksplisit, default adalah **round-robin** — request dibagi bergilir ke setiap server.
+- **`proxy_set_header`**: teruskan info asli klien ke backend — penting agar app tahu IP dan protokol asli.
+
+---
+
+### Metode load balancing
+
+```nginx
+upstream api {
+    # Round-robin (default)
+    server 10.0.0.1:8080;
+    server 10.0.0.2:8080;
+
+    # Least connections — ke server dengan koneksi aktif paling sedikit
+    # least_conn;
+    # server 10.0.0.1:8080;
+    # server 10.0.0.2:8080;
+
+    # IP hash — klien sama selalu ke server sama (session sticky)
+    # ip_hash;
+    # server 10.0.0.1:8080;
+    # server 10.0.0.2:8080;
+
+    # Weighted round-robin
+    server 10.0.0.1:8080 weight=3;
+    server 10.0.0.2:8080 weight=1;
+
+    # Backup — hanya dipakai jika primary down
+    server 10.0.0.3:8080 backup;
+
+    # Mark server down sementara
+    server 10.0.0.4:8080 down;
+
+    # Health check pasif — stop kirim request setelah N failure
+    server 10.0.0.5:8080 max_fails=3 fail_timeout=30s;
+}
+```
+
+- **`weight`**: server dengan weight lebih tinggi mendapat proporsi request lebih banyak.
+- **`max_fails` + `fail_timeout`**: mekanisme failover sederhana tanpa health check eksternal.
+
+---
+
+### `keepalive` — Koneksi persisten ke upstream
+
+Reuse koneksi TCP ke backend mengurangi overhead handshake — terutama untuk traffic tinggi.
+
+Kapan dipakai: reverse proxy ke API dengan banyak request pendek ke backend yang sama.
+
+```nginx
+upstream backend {
+    server 127.0.0.1:3000;
+    keepalive 32;    # pool koneksi idle
+}
+
+server {
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+}
+```
+
+- **`proxy_http_version 1.1`**: HTTP/1.1 diperlukan untuk keepalive ke upstream.
+- **`Connection ""`**: hapus header Connection: close — biarkan koneksi reuse.
+
+---
+
+## Reverse Proxy
+
+### `proxy_pass` — Teruskan request ke backend
+
+Reverse proxy adalah use case Nginx paling populer: Nginx menghadap internet, aplikasi (Node, Python, Go) berjalan di port internal.
+
+Kapan dipakai: deploy aplikasi web di belakang Nginx, terminasi SSL di Nginx, atau gabungkan beberapa service di satu domain.
+
+```nginx
+server {
+    listen 8080;
+    server_name myapp.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+- **`proxy_pass`**: URL backend — bisa `http://`, `https://`, atau nama `upstream`.
+- Header `X-Forwarded-*`: backend membaca IP dan protokol asli — framework modern (Express, FastAPI) memakai ini untuk rate limit dan redirect.
+
+---
+
+### Trailing slash — perhatian penting
+
+Perilaku `proxy_pass` berbeda jika URL backend diakhiri `/` atau tidak — sumber bug 404 yang umum.
+
+Kapan dipakai: saat path API tidak cocok antara Nginx dan backend — selalu uji dengan `curl`.
+
+```nginx
+# Skenario: request GET /api/users
+
+# proxy_pass TANPA trailing slash — URI diteruskan utuh
+location /api/ {
+    proxy_pass http://127.0.0.1:3000;
+    # → backend menerima: /api/users
+}
+
+# proxy_pass DENGAN trailing slash — prefix location diganti
+location /api/ {
+    proxy_pass http://127.0.0.1:3000/;
+    # → backend menerima: /users
+}
+
+# location tanpa trailing slash
+location /api {
+    proxy_pass http://127.0.0.1:3000/v1;
+    # → /api/users menjadi /v1/users (prefix /api diganti /v1)
+}
+```
+
+- Aturan praktis: samakan ekspektasi path backend dengan trailing slash di `proxy_pass`.
+- Uji selalu: `curl -v http://myapp.local:8080/api/users` dan bandingkan log backend.
+
+---
+
+### WebSocket proxy
+
+Aplikasi real-time (Socket.io, GraphQL subscription) butuh upgrade header WebSocket.
+
+Kapan dipakai: chat app, live dashboard, collaborative editing di belakang Nginx.
+
+```nginx
+location /ws/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;    # 24 jam — koneksi WS panjang
+}
+```
+
+- **`Upgrade` + `Connection`**: wajib untuk handshake WebSocket.
+- **`proxy_read_timeout`**: default 60s bisa memutus WS idle — naikkan untuk koneksi lama.
+
+---
+
+## SSL / TLS
+
+### Sertifikat Let's Encrypt (production Linux)
+
+Di Mac development, SSL lokal bisa pakai [mkcert](https://github.com/FiloSottile/mkcert). Di server Linux, Certbot adalah standar.
+
+Kapan dipakai: production HTTPS, SEO, dan keamanan data pengguna.
+
+```bash
+# Linux (Ubuntu/Debian) — contoh dengan Certbot
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d example.com -d www.example.com
+sudo certbot renew --dry-run
+```
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # OCSP stapling (opsional, production)
+    # ssl_stapling on;
+    # ssl_stapling_verify on;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+```
+
+- **`ssl_protocols`**: nonaktifkan TLSv1.0/1.1 — sudah dianggap tidak aman.
+- Certbot bisa otomatis mengedit config Nginx dan setup cron renew.
+
+---
+
+### SSL lokal di Mac dengan mkcert
+
+```bash
+brew install mkcert
+mkcert -install
+mkcert myapp.local localhost 127.0.0.1
+# Hasil: myapp.local+2.pem dan myapp.local+2-key.pem
+```
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name myapp.local;
+
+    ssl_certificate     /Users/you/certs/myapp.local+2.pem;
+    ssl_certificate_key /Users/you/certs/myapp.local+2-key.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+```
+
+- **`mkcert -install`**: pasang CA lokal ke Keychain Mac — browser percaya sertifikat dev.
+- Homebrew Nginx di port 443 butuh `sudo nginx` atau berikan capability khusus.
+
+---
+
+## Kompresi Gzip
+
+### Aktifkan gzip — kurangi ukuran response
+
+Gzip memampatkan response text (HTML, CSS, JS, JSON) sebelum dikirim ke klien — menghemat bandwidth dan mempercepat load.
+
+Kapan dipakai: hampir selalu di production untuk konten text-based; jangan gzip file yang sudah terkompresi (JPEG, PNG, GIF).
+
+```nginx
+http {
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/javascript
+        application/json
+        application/xml
+        application/rss+xml
+        image/svg+xml;
+}
+```
+
+- **`gzip_vary on`**: kirim header `Vary: Accept-Encoding` — penting jika ada cache (CDN/proxy).
+- **`gzip_comp_level 6`**: balance CPU vs rasio kompresi — level 9 tidak selalu worth it.
+- **`gzip_min_length`**: file terlalu kecil tidak dikompres — overhead header tidak sebanding.
+
+---
+
+### Cek gzip aktif
+
+```bash
+curl -H "Accept-Encoding: gzip" -I http://localhost:8080/
+# Cari header: Content-Encoding: gzip
+```
+
+- Tanpa header `Accept-Encoding: gzip`, Nginx mengirim response uncompressed — browser modern selalu mengirim header ini.
+
+---
+
+## Logging
+
+### Access log — catatan setiap request
+
+Access log mencatat siapa mengakses apa, kapan, status code, dan ukuran response — dasar analitik dan audit.
+
+Kapan dipakai: debug traffic, analisis performa, deteksi serangan, integrasi dengan ELK/Grafana Loki.
+
+```nginx
+http {
+    log_format main '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent" '
+                    '$request_time';
+
+    log_format json escape=json '{'
+                    '"time":"$time_iso8601",'
+                    '"remote_addr":"$remote_addr",'
+                    '"method":"$request_method",'
+                    '"uri":"$uri",'
+                    '"status":$status,'
+                    '"body_bytes_sent":$body_bytes_sent,'
+                    '"request_time":$request_time,'
+                    '"http_referer":"$http_referer",'
+                    '"http_user_agent":"$http_user_agent"'
+                    '}';
+
+    access_log  /opt/homebrew/var/log/nginx/access.log  main;
+
+    server {
+        # Matikan access log untuk health check (kurangi noise)
+        location = /health {
+            access_log off;
+            return 200 'ok';
+        }
+
+        # Log terpisah per site
+        access_log  /opt/homebrew/var/log/nginx/mysite.access.log  main;
+    }
+}
+```
+
+Variabel log berguna:
+
+| Variabel | Arti |
+| --- | --- |
+| **`$remote_addr`** | IP klien |
+| **`$request`** | Full request line — `GET /path HTTP/1.1` |
+| **`$status`** | HTTP status code |
+| **`$body_bytes_sent`** | Ukuran body response (byte) |
+| **`$request_time`** | Waktu proses request (detik, desimal) |
+| **`$upstream_response_time`** | Waktu respons dari backend (reverse proxy) |
+| **`$http_x_forwarded_for`** | IP asli jika di belakang proxy lain |
+
+---
+
+### Error log — debug dan troubleshooting
+
+Error log menangkap masalah Nginx: config error, upstream down, permission denied, SSL gagal.
+
+Kapan dipakai: **pertama kali** saat 502/504, startup gagal, atau perilaku tidak terduga.
+
+```nginx
+# Di main context (global)
+error_log  /opt/homebrew/var/log/nginx/error.log  warn;
+
+# Per-server override dengan level lebih detail
+server {
+    error_log  /opt/homebrew/var/log/nginx/mysite.error.log  debug;
+}
+```
+
+Level log (dari rendah ke tinggi verbosity):
+
+| Level | Kapan dipakai |
+| --- | --- |
+| **`debug`** | Investigasi mendalam — **jangan** di production (sangat verbose) |
+| **`info`** | Informasi umum |
+| **`notice`** | Event normal yang perlu dicatat |
+| **`warn`** | Peringatan — default production yang baik |
+| **`error`** | Error yang perlu ditangani |
+| **`crit`** | Kondisi kritis |
+
+Monitor log real-time:
+
+```bash
+tail -f /opt/homebrew/var/log/nginx/error.log
+tail -f /opt/homebrew/var/log/nginx/access.log
+
+# Filter error upstream
+grep -i upstream /opt/homebrew/var/log/nginx/error.log
+grep ' 502 ' /opt/homebrew/var/log/nginx/access.log
+```
+
+- **`tail -f`**: follow log live — teman terbaik saat deploy dan uji.
+- Pisahkan error log per site di production agar investigasi lebih cepat.
+
+---
+
+## Rate Limiting
+
+### `limit_req` — batasi request per IP
+
+Rate limiting melindungi API dan server dari abuse, brute force, dan traffic spike.
+
+Kapan dipakai: endpoint login, API publik, atau mitigasi DDoS layer aplikasi dasar.
+
+```nginx
+http {
+    # Zone: 10MB ≈ 160k IP — rate 10 request/detik
+    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=1r/s;
+
+    server {
+        listen 8080;
+        server_name api.local;
+
+        location /api/ {
+            limit_req zone=api_limit burst=20 nodelay;
+            proxy_pass http://127.0.0.1:3000;
+        }
+
+        location /login {
+            limit_req zone=login_limit burst=5;
+            proxy_pass http://127.0.0.1:3000;
+        }
+    }
+}
+```
+
+- **`limit_req_zone`**: definisi zone di `http` — `$binary_remote_addr` = key per IP (4 byte vs string).
+- **`rate=10r/s`**: rata-rata 10 request per detik per IP.
+- **`burst=20`**: izinkan lonjakan hingga 20 request; **`nodelay`**: proses burst segera tanpa antrian delay.
+
+---
+
+### `limit_conn` — batasi koneksi simultan
+
+```nginx
+http {
+    limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
+
+    server {
+        location / {
+            limit_conn conn_limit 10;    # max 10 koneksi simultan per IP
+            proxy_pass http://127.0.0.1:3000;
+        }
+    }
+}
+```
+
+- Berguna untuk membatasi download paralel atau mencegah satu IP menghabiskan worker connections.
+
+---
+
+### Response saat limit terlampaui
+
+```nginx
+limit_req_status 429;
+limit_conn_status 429;
+
+# Custom error page
+error_page 429 /429.html;
+location = /429.html {
+    root /opt/homebrew/var/www;
+    internal;
+}
+```
+
+- Default status adalah **503** — ubah ke **429 Too Many Requests** agar lebih semantik untuk client.
+
+---
+
+## `root` vs `alias`
+
+### `root` — append location ke path
+
+`root` menggabungkan nilai root dengan URI lengkap request.
+
+Kapan dipakai: serve file statis standar — document root satu folder.
+
+```nginx
+location /images/ {
+    root /opt/homebrew/var/www;
+    # Request /images/logo.png → /opt/homebrew/var/www/images/logo.png
+}
+```
+
+---
+
+### `alias` — ganti prefix location
+
+`alias` mengganti bagian yang match di `location` dengan path yang ditentukan — **tanpa** mengulang prefix.
+
+Kapan dipakai: serve folder yang path-nya tidak sejajar dengan URI — storage terpisah, mount volume, legacy path.
+
+```nginx
+location /images/ {
+    alias /opt/homebrew/var/www/static/img/;
+    # Request /images/logo.png → /opt/homebrew/var/www/static/img/logo.png
+}
+
+# SALAH — trailing slash harus konsisten:
+# location /images {
+#     alias /path/img/;   # bug: /imageslogo.png
+# }
+```
+
+Perbedaan kunci:
+
+| Directive | URI `/images/logo.png` | Path file |
+| --- | --- | --- |
+| **`root /var/www`** | append penuh | `/var/www/images/logo.png` |
+| **`alias /var/www/static/img/`** | ganti `/images/` | `/var/www/static/img/logo.png` |
+
+- **`alias`**: trailing slash di `location` dan `alias` **harus** konsisten — sumber bug 404 klasik.
+- Di dalam `location` dengan `alias`, hindari `try_files` langsung — gunakan pola yang sudah teruji atau `root` jika memungkinkan.
+
+---
+
+## Workflow Sehari-hari
+
+### Edit → Test → Reload
+
+Workflow aman yang harus dijadikan kebiasaan setiap kali mengubah config:
+
+```bash
+# 1. Edit config
+code /opt/homebrew/etc/nginx/nginx.conf
+# atau file di servers/
+
+# 2. Test syntax
+nginx -t
+
+# 3. Reload jika sukses
+nginx -s reload
+
+# 4. Verifikasi
+curl -I http://localhost:8080
+tail -n 20 /opt/homebrew/var/log/nginx/error.log
+```
+
+- Satu baris gabungan: `nginx -t && nginx -s reload`
+- Jika `-t` gagal, config lama **tetap aktif** — tidak ada downtime dari config rusak.
+
+---
+
+### Deploy aplikasi baru di belakang Nginx
+
+```bash
+# 1. Jalankan app di port internal
+cd ~/projects/myapp && npm start   # mis. port 3000
+
+# 2. Buat server block
+# /opt/homebrew/etc/nginx/servers/myapp.conf
+
+# 3. Test & reload
+nginx -t && nginx -s reload
+
+# 4. Tambah hosts lokal (development)
+echo "127.0.0.1 myapp.local" | sudo tee -a /etc/hosts
+
+# 5. Uji
+curl http://myapp.local:8080
+open http://myapp.local:8080
+```
+
+---
+
+### Backup config sebelum perubahan besar
+
+```bash
+cp /opt/homebrew/etc/nginx/nginx.conf \
+   /opt/homebrew/etc/nginx/nginx.conf.bak.$(date +%Y%m%d)
+
+# Restore jika perlu
+cp /opt/homebrew/etc/nginx/nginx.conf.bak.20250624 \
+   /opt/homebrew/etc/nginx/nginx.conf
+nginx -t && nginx -s reload
+```
+
+- Simpan backup ber-timestamp sebelum eksperimen SSL, upstream, atau refactor virtual host.
+
+---
+
+### Cek proses dan port
+
+```bash
+# Apakah Nginx berjalan?
+ps aux | grep nginx
+brew services list | grep nginx
+
+# Port apa yang didengarkan?
+sudo lsof -i :8080
+sudo lsof -i :80
+netstat -an | grep LISTEN | grep 8080
+
+# Test response header
+curl -I http://localhost:8080
+curl -v http://localhost:8080/health
+```
+
+- **`lsof -i :8080`**: pastikan tidak ada konflik port dengan app lain (mis. Apache, Caddy).
+
+---
+
+## Troubleshooting
+
+### HTTP 404 Not Found
+
+404 berarti Nginx berjalan tapi tidak menemukan resource yang diminta — masalah routing, bukan server mati.
+
+Kapan investigasi: halaman/file ada di disk tapi tidak bisa diakses via browser.
+
+```bash
+# Cek config aktif untuk server_name & root
+nginx -T | grep -A5 "server_name"
+nginx -T | grep -A2 "root\|alias"
+
+# Uji dengan Host header eksplisit
+curl -H "Host: mysite.local" http://127.0.0.1:8080/
+
+# Cek file ada
+ls -la /opt/homebrew/var/www/mysite/
+```
+
+Penyebab umum 404:
+
+| Penyebab | Solusi |
+| --- | --- |
+| **`server_name` tidak cocok** | Sesuaikan domain atau tambahkan `default_server` |
+| **`root` path salah** | Perbaiki path; cek permission (`chmod`/`chown`) |
+| **`alias` trailing slash** | Samakan trailing slash location dan alias |
+| **`try_files` fallback salah** | Sesuaikan untuk SPA: `try_files $uri $uri/ /index.html` |
+| **`proxy_pass` path mismatch** | Cek trailing slash — lihat bagian Reverse Proxy |
+| **Port salah** | Homebrew default 8080, bukan 80 |
+
+```nginx
+# Debug sementara — log detail routing
+error_log /opt/homebrew/var/log/nginx/debug.log debug;
+```
+
+<Callout type="warning">
+Level `debug` sangat verbose — matikan setelah selesai investigasi. Jangan biarkan aktif di production.
+</Callout>
+
+---
+
+### HTTP 502 Bad Gateway
+
+502 berarti Nginx (sebagai proxy) tidak mendapat respons valid dari upstream — backend down, crash, atau timeout.
+
+Kapan investigasi: reverse proxy aktif tapi halaman menampilkan "502 Bad Gateway".
+
+```bash
+# Backend masih hidup?
+curl http://127.0.0.1:3000/
+lsof -i :3000
+
+# Error log Nginx
+tail -50 /opt/homebrew/var/log/nginx/error.log
+# Cari: "connect() failed", "upstream prematurely closed", "no live upstreams"
+```
+
+Penyebab umum 502:
+
+| Penyebab | Solusi |
+| --- | --- |
+| **Backend tidak berjalan** | Start aplikasi; cek `systemctl status` / `pm2 list` |
+| **Port salah di `proxy_pass`** | Sesuaikan port dengan app yang benar-benar listen |
+| **Bind address** | App listen `127.0.0.1` vs `0.0.0.0` — pastikan Nginx bisa reach |
+| **Timeout** | Naikkan `proxy_read_timeout`, `proxy_connect_timeout` |
+| **Upstream semua down** | Cek `max_fails`; restart backend instances |
+| **Socket vs HTTP** | Jangan `proxy_pass` ke port database (PostgreSQL, Redis) |
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
+
+    # Buffer — bantu jika response besar
+    proxy_buffering on;
+    proxy_buffer_size 16k;
+    proxy_buffers 4 32k;
+}
+```
+
+---
+
+### HTTP 504 Gateway Timeout
+
+504 mirip 502, tapi backend terlalu lama merespons — Nginx menyerah menunggu.
+
+```bash
+grep "upstream timed out" /opt/homebrew/var/log/nginx/error.log
+```
+
+```nginx
+location /api/slow-endpoint {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_read_timeout 300s;    # 5 menit untuk job berat
+}
+```
+
+- Bedakan: optimasi backend vs menaikkan timeout — timeout panjang hanya menunda masalah performa.
+
+---
+
+### Permission denied & bind error
+
+```bash
+# Error: bind() to 0.0.0.0:80 failed (13: Permission denied)
+sudo nginx    # atau gunakan port > 1024 (8080)
+
+# Error: open() ".../access.log" failed (13: Permission denied)
+# Perbaiki ownership log directory
+sudo chown -R $(whoami) /opt/homebrew/var/log/nginx/
+```
+
+- Di Mac development, lebih mudah pakai port **8080** daripada fight permission port 80.
+
+---
+
+### Config tidak ter-apply setelah reload
+
+```bash
+# Pastikan edit file yang benar
+nginx -V 2>&1 | grep -- '--conf-path'
+
+# Dump config aktif — bandingkan dengan file yang Anda edit
+nginx -T | less
+
+# Pastikan include path benar
+grep -r include /opt/homebrew/etc/nginx/nginx.conf
+ls /opt/homebrew/etc/nginx/servers/
+```
+
+- Sering terjadi: edit file di `/etc/nginx/` padahal Homebrew memakai `/opt/homebrew/etc/nginx/`.
+
+---
+
+### `nginx: [emerg] still could not bind()`
+
+Port sudah dipakai proses lain.
+
+```bash
+sudo lsof -i :8080
+# Kill proses yang bentrok (hati-hati):
+# kill <PID>
+nginx -s stop
+brew services stop nginx
+```
+
+- Pastikan tidak menjalankan dua instance Nginx (manual + brew services) bersamaan.
+
+---
+
+## Keamanan Dasar
+
+### Sembunyikan versi & batasi akses
+
+```nginx
+http {
+    server_tokens off;
+
+    # Blok akses ke file tersembunyi
+    location ~ /\. {
+        deny all;
+        access_log off;
+    }
+}
+
+server {
+    # Batasi IP untuk admin
+    location /admin/ {
+        allow 192.168.1.0/24;
+        allow 10.0.0.1;
+        deny all;
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+```
+
+- **`location ~ /\.`**: blok akses ke `.git`, `.env`, `.htaccess` yang tidak sengaja ter-expose.
+
+---
+
+### Header keamanan
+
+```nginx
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+# add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+```
+
+- **`always`**: header dikirim juga pada response error (4xx, 5xx) — tanpa `always`, hanya pada 2xx/3xx.
+
+---
+
+## File Static & Cache
+
+### Cache header untuk asset
+
+```nginx
+location ~* \.(css|js|jpg|jpeg|png|gif|ico|svg|woff2?)$ {
+    root /opt/homebrew/var/www;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+    access_log off;    # kurangi noise log untuk asset
+}
+```
+
+- **`immutable`**: browser tidak revalidate — cocok untuk file dengan hash di nama (Vite/Webpack output).
+
+---
+
+### `sendfile` dan `tcp_nopush`
+
+```nginx
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+}
+```
+
+- **`sendfile`**: transfer file langsung kernel-to-network — efisien untuk static file besar.
+- Sudah `on` di config default Homebrew — jangan matikan tanpa alasan.
+
+---
+
+## Perintah Berguna Lainnya
+
+### `nginx -g` — Override directive global
+
+```bash
+nginx -g "daemon off;"              # jalankan di foreground (Docker)
+nginx -g "pid /tmp/nginx.pid;"      # PID file custom
+```
+
+- **`daemon off`**: wajib di container Docker — proses utama tidak boleh fork ke background.
+
+---
+
+### Validasi config dari CI/CD
+
+```bash
+# Pipeline deploy — gagalkan deploy jika config invalid
+nginx -t -c /path/to/nginx.conf
+if [ $? -ne 0 ]; then
+  echo "Nginx config invalid — abort deploy"
+  exit 1
+fi
+```
+
+---
+
+### Reload vs restart — kapan pakai mana?
+
+| Operasi | Perintah | Downtime | Kapan |
+| --- | --- | --- | --- |
+| **Reload config** | `nginx -s reload` | Tidak | Ubah virtual host, SSL, location |
+| **Reopen log** | `nginx -s reopen` | Tidak | Setelah logrotate |
+| **Restart service** | `brew services restart nginx` | Singkat | Upgrade versi, ubah `worker_processes` |
+| **Stop** | `nginx -s stop` | Ya | Maintenance, ganti aplikasi di port 80 |
+
+---
+
+<Callout type="info">
+Di production Linux, Nginx biasanya dikelola `systemctl`: `sudo systemctl reload nginx`, `sudo systemctl status nginx`, `sudo journalctl -u nginx`. Konsep `nginx -t` dan struktur config sama — hanya path dan service manager yang berbeda.
+</Callout>
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah / Directive Utama |
+| --- | --- |
+| **Info** | `nginx -v`, `nginx -V`, `nginx -T` |
+| **Validasi** | `nginx -t` |
+| **Lifecycle** | `nginx`, `nginx -s reload`, `nginx -s stop`, `nginx -s quit`, `nginx -s reopen` |
+| **Config** | `nginx -c`, `include`, `nginx.conf` |
+| **Virtual host** | `server`, `listen`, `server_name`, `root` |
+| **Routing** | `location`, `try_files`, `return`, `rewrite` |
+| **Proxy** | `proxy_pass`, `proxy_set_header`, `upstream` |
+| **SSL** | `ssl_certificate`, `ssl_certificate_key`, `listen 443 ssl` |
+| **Performa** | `gzip`, `sendfile`, `keepalive` |
+| **Log** | `access_log`, `error_log`, `log_format` |
+| **Keamanan** | `limit_req`, `limit_conn`, `deny`, `allow` |
+| **Static** | `root`, `alias`, `expires` |
+| **Mac** | `brew install nginx`, `brew services start nginx` |
+
+---
+
+## Penutup
+
+Enam perintah inti Nginx sehari-hari: **`nginx -t`** (validasi config), **`nginx -s reload`** (terapkan perubahan), **`nginx -s stop`**, **`tail -f error.log`** (debug), **`nginx -T`** (audit config aktif), dan **`brew services`** di Mac untuk menjalankan daemon.
+
+Langkah berikutnya: kuasai **`proxy_pass`** dengan benar (trailing slash), pisahkan config per site di folder `servers/`, aktifkan **SSL** di production, dan biasakan cek **error log** saat menemui 502/404. Nginx punya dokumentasi lengkap — manfaatkan `nginx -h`, [nginx.org](https://nginx.org/en/docs/), dan `nginx -V` untuk mengetahui modul yang tersedia di instalasi Anda.

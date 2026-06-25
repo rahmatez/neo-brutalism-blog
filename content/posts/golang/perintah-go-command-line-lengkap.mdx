@@ -1,0 +1,1109 @@
+---
+title: "Perintah Go Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Go: go run, build, install, test, fmt, vet, mod init tidy download vendor, get, work, env, doc, generate, clean, cross-compile, dan workflow sehari-hari."
+date: "2025-06-24"
+category: golang
+tags: ["go", "golang", "cli", "tutorial"]
+featured: true
+---
+
+**Go** (atau Golang) adalah bahasa pemrograman yang dikembangkan Google, terkenal dengan kompilasi cepat, binary tunggal, dan toolchain bawaan yang lengkap. Dengan perintah `go` di terminal, Anda bisa menjalankan kode, mengelola dependensi modul, mengetes, membangun binary, dan menerbitkan aplikasi — tanpa framework build terpisah.
+
+<Callout type="tip">
+Pastikan Go sudah terpasang. Cek dengan `go version`. Di Mac: `brew install go` atau unduh installer dari [go.dev/dl](https://go.dev/dl/). Setelah instal, pastikan `GOPATH/bin` ada di `PATH` agar binary hasil `go install` bisa dijalankan dari mana saja.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti Go toolchain — istilah ini muncul terus di dokumentasi dan output terminal:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Module** | Unit distribusi kode Go — diidentifikasi path modul di `go.mod` (mis. `github.com/user/app`) |
+| **Package** | Kumpulan file `.go` dalam satu folder dengan `package` declaration yang sama |
+| **go.mod** | File deklarasi modul: nama modul, versi Go minimum, dan daftar dependensi |
+| **go.sum** | Checksum kriptografis dependensi — memastikan integritas unduhan modul |
+| **GOPATH** | Workspace legacy (sebelum Go modules) — masih dipakai untuk cache modul dan binary `go install` |
+| **GOROOT** | Lokasi instalasi Go SDK — jarang diubah manual |
+| **main package** | Package dengan `func main()` — entry point program executable |
+| **Workspace (go.work)** | Menggabungkan beberapa modul lokal dalam satu workspace — berguna untuk monorepo |
+| **Vendor** | Salinan dependensi di folder `vendor/` — build tanpa unduh ulang dari internet |
+
+### Alur kerja Go modern (modules)
+
+```
+go mod init  ──►  tulis kode .go  ──►  go run / go test  ──►  go build / go install
+     │                    │                      │                      │
+  go.mod              package              verifikasi              binary
+```
+
+### Perintah informasi dasar
+
+```bash
+go version              # tampilkan versi Go yang terinstal
+go help                 # daftar semua perintah
+go help build           # bantuan detail untuk satu perintah
+go <command> -h         # bantuan singkat
+go env                  # tampilkan variabel lingkungan Go
+```
+
+- **`go version`**: langkah pertama saat troubleshooting — pastikan versi Go memenuhi requirement `go` directive di `go.mod`.
+- **`go help <command>`**: referensi lengkap tanpa buka browser — setara `go doc cmd/go`.
+
+---
+
+## Setup & Lingkungan
+
+### `go version` — Cek Versi Go
+
+`go version` menampilkan versi Go compiler yang terinstal di mesin Anda.
+
+Kapan dipakai: verifikasi instalasi, troubleshooting build error, atau memastikan CI dan lokal memakai versi yang sama.
+
+```bash
+go version                          # versi default (mis. go version go1.22.5 darwin/arm64)
+go version -m ./myapp               # versi Go + info build embedded di binary
+go version -m $(which myapp)        # cek binary yang sudah terinstal
+```
+
+- **`-m`**: tampilkan metadata build yang tertanam di binary — modul, versi dependensi, dan flag build.
+- Output mencakup OS/arch (`darwin/arm64`, `linux/amd64`) — berguna saat debug cross-compile.
+
+---
+
+### `go env` — Variabel Lingkungan Go
+
+`go env` menampilkan dan mengatur variabel lingkungan yang mengontrol perilaku toolchain Go.
+
+Kapan dipakai: setup mesin baru, debug path modul, konfigurasi proxy, atau cross-compile.
+
+```bash
+go env                              # semua variabel
+go env GOPATH GOROOT GOOS GOARCH    # variabel tertentu saja
+go env -w GOPRIVATE=github.com/myorg/*   # set persisten (ditulis ke go/env)
+go env -u GOPROXY                   # unset variabel yang pernah di-set dengan -w
+```
+
+Variabel penting:
+
+| Variabel | Default | Fungsi |
+| --- | --- | --- |
+| **GOROOT** | lokasi instal Go | Path SDK Go |
+| **GOPATH** | `~/go` | Cache modul, binary `go install`, workspace legacy |
+| **GOOS** | OS saat ini | Target OS saat build (`linux`, `darwin`, `windows`) |
+| **GOARCH** | arch saat ini | Target arsitektur (`amd64`, `arm64`, `386`) |
+| **GOMODCACHE** | `$GOPATH/pkg/mod` | Cache unduhan modul |
+| **GOPROXY** | `https://proxy.golang.org,direct` | Proxy unduhan modul |
+| **GOPRIVATE** | (kosong) | Modul privat — lewati proxy dan checksum DB |
+| **GONOSUMDB** | (kosong) | Modul yang tidak dicek di checksum database |
+| **CGO_ENABLED** | `1` (kecuali cross) | Aktifkan/nonaktifkan cgo saat build |
+| **GO111MODULE** | `on` (Go 1.16+) | Mode modules — hampir selalu `on` |
+
+Konfigurasi umum:
+
+```bash
+go env -w GOPATH=$HOME/go
+go env -w GOPRIVATE=github.com/perusahaan/*
+go env -w GOPROXY=https://proxy.golang.org,direct
+go env -w GOSUMDB=sum.golang.org
+```
+
+<Callout type="info">
+`go env -w` menulis ke file `$(go env GOENV)` (biasanya `~/Library/Application Support/go/env` di Mac). Ini persisten antar sesi terminal — berbeda dari `export` di shell.
+</Callout>
+
+---
+
+## Memulai Proyek & Modul
+
+### `go mod init` — Inisialisasi Modul Baru
+
+`go mod init` membuat file `go.mod` baru — mendeklarasikan nama modul dan memulai dependency management modern.
+
+Kapan dipakai: memulai proyek Go baru, atau mengonversi proyek legacy ke Go modules.
+
+```bash
+go mod init example.com/hello          # modul dengan path custom
+go mod init github.com/user/myapp      # modul yang akan di-publish
+go mod init myapp                      # modul lokal sederhana
+go mod init                            # infer nama dari folder saat ini (Go 1.20+)
+```
+
+- Nama modul biasanya mengikuti **import path** — URL repo jika akan di-push ke GitHub/GitLab.
+- Setelah `init`, buat `main.go` dan jalankan `go run .` — dependensi ditambahkan otomatis saat import.
+
+Contoh `go.mod` hasil init:
+
+```go
+module github.com/user/myapp
+
+go 1.22
+```
+
+---
+
+### Struktur proyek Go standar
+
+Layout umum untuk aplikasi CLI atau service:
+
+```
+myapp/
+├── go.mod
+├── go.sum
+├── main.go              # entry point (package main)
+├── cmd/
+│   └── server/
+│       └── main.go      # multiple binary entry points
+├── internal/
+│   └── handler/         # kode privat modul (tidak bisa di-import modul lain)
+├── pkg/
+│   └── utils/           # library yang boleh di-import modul lain
+└── api/
+    └── v1/              # definisi API, protobuf, OpenAPI
+```
+
+<Callout type="tip">
+Folder `internal/` dilindungi compiler — package di dalamnya **hanya** bisa di-import oleh kode dalam tree modul yang sama. Ini mencegah dependensi eksternal pada detail implementasi privat.
+</Callout>
+
+---
+
+### `go mod tidy` — Sinkronkan Dependensi
+
+`go mod tidy` menambahkan dependensi yang hilang dan menghapus dependensi yang tidak terpakai — menyelaraskan `go.mod` dan `go.sum` dengan kode aktual.
+
+Kapan dipakai: setelah menambah/menghapus import, sebelum commit, atau membersihkan `go.mod` yang kotor.
+
+```bash
+go mod tidy                         # sync go.mod + go.sum dengan kode
+go mod tidy -e                      # lanjut meski ada error import (jarang dipakai)
+go mod tidy -v                      # verbose — tampilkan modul yang ditambah/dihapus
+```
+
+- **`tidy`** adalah perintah yang paling sering dilupakan tapi paling penting — jalankan sebelum setiap commit yang mengubah import.
+- CI sering menjalankan `go mod tidy && git diff --exit-code` untuk memastikan `go.mod` selalu bersih.
+
+---
+
+### `go mod download` — Unduh Dependensi
+
+`go mod download` mengunduh modul ke cache lokal (`GOMODCACHE`) tanpa membangun atau mengetes.
+
+Kapan dipakai: prefetch dependensi di CI, warm cache Docker layer, atau unduh tanpa compile.
+
+```bash
+go mod download                     # unduh semua dependensi di go.mod
+go mod download github.com/pkg/errors@v0.9.1   # unduh modul spesifik
+go mod download -json               # output JSON (untuk tooling/script)
+go mod download -x                  # tampilkan perintah yang dijalankan (debug)
+```
+
+- Unduhan disimpan di `$GOMODCACHE` — build berikutnya tidak perlu unduh ulang.
+- Berguna di Dockerfile: `COPY go.mod go.sum .` lalu `go mod download` sebelum `COPY . .` — layer cache lebih efisien.
+
+---
+
+### `go mod vendor` — Salin Dependensi ke `vendor/`
+
+`go mod vendor` menyalin semua dependensi ke folder `vendor/` di dalam proyek — build bisa dilakukan dengan `-mod=vendor` tanpa akses internet.
+
+Kapan dipakai: environment terisolasi (air-gapped), reproducible build ketat, atau kebijakan audit dependensi.
+
+```bash
+go mod vendor                       # buat/update folder vendor/
+go build -mod=vendor .              # build memakai vendor, bukan cache remote
+go test -mod=vendor ./...           # test dengan vendor
+```
+
+- **`vendor/`** harus di-commit jika tim memakai mode vendor — atau dihasilkan ulang di CI.
+- Jalankan `go mod vendor` ulang setiap kali `go mod tidy` mengubah dependensi.
+
+---
+
+### `go mod verify` — Verifikasi Integritas Cache
+
+`go mod verify` memeriksa apakah modul di cache lokal masih cocok dengan checksum di `go.sum`.
+
+Kapan dipakai: audit keamanan, setelah restore cache CI, atau investigasi modul yang korup.
+
+```bash
+go mod verify                       # cek semua modul di go.mod
+```
+
+Output `all modules verified` berarti cache tidak dimanipulasi.
+
+---
+
+### `go mod graph` — Graf Dependensi
+
+`go mod graph` menampilkan daftar edge dependensi modul — berguna untuk visualisasi atau analisis.
+
+Kapan dipakai: debug dependensi transitif, audit supply chain, atau input ke tooling graf.
+
+```bash
+go mod graph                        # semua edge: parent child@version
+go mod graph | grep mymodule        # filter modul tertentu
+go mod graph | dot -Tpng -o deps.png   # visualisasi (butuh graphviz)
+```
+
+---
+
+### `go mod why` — Mengapa Modul Diperlukan
+
+`go mod why` menjelaskan rantai import yang menyebabkan suatu dependensi masuk ke proyek.
+
+Kapan dipakai: modul muncul di `go.mod` tapi Anda tidak yakin dari mana — investigasi dependensi transitif.
+
+```bash
+go mod why github.com/sirupsen/logrus
+go mod why -m github.com/sirupsen/logrus    # fokus ke modul, bukan package
+```
+
+---
+
+### `go mod edit` — Edit go.mod dari CLI
+
+`go mod edit` memodifikasi `go.mod` secara programmatic — berguna di script dan CI.
+
+Kapan dipakai: bump versi Go, tambah `replace` directive, atau set `retract` tanpa edit manual.
+
+```bash
+go mod edit -go=1.22                # set directive go
+go mod edit -require=github.com/pkg/errors@v0.9.1   # tambah require
+go mod edit -droprequire=github.com/pkg/errors      # hapus require
+go mod edit -replace=old/module@v1=new/module@v2    # tambah replace
+go mod edit -dropreplace=old/module@v1              # hapus replace
+go mod edit -module=new/module/path                 # rename modul
+go mod edit -toolchain=go1.22.5                     # set toolchain (Go 1.21+)
+```
+
+---
+
+## Menjalankan & Membangun
+
+### `go run` — Compile & Jalankan Sekaligus
+
+`go run` mengompilasi package lalu langsung menjalankan binary — tanpa menyimpan executable permanen (kecuali di cache build).
+
+Kapan dipakai: development cepat, mengetes snippet, menjalankan server lokal, atau prototype.
+
+```bash
+go run .                            # jalankan package di folder saat ini
+go run main.go                      # jalankan file tertentu
+go run ./cmd/server                 # jalankan package di subfolder
+go run . arg1 arg2                  # pass argumen ke program
+go run -race .                      # jalankan dengan race detector
+```
+
+- **`.`**: package di direktori kerja saat ini — harus punya `func main()` jika executable.
+- **`-race`**: aktifkan race detector — lebih lambat, hanya untuk development/debug.
+- Binary sementara disimpan di cache build (`GOCACHE`) — bukan di folder proyek.
+
+Contoh `main.go` minimal:
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, Go!")
+}
+```
+
+```bash
+go run .
+# Output: Hello, Go!
+```
+
+---
+
+### `go build` — Kompilasi ke Binary
+
+`go build` mengompilasi package menjadi executable — menyimpan binary di folder saat ini atau path yang ditentukan.
+
+Kapan dipakai: menghasilkan artefak deploy, build untuk production, atau CI pipeline.
+
+```bash
+go build .                          # binary bernama nama folder (mis. myapp)
+go build -o myapp .                 # nama output custom
+go build -o bin/server ./cmd/server # build package spesifik ke path
+go build -ldflags="-s -w" .         # strip debug info (binary lebih kecil)
+go build -tags dev .                # build dengan build tag "dev"
+go build -race .                    # binary dengan race detector embedded
+```
+
+Flag build penting:
+
+| Flag | Fungsi |
+| --- | --- |
+| **`-o`** | Nama/path output binary |
+| **`-ldflags`** | Flag untuk linker — versi, strip symbol, inject variabel |
+| **`-tags`** | Build tags — compile file dengan `//go:build tag` |
+| **`-race`** | Sertakan race detector |
+| **`-trimpath`** | Hilangkan path absolut dari binary (reproducible build) |
+| **`-mod=vendor`** | Pakai folder `vendor/` |
+| **`-a`** | Force rebuild semua package (ignore cache) |
+
+Inject versi lewat ldflags:
+
+```bash
+go build -ldflags="-X main.version=1.2.3 -X main.buildTime=$(date -u +%Y%m%d)" -o myapp .
+```
+
+Di `main.go`:
+
+```go
+var version = "dev"
+var buildTime = "unknown"
+
+func main() {
+    fmt.Printf("myapp %s (built %s)\n", version, buildTime)
+}
+```
+
+---
+
+### `go install` — Build & Install ke GOPATH/bin
+
+`go install` mengompilasi package lalu menyimpan binary ke `$GOPATH/bin` (atau `$GOBIN` jika diset) — tersedia global di PATH.
+
+Kapan dipakai: instal CLI tool (mis. `golangci-lint`, `air`, `migrate`), atau publish binary lokal untuk dipakai lintas proyek.
+
+```bash
+go install .                        # install package saat ini
+go install ./cmd/mycli              # install binary dari subfolder
+go install github.com/cosmtrek/air@latest        # install dari remote module
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1   # versi spesifik
+```
+
+- **`@latest`**: versi terbaru dengan semantic versioning.
+- **`@v1.2.3`**: versi exact — disarankan untuk reproducibility di tim.
+- Pastikan `$GOPATH/bin` (default `~/go/bin`) ada di `PATH`.
+
+<Callout type="info">
+`go install` berbeda dari `go build`: `install` menaruh binary di `$GOPATH/bin` dengan nama package, sedangkan `build` menaruh binary di folder kerja (atau `-o` path).
+</Callout>
+
+---
+
+## Testing & Kualitas Kode
+
+### `go test` — Jalankan Unit Test
+
+`go test` menjalankan test di package — file `*_test.go` dengan fungsi `TestXxx(t *testing.T)`.
+
+Kapan dipakai: setiap perubahan kode, CI pipeline, TDD, atau verifikasi regresi.
+
+```bash
+go test ./...                       # test semua package rekursif
+go test .                           # test package saat ini saja
+go test -v ./...                    # verbose — tampilkan nama setiap test
+go test -run TestLogin ./...        # jalankan test yang cocok pattern
+go test -count=1 ./...              # abaikan cache test (selalu jalankan ulang)
+go test -race ./...                 # dengan race detector
+go test -cover ./...                # tampilkan coverage per package
+go test -coverprofile=coverage.out ./...   # simpan profil coverage
+go test -short ./...                # skip test dengan flag -short
+go test -timeout 30s ./...          # timeout per package
+go test -parallel 4 ./...           # maksimum test paralel
+go test -failfast ./...             # stop di failure pertama
+```
+
+- **`./...`**: semua package di bawah folder saat ini — pola paling umum di CI.
+- **`-run`**: regex filter nama test — `TestUser.*` hanya test yang diawali `TestUser`.
+- **`-coverprofile`**: input untuk `go tool cover` — laporan HTML coverage.
+
+Contoh test:
+
+```go
+package mathutil
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    got := Add(2, 3)
+    if got != 5 {
+        t.Errorf("Add(2,3) = %d; want 5", got)
+    }
+}
+```
+
+Benchmark test:
+
+```bash
+go test -bench=. ./...              # jalankan semua benchmark
+go test -bench=BenchmarkSort -benchmem ./...   # dengan info alokasi memori
+go test -bench=. -benchtime=5s ./...           # durasi benchmark lebih lama
+```
+
+---
+
+### `go test` — Coverage & Profiling
+
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html   # buka di browser
+go tool cover -func=coverage.out                      # ringkasan per fungsi
+
+# CPU profiling
+go test -cpuprofile=cpu.prof -bench=. ./...
+go tool pprof cpu.prof
+
+# Memory profiling
+go test -memprofile=mem.prof -bench=. ./...
+go tool pprof mem.prof
+```
+
+Kapan dipakai: mengukur kualitas test suite, identifikasi hot path, atau optimasi performa.
+
+---
+
+### `go fmt` — Format Kode Otomatis
+
+`go fmt` (alias `gofmt`) memformat kode Go ke gaya standar — indentasi, spasi, dan line break konsisten.
+
+Kapan dipakai: sebelum commit, di pre-commit hook, atau CI lint — **selalu** jalankan pada kode Go.
+
+```bash
+go fmt ./...                        # format semua package
+gofmt -w main.go                    # format satu file (setara)
+gofmt -l .                          # list file yang perlu diformat (tanpa ubah)
+```
+
+- Go community menganggap **`gofmt` wajib** — tidak ada debat style guide indentasi.
+- Editor modern (VS Code, GoLand) bisa format on save — setara `go fmt`.
+
+<Callout type="tip">
+Tambahkan `go fmt ./...` ke pre-commit hook atau CI. PR dengan kode tidak ter-format langsung terlihat dan membuang waktu review.
+</Callout>
+
+---
+
+### `go vet` — Analisis Statis Kode
+
+`go vet` memeriksa kode Go untuk konstruksi yang mencurigakan — bug umum yang tidak tertangkap compiler.
+
+Kapan dipakai: sebelum commit, di CI, atau bersama `go test` — menangkap kesalahan logika umum.
+
+```bash
+go vet ./...                        # vet semua package
+go vet -vettool=$(which myvet) ./...   # custom vet tool
+```
+
+Contoh masalah yang ditangkap `go vet`:
+
+| Pemeriksaan | Contoh masalah |
+| --- | --- |
+| **printf** | Format verb tidak cocok dengan tipe argumen |
+| **structtag** | Tag struct tidak valid |
+| **unreachable** | Kode setelah return/panic yang tidak pernah dieksekusi |
+| **assign** | Assignment yang tidak efektif (`x = x`) |
+| **copylock** | Copy struct yang mengandung `sync.Mutex` |
+
+```bash
+# Contoh output vet
+go vet ./...
+# ./handler.go:42:2: unreachable code
+```
+
+---
+
+## Manajemen Dependensi
+
+### `go get` — Tambah/Update Dependensi
+
+`go get` menambahkan dependensi baru atau mengupdate versi dependensi yang ada di `go.mod`.
+
+Kapan dipakai: instal library baru, bump versi dependensi, atau downgrade ke versi stabil.
+
+```bash
+go get github.com/gin-gonic/gin              # tambah dependensi terbaru
+go get github.com/gin-gonic/gin@v1.9.1       # versi spesifik
+go get github.com/gin-gonic/gin@latest       # update ke versi terbaru
+go get -u ./...                              # update semua dependensi langsung
+go get -u=patch ./...                        # update patch version saja
+go get golang.org/x/tools/cmd/goimports@latest   # install tool + tambah ke go.mod
+go get github.com/old/lib@none               # hapus dependensi dari go.mod
+```
+
+- **`@v1.2.3`**: versi semantic — Go memilih versi minor/patch tertinggi dalam major yang sama (minimal version selection).
+- **`@latest`**: versi tag terbaru.
+- **`@none`**: hapus dependensi — lalu jalankan `go mod tidy`.
+- Setelah `go get`, selalu cek diff `go.mod` dan `go.sum`.
+
+Upgrade major version (v2+):
+
+```bash
+go get github.com/user/module/v2@v2.3.0
+```
+
+Import path harus menyertakan `/v2`, `/v3`, dst.
+
+---
+
+### `go list` — Introspeksi Package & Modul
+
+`go list` menampilkan informasi tentang package, modul, dan dependensi — output bisa diformat JSON untuk scripting.
+
+Kapan dipakai: tooling custom, audit dependensi, atau debug struktur proyek.
+
+```bash
+go list ./...                       # daftar semua package
+go list -m all                      # daftar semua modul (termasuk transitif)
+go list -m -versions github.com/gin-gonic/gin   # versi tersedia di proxy
+go list -json ./...                 # output JSON lengkap
+go list -f '{{.ImportPath}}' ./...  # template custom
+go list -deps ./...                 # semua dependensi (termasuk stdlib)
+go list -u -m all                   # tampilkan update tersedia
+```
+
+Contoh template berguna:
+
+```bash
+go list -f '{{.Dir}}' -m github.com/gin-gonic/gin   # path di cache modul
+go list -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./...  # non-stdlib imports
+```
+
+---
+
+## Workspace (Monorepo)
+
+### `go work` — Go Workspace
+
+`go work` mengelola workspace multi-modul — menggabungkan beberapa `go.mod` lokal tanpa `replace` directive di setiap modul.
+
+Kapan dipakai: monorepo dengan banyak service/library Go, development lintas modul simultan, atau migrasi bertahap ke struktur multi-module.
+
+```bash
+go work init ./app ./lib             # buat go.work dari modul lokal
+go work use ./services/api           # tambah modul ke workspace
+go work use -r ./services            # tambah rekursif (semua go.mod di bawah)
+go work sync                         # sync go.work.sum dengan go.mod anak
+go work edit -replace=old=new        # replace di level workspace
+go work edit -dropuse ./deprecated   # hapus modul dari workspace
+```
+
+File `go.work` contoh:
+
+```go
+go 1.22
+
+use (
+    ./app
+    ./lib
+    ./services/api
+)
+```
+
+- Saat `go.work` ada, Go memakai modul lokal dari workspace — bukan versi di proxy.
+- **Jangan commit `go.work` ke repo library** — hanya untuk development lokal atau monorepo yang memang multi-module.
+- `go work sync` memastikan `go.work.sum` konsisten — analog `go mod tidy` untuk workspace.
+
+<Callout type="warning">
+`go.work` di root repo bisa mengacaukan CI atau contributor yang tidak expect workspace. Dokumentasikan kebijakan tim — commit atau gitignore `go.work`.
+</Callout>
+
+---
+
+## Dokumentasi & Code Generation
+
+### `go doc` — Dokumentasi di Terminal
+
+`go doc` menampilkan dokumentasi package, tipe, fungsi, dan method — dari comment Go di source code.
+
+Kapan dipakai: cek API library tanpa buka browser, explorasi package stdlib, atau quick reference saat coding.
+
+```bash
+go doc fmt.Println                  # dokumentasi fungsi
+go doc net/http                     # dokumentasi package
+go doc net/http.Client              # dokumentasi tipe
+go doc net/http.Client.Do           # dokumentasi method
+go doc -all net/http                # semua symbol diekspos
+go doc -src fmt.Println             # tampilkan source code
+go doc -u net/http                  # sertakan symbol unexported
+```
+
+- Dokumentasi Go dihasilkan dari comment **langsung di atas** deklarasi — tanpa tool terpisah.
+- Di browser: `go install golang.org/x/tools/cmd/godoc@latest` lalu `godoc -http=:6060` (legacy, prefer pkg.go.dev).
+
+---
+
+### `go generate` — Jalankan Code Generation
+
+`go generate` menjalankan perintah yang didefinisikan lewat directive `//go:generate` di source code — untuk generate boilerplate, protobuf, mock, dll.
+
+Kapan dipakai: generate mock (`mockgen`), protobuf (`protoc`), stringer, embed template, atau codegen custom.
+
+```bash
+go generate ./...                   # jalankan semua //go:generate di project
+go generate ./pkg/models            # generate di package tertentu
+go generate -x ./...                # tampilkan perintah yang dijalankan
+go generate -n ./...                # dry-run — tampilkan tanpa eksekusi
+```
+
+Contoh di source:
+
+```go
+//go:generate mockgen -source=repository.go -destination=mocks/repository_mock.go -package=mocks
+//go:generate stringer -type=Status
+```
+
+- **`go generate` tidak otomatis** — harus dipanggil manual atau di Makefile/CI.
+- Tool yang di-generate (mis. `mockgen`) harus sudah terinstal via `go install`.
+
+---
+
+## Pembersihan & Utilitas
+
+### `go clean` — Bersihkan Artefak Build
+
+`go clean` menghapus file build dan cache sementara — binary lokal, object file, dan cache test.
+
+Kapan dipakai: troubleshooting build aneh, bersihkan disk, atau reset state build sepenuhnya.
+
+```bash
+go clean                            # hapus binary hasil build di folder saat ini
+go clean -i ./...                   # hapus binary hasil go install
+go clean -cache                       # hapus seluruh build cache (GOCACHE)
+go clean -modcache                    # hapus cache modul (GOMODCACHE) — unduh ulang nanti
+go clean -testcache                   # hapus cache hasil test
+go clean -fuzzcache                   # hapus cache fuzz test
+```
+
+<Callout type="warning">
+`go clean -cache` dan `go clean -modcache` memaksa rebuild/unduh ulang semuanya — bisa memakan waktu lama di proyek besar. Gunakan hanya saat benar-benar perlu.
+</Callout>
+
+---
+
+### `go fix` — Perbaiki API Usang
+
+`go fix` menerapkan fixer otomatis untuk kode yang memakai API Go yang sudah deprecated — migrasi antar versi major Go.
+
+Kapan dipakai: upgrade versi Go di proyek legacy, atau setelah `go get` major version baru.
+
+```bash
+go fix ./...                        # terapkan semua fixer yang tersedia
+```
+
+---
+
+### `go bug` — Laporkan Bug ke Tim Go
+
+`go bug` membuka browser ke halaman issue tracker Go dengan template terisi — versi Go, OS, dan arch.
+
+Kapan dipakai: menemukan bug di compiler, runtime, atau toolchain — bukan bug di kode aplikasi Anda.
+
+```bash
+go bug
+```
+
+---
+
+## Memahami `go.mod` & `go.sum`
+
+### Anatomy `go.mod`
+
+```go
+module github.com/user/myapp
+
+go 1.22
+
+toolchain go1.22.5
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    github.com/lib/pq v1.10.9
+)
+
+require (
+    github.com/bytedance/sonic v1.9.1 // indirect
+    golang.org/x/sys v0.8.0 // indirect
+)
+
+replace github.com/old/module => github.com/new/module v1.0.0
+
+exclude github.com/broken/module v1.2.3
+
+retract v1.0.1 // versi yang ditarik karena bug kritis
+```
+
+Directive penting:
+
+| Directive | Fungsi |
+| --- | --- |
+| **module** | Import path unik modul ini |
+| **go** | Versi minimum Go yang dibutuhkan |
+| **toolchain** | Versi Go toolchain yang direkomendasikan (Go 1.21+) |
+| **require** | Daftar dependensi — `// indirect` = transitif, tidak di-import langsung |
+| **replace** | Ganti modul dengan path/versi lain — lokal atau fork |
+| **exclude** | Larang versi modul tertentu |
+| **retract** | Tandai versi modul sendiri yang tidak boleh dipakai |
+
+### `replace` untuk development lokal
+
+```go
+replace github.com/user/lib => ../lib
+```
+
+Kapan dipakai: develop library dan consumer secara bersamaan tanpa publish ke Git.
+
+<Callout type="info">
+`replace` di `go.mod` sebaiknya **tidak di-commit** untuk pointer lokal (`../lib`). Pakai `go.work` untuk development lokal, atau commit `replace` hanya untuk fork permanen.
+</Callout>
+
+### Anatomy `go.sum`
+
+```
+github.com/gin-gonic/gin v1.9.1 h1:4idEAncQnU5cB7BeOkPtxjfCSye0AAm1R0RVIqJ+Jmg=
+github.com/gin-gonic/gin v1.9.1/go.mod h1:6V0xH/4O3aT2pYqVf0vZ0vZ0vZ0vZ0vZ0vZ0vZ0vZ0=
+```
+
+- Baris `h1:` adalah hash isi modul — memastikan unduhan tidak diubah.
+- Baris `/go.mod` adalah hash file `go.mod` dependensi.
+- **`go.sum` harus di-commit** — jangan tambahkan ke `.gitignore`.
+
+---
+
+## Cross-Compile
+
+Go mendukung cross-compile native — build binary untuk OS/arch berbeda dari mesin development, tanpa toolchain silang yang rumit.
+
+### `GOOS` dan `GOARCH`
+
+```bash
+GOOS=linux GOARCH=amd64 go build -o myapp-linux-amd64 .
+GOOS=linux GOARCH=arm64 go build -o myapp-linux-arm64 .
+GOOS=darwin GOARCH=arm64 go build -o myapp-darwin-arm64 .
+GOOS=windows GOARCH=amd64 go build -o myapp-windows.exe .
+GOOS=freebsd GOARCH=386 go build -o myapp-freebsd-386 .
+```
+
+Kapan dipakai: build artefak CI untuk multi-platform, deploy ke server Linux dari Mac, atau distribusi CLI cross-platform.
+
+Platform umum:
+
+| GOOS | GOARCH | Target |
+| --- | --- | --- |
+| `linux` | `amd64` | Server Linux 64-bit |
+| `linux` | `arm64` | AWS Graviton, Raspberry Pi 64-bit |
+| `darwin` | `arm64` | Mac Apple Silicon |
+| `darwin` | `amd64` | Mac Intel |
+| `windows` | `amd64` | Windows 64-bit |
+
+Lihat daftar lengkap:
+
+```bash
+go tool dist list
+```
+
+### CGO dan cross-compile
+
+```bash
+CGO_ENABLED=0 GOOS=linux go build -o myapp .    # static binary tanpa cgo
+```
+
+- **`CGO_ENABLED=0`**: nonaktifkan cgo — binary fully static, cross-compile lebih mudah.
+- Jika proyek pakai cgo (mis. `sqlite3`, `graphics`), cross-compile butuh cross-compiler C (mis. `musl-cross`).
+
+### Build matrix di satu perintah
+
+```bash
+for os in linux darwin windows; do
+  for arch in amd64 arm64; do
+    GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -o "dist/myapp-${os}-${arch}" .
+  done
+done
+```
+
+<Callout type="tip">
+Untuk release formal, pertimbangkan [GoReleaser](https://goreleaser.com/) — otomatisasi build matrix, archive, checksum, dan publish ke GitHub Releases.
+</Callout>
+
+---
+
+## Build Tags & Conditional Compile
+
+Build tags mengontrol file mana yang dikompilasi — fitur opsional, platform-specific, atau mode dev/prod.
+
+```go
+//go:build integration
+
+package myapp
+
+// Hanya dikompilasi saat: go test -tags=integration ./...
+```
+
+```bash
+go build -tags "dev debug" .        # aktifkan multiple tags
+go test -tags=integration ./...     # jalankan integration test
+```
+
+Di file:
+
+```go
+//go:build dev
+// +build dev
+
+package config
+
+const APIURL = "http://localhost:8080"
+```
+
+```go
+//go:build !dev
+// +build !dev
+
+package config
+
+const APIURL = "https://api.production.com"
+```
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek baru
+
+```bash
+mkdir myapp && cd myapp
+go mod init github.com/user/myapp
+# buat main.go ...
+go run .
+go test ./...
+git init && git add . && git commit -m "init go module"
+```
+
+### Siklus development
+
+```bash
+# Edit kode ...
+go fmt ./...
+go vet ./...
+go test ./...
+go run .
+```
+
+### Tambah dependensi
+
+```bash
+# Tambah import di kode, lalu:
+go mod tidy
+# atau eksplisit:
+go get github.com/some/package@latest
+go mod tidy
+```
+
+### Build & release lokal
+
+```bash
+go test -race -cover ./...
+go build -ldflags="-s -w" -o bin/myapp .
+./bin/myapp --version
+```
+
+### Pre-commit checklist
+
+```bash
+go fmt ./...
+go vet ./...
+go test ./...
+go mod tidy
+git diff --exit-code   # pastikan go.mod/go.sum bersih
+```
+
+### Hot reload saat development
+
+Go tidak punya hot reload bawaan — gunakan tool pihak ketiga:
+
+```bash
+go install github.com/cosmtrek/air@latest
+air   # baca .air.toml di root proyek
+```
+
+---
+
+## Alias & Shell Function Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# Alias dasar
+alias gt='go test ./...'
+alias gtv='go test -v ./...'
+alias gtr='go test -race ./...'
+alias gtc='go test -cover ./...'
+alias gf='go fmt ./...'
+alias gv='go vet ./...'
+alias gb='go build .'
+alias gr='go run .'
+alias gm='go mod'
+alias gmt='go mod tidy'
+alias gmg='go mod graph'
+
+# Kombinasi quality check
+alias gcheck='go fmt ./... && go vet ./... && go test ./...'
+
+# Cross-compile Linux dari Mac
+alias gbuild-linux='CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/app-linux-amd64 .'
+```
+
+Function untuk inject versi saat build:
+
+```bash
+gbuild() {
+  local version="${1:-dev}"
+  go build -ldflags="-X main.version=${version} -s -w" -o "${2:-app}" .
+}
+# Pakai: gbuild 1.2.3 bin/myapp
+```
+
+---
+
+## Troubleshooting Umum
+
+### `go: cannot find main module`
+
+```bash
+# Penyebab: tidak ada go.mod di folder atau parent
+go mod init github.com/user/myapp
+# atau pindah ke folder yang punya go.mod
+```
+
+### `go: module ... found but does not contain package`
+
+```bash
+# Import path salah — cek path exact di pkg.go.dev
+go clean -modcache
+go mod download
+go mod tidy
+```
+
+### Versi Go terlalu lama
+
+```bash
+go version
+# Upgrade Go, lalu:
+go mod edit -go=1.22
+go mod tidy
+```
+
+### `checksum mismatch` / `go.sum` tidak cocok
+
+```bash
+# Jangan edit go.sum manual — regenerasi:
+go clean -modcache
+rm go.sum
+go mod tidy
+```
+
+<Callout type="warning">
+Jika checksum mismatch hanya terjadi di CI, cek apakah `go.mod`/`go.sum` di-commit dan versi Go di CI sama dengan lokal. Perbedaan versi Go bisa menghasilkan `go.sum` berbeda.
+</Callout>
+
+### Proxy / unduh modul gagal
+
+```bash
+# Cek proxy
+go env GOPROXY
+# Set proxy alternatif (China mirror misalnya)
+go env -w GOPROXY=https://goproxy.cn,direct
+# Modul privat — lewati proxy
+go env -w GOPRIVATE=github.com/perusahaan/*
+```
+
+### `go build` lambat pertama kali
+
+```bash
+# Normal — compile cache belum terisi. Build kedua harus lebih cepat.
+go env GOCACHE
+# Jika masih lambat, cek antivirus yang scan GOCACHE
+```
+
+### Import cycle not allowed
+
+```bash
+# Refactor: pecah package, pindahkan interface ke package terpisah
+# Cek dependensi:
+go list -f '{{.ImportPath}} -> {{.Imports}}' ./...
+```
+
+### Race condition di production
+
+```bash
+# Selalu jalankan race detector di CI:
+go test -race ./...
+# Jangan deploy binary -race ke production — performa 5-10x lebih lambat
+```
+
+### `executable file not found in $PATH` setelah go install
+
+```bash
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Binary besar
+
+```bash
+# Strip debug symbol
+go build -ldflags="-s -w" .
+# UPX compression (opsional, bisa trigger antivirus)
+upx --best myapp
+# Cek apa yang membengkakkan binary:
+go build -toolexec=true -a -v . 2>&1 | head
+```
+
+---
+
+## Integrasi CI (GitHub Actions)
+
+Contoh workflow minimal:
+
+```yaml
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - run: go mod verify
+      - run: go fmt ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race -coverprofile=coverage.out ./...
+      - run: go build -v ./...
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Info** | `version`, `env`, `help`, `bug` |
+| **Modul** | `mod init`, `mod tidy`, `mod download`, `mod vendor`, `mod verify` |
+| **Dependensi** | `get`, `mod graph`, `mod why`, `list` |
+| **Jalankan** | `run` |
+| **Build** | `build`, `install` |
+| **Test** | `test`, `tool cover`, `tool pprof` |
+| **Kualitas** | `fmt`, `vet`, `fix` |
+| **Workspace** | `work init`, `work use`, `work sync` |
+| **Dokumentasi** | `doc` |
+| **Codegen** | `generate` |
+| **Bersihkan** | `clean` |
+| **Cross-compile** | `GOOS`, `GOARCH`, `CGO_ENABLED` |
+
+---
+
+## Penutup
+
+Enam perintah inti Go: **`go mod init`**, **`go run`**, **`go test`**, **`go build`**, **`go fmt`**, dan **`go mod tidy`**. Dengan keenamnya, Anda sudah menutup siklus development dari proyek baru hingga binary siap deploy.
+
+Langkah berikutnya: kuasai **`go test -race`**, **`go vet`**, cross-compile dengan **`GOOS`/`GOARCH`**, dan **`go work`** untuk monorepo. Go toolchain dirancang minimal tapi lengkap — manfaatkan `go help <command>` dan [dokumentasi resmi](https://go.dev/doc/) sebagai referensi terbaru.

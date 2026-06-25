@@ -1,0 +1,1191 @@
+---
+title: "Perintah Python Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Python: python -m, python -c, pip install/uninstall/freeze/list/show, venv, pipx, pytest, pyenv, requirements.txt, http.server, troubleshooting, dan workflow sehari-hari."
+date: "2025-06-24"
+category: python
+tags: ["python", "pip", "venv", "cli", "tutorial"]
+featured: true
+---
+
+**Python** di terminal bukan hanya menjalankan script `.py` — ekosistem CLI-nya mencakup interpreter, package manager (**pip**), virtual environment (**venv**), tool isolasi (**pipx**), testing (**pytest**), dan modul bawaan lewat **`python -m`**. Panduan ini merangkum perintah yang paling sering dipakai developer Python sehari-hari, dari setup proyek baru sampai troubleshooting dependensi.
+
+<Callout type="tip">
+Pastikan Python 3 sudah terpasang. Cek dengan `python3 --version` atau `python --version`. Di Mac: `brew install python` (Homebrew). Di Windows: unduh dari [python.org](https://www.python.org/downloads/) dan centang "Add Python to PATH". Untuk multi-versi, pertimbangkan **pyenv** (disebutkan di bagian akhir).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti ekosistem Python di terminal — istilah ini muncul terus di dokumentasi, output `pip`, dan workflow proyek:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Interpreter** | Program `python` / `python3` yang mengeksekusi kode Python |
+| **pip** | Package manager resmi — menginstal library dari PyPI ke environment aktif |
+| **PyPI** | Python Package Index — registry publik paket Python (pypi.org) |
+| **venv** | Virtual environment — folder terisolasi dengan Python + pip sendiri |
+| **site-packages** | Folder tempat pip menginstal library di environment aktif |
+| **requirements.txt** | Daftar dependensi proyek — satu paket per baris, dengan versi opsional |
+| **pyproject.toml** | Format modern konfigurasi proyek (PEP 518) — build, dependensi, tool config |
+| **Module (`-m`)** | Menjalankan modul Python sebagai script — `python -m pip`, `python -m venv` |
+| **pipx** | Installer CLI tool Python yang terisolasi — Django, black, httpie, dll. |
+| **pytest** | Framework testing populer — menemukan dan menjalankan test otomatis |
+| **PYTHONPATH** | Variabel environment — folder tambahan untuk import modul |
+| **Shebang** | Baris pertama script `#!/usr/bin/env python3` — agar bisa dijalankan langsung |
+
+### Alur eksekusi Python di terminal
+
+```
+Source (.py)  ──python──►  Bytecode  ──►  Output / exit code
+     │                         │
+     └── python -c "..."       └── python -m modul
+```
+
+### Perintah informasi dasar
+
+```bash
+python3 --version             # versi Python 3
+python3 --help                # opsi baris perintah
+python3 -h                    # sama dengan --help
+which python3                 # lokasi binary (Mac/Linux)
+where python                  # lokasi binary (Windows)
+python3 -c "import sys; print(sys.executable)"   # path interpreter aktif
+```
+
+- **`python3` vs `python`**: di banyak sistem Linux/Mac, `python` bisa mengarah ke Python 2 (legacy) atau alias ke `python3` — selalu verifikasi dengan `--version`.
+- **`which` / `where`**: penting saat ada beberapa instalasi Python (system, Homebrew, pyenv).
+
+---
+
+## Informasi Versi & Lingkungan
+
+### `python3 --version` — Cek Versi Python
+
+`python3 --version` menampilkan versi minor Python yang terinstal — langkah pertama setiap setup atau troubleshooting.
+
+Kapan dipakai: verifikasi mesin development baru, cek kompatibilitas library, atau debug perbedaan versi antar environment.
+
+```bash
+python3 --version
+python3 -V                    # alias singkat
+
+# Output contoh:
+# Python 3.12.4
+
+python --version              # bisa sama atau berbeda — cek!
+python3.11 --version          # versi spesifik jika terinstal paralel
+```
+
+- **Minor version matters**: library seperti pandas atau Django punya requirement versi minimum — selalu cocokkan dengan `requirements.txt` atau `pyproject.toml`.
+- **Patch version**: biasanya aman untuk upgrade patch (3.12.3 → 3.12.4) dalam satu minor.
+
+---
+
+### `python3 -c` — Eksekusi Satu Baris (Eval)
+
+`python3 -c` mengeksekusi string Python langsung di terminal tanpa membuat file — setara REPL satu perintah.
+
+Kapan dipakai: cek import, hitung cepat, debug environment, atau script shell satu-liner.
+
+```bash
+python3 -c "print('Hello, World!')"
+python3 -c "import sys; print(sys.version)"
+python3 -c "import django; print(django.VERSION)"
+python3 -c "import json; print(json.dumps({'ok': True}))"
+python3 -c "
+for i in range(3):
+    print(i)
+"
+
+# Cek apakah modul terinstal
+python3 -c "import requests" && echo "requests OK" || echo "requests tidak ada"
+
+# Eval matematika / utilitas
+python3 -c "print(2 ** 10)"
+python3 -c "from pathlib import Path; print(list(Path('.').glob('*.py')))"
+```
+
+- **Quote di shell**: di bash/zsh, bungkus kode dengan tanda kutip tunggal `'...'` jika ada `$` atau karakter shell khusus.
+- **Multi-baris**: bisa, tapi lebih nyaman pakai file `.py` atau `python3 -i` untuk sesi interaktif.
+- **Exit code**: jika exception, exit code non-zero — berguna di script shell: `python3 -c "import foo" || pip install foo`.
+
+---
+
+### `python3 -i` — Jalankan File lalu Masuk REPL
+
+`python3 -i script.py` menjalankan file, lalu membuka interactive interpreter dengan namespace script masih tersedia.
+
+Kapan dipakai: debug script yang selesai — inspect variabel, coba fungsi, tanpa print berlebihan.
+
+```bash
+python3 -i app.py
+python3 -i -c "x = 42"        # set variabel lalu REPL
+
+# Di REPL setelah script:
+# >>> x
+# 42
+# >>> dir()
+```
+
+---
+
+### `python3 -m site` — Info Site-packages
+
+`python3 -m site` menampilkan path `site-packages`, prefix environment, dan konfigurasi path import.
+
+Kapan dipakai: debug import error, cek environment mana yang aktif, atau verifikasi venv terpakai.
+
+```bash
+python3 -m site
+python3 -m site --user-site    # site-packages user-level
+python3 -c "import site; print(site.getsitepackages())"
+```
+
+---
+
+## Menjalankan Script & File
+
+### `python3 script.py` — Jalankan File Python
+
+Cara paling umum mengeksekusi file `.py` — interpreter membaca, compile ke bytecode, lalu menjalankan.
+
+Kapan dipakai: menjalankan aplikasi, script otomasi, migration, atau entry point proyek.
+
+```bash
+python3 main.py
+python3 src/app.py
+python3 -u main.py              # unbuffered stdout/stderr (log real-time)
+python3 -O main.py              # optimized mode (abaikan assert)
+python3 -B main.py              # jangan tulis file .pyc
+python3 -W error script.py      # treat warnings as errors
+```
+
+- **`-u`**: penting untuk log di Docker/CI — output langsung muncul tanpa buffer.
+- **Argumen ke script**: semua setelah nama file masuk ke `sys.argv`.
+
+```bash
+python3 deploy.py --env production --dry-run
+# sys.argv = ['deploy.py', '--env', 'production', '--dry-run']
+```
+
+---
+
+### Shebang & Executable Script
+
+Script dengan shebang bisa dijalankan langsung `./script.py` setelah `chmod +x`.
+
+Kapan dipakai: CLI tool internal, script deployment, atau utility yang sering dipanggil.
+
+```bash
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+
+def main():
+    print("Args:", sys.argv[1:])
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+chmod +x script.py
+./script.py arg1 arg2
+```
+
+- **`#!/usr/bin/env python3`**: lebih portabel daripada hardcode `/usr/bin/python3` — memakai Python pertama di `PATH`.
+- **`if __name__ == "__main__"`**: best practice agar modul bisa di-import tanpa mengeksekusi side effect.
+
+---
+
+### `python3 -m` — Jalankan Modul sebagai Script
+
+`python3 -m modul` menjalankan modul dari library standar atau terinstal seolah-olah dipanggil sebagai script — cara resmi untuk banyak tool Python.
+
+Kapan dipakai: memanggil pip, venv, http.server, pytest, unittest, dan modul dengan `if __name__ == "__main__"`.
+
+```bash
+python3 -m pip --version
+python3 -m venv .venv
+python3 -m http.server 8000
+python3 -m pytest
+python3 -m json.tool data.json          # pretty-print JSON
+python3 -m compileall src/              # compile semua .py ke .pyc
+python3 -m venv --help
+python3 -m pip install requests
+python3 -m unittest discover -s tests
+python3 -m pdb script.py                # debugger
+python3 -m profile script.py            # profiling
+python3 -m timeit "sum(range(1000))"    # benchmark micro
+```
+
+Mengapa `python -m pip` lebih disarankan daripada `pip` langsung:
+
+| `pip install pkg` | `python -m pip install pkg` |
+| --- | --- |
+| Bisa mengarah ke pip environment lain | Selalu pakai pip milik interpreter yang sama |
+| Masalah umum di multi-Python | Eksplisit dan reproducible |
+
+<Callout type="info">
+Selalu gunakan **`python3 -m pip`** di dalam venv atau saat ada beberapa versi Python. Ini memastikan paket terinstal ke environment yang benar.
+</Callout>
+
+---
+
+## pip — Package Manager
+
+**pip** (Pip Installs Packages) adalah package manager standar Python — mengunduh dan menginstal library dari PyPI (atau index private) ke environment aktif.
+
+### `python3 -m pip --version` — Cek Versi pip
+
+Memverifikasi pip terpasang dan versinya — pip lama bisa gagal dengan package modern.
+
+Kapan dipakai: setup awal, setelah upgrade Python, atau troubleshooting install gagal.
+
+```bash
+python3 -m pip --version
+python3 -m pip --version
+# pip 24.0 from /path/to/site-packages/pip (python 3.12)
+
+python3 -m pip install --upgrade pip    # upgrade pip ke terbaru
+python3 -m pip check                    # cek dependensi broken
+```
+
+---
+
+### `pip install` — Instal Paket
+
+`pip install` mengunduh dan menginstal package beserta dependensinya ke `site-packages` environment aktif.
+
+Kapan dipakai: menambah library ke proyek, setup mesin baru dari `requirements.txt`, atau install tool development.
+
+```bash
+# Instal package terbaru
+python3 -m pip install requests
+
+# Versi spesifik
+python3 -m pip install "django>=4.2,<5"
+python3 -m pip install numpy==1.26.4
+python3 -m pip install 'pandas>=2.0'
+
+# Dari requirements.txt
+python3 -m pip install -r requirements.txt
+
+# Editable install (development)
+python3 -m pip install -e .
+python3 -m pip install -e ".[dev]"       # dengan extra dependencies
+
+# Dari Git / URL
+python3 -m pip install git+https://github.com/user/repo.git
+python3 -m pip install https://example.com/package-1.0.tar.gz
+
+# Install ke user site (tanpa venv — tidak disarankan untuk proyek)
+python3 -m pip install --user black
+
+# Flag berguna
+python3 -m pip install --no-cache-dir package    # hemat disk di CI
+python3 -m pip install --upgrade package         # upgrade ke versi terbaru
+python3 -m pip install --force-reinstall package # install ulang paksa
+python3 -m pip install -q package                # quiet mode
+```
+
+Specifier versi umum:
+
+| Syntax | Arti |
+| --- | --- |
+| `==1.2.3` | Persis versi 1.2.3 |
+| `>=1.2` | Minimal 1.2 |
+| `~=1.2.0` | Compatible release (>=1.2.0, &lt;1.3.0) |
+| `!=1.5` | Kecuali versi 1.5 |
+| `>=1.0,<2` | Range versi |
+
+- **Selalu aktifkan venv** sebelum `pip install` di proyek — hindari polusi global site-packages.
+- **`pip install -e .`**: mode editable — perubahan kode langsung terlihat tanpa reinstall (untuk package/library yang sedang dikembangkan).
+
+---
+
+### `pip uninstall` — Hapus Paket
+
+`pip uninstall` menghapus package dan file terkait dari environment — tidak menghapus dependensi yang masih dipakai package lain.
+
+Kapan dipakai: membersihkan package tidak terpakai, downgrade manual, atau fix instalasi corrupt.
+
+```bash
+python3 -m pip uninstall requests
+python3 -m pip uninstall -y requests       # tanpa konfirmasi
+python3 -m pip uninstall requests django   # beberapa sekaligus
+
+# Hapus semua package di environment (hati-hati!)
+python3 -m pip freeze | xargs python3 -m pip uninstall -y
+```
+
+- **`-y`**: skip prompt konfirmasi — berguna di script otomasi.
+- Dependensi orphan (tidak dipakai siapa pun) tidak otomatis dihapus — gunakan `pip-autoremove` atau hapus manual.
+
+---
+
+### `pip list` — Daftar Paket Terinstal
+
+`pip list` menampilkan semua package di environment aktif beserta versinya.
+
+Kapan dipakai: audit environment, cek versi library, atau bandingkan antar mesin.
+
+```bash
+python3 -m pip list
+python3 -m pip list --outdated             # yang ada versi lebih baru
+python3 -m pip list --not-required         # tidak direferensikan package lain
+python3 -m pip list --format=freeze        # format mirip freeze
+python3 -m pip list | grep -i django
+```
+
+Output contoh:
+
+```
+Package    Version
+---------- -------
+Django     5.0.6
+pip        24.0
+requests   2.31.0
+```
+
+---
+
+### `pip show` — Detail Satu Paket
+
+`pip show` menampilkan metadata package: versi, lokasi instalasi, dependensi, homepage, dan license.
+
+Kapan dipakai: investigasi versi terinstal, cek dependensi transitif, atau temukan path file package.
+
+```bash
+python3 -m pip show requests
+python3 -m pip show django
+python3 -m pip show -f requests            # daftar semua file terinstal
+
+# Output contoh:
+# Name: requests
+# Version: 2.31.0
+# Location: /path/to/venv/lib/python3.12/site-packages
+# Requires: certifi, charset-normalizer, idna, urllib3
+```
+
+- **`Location`**: path ke folder package — berguna untuk melihat source atau debug import.
+- **`Requires`**: dependensi langsung — beda dengan `pipdeptree` yang menampilkan pohon lengkap.
+
+---
+
+### `pip freeze` — Export Daftar Dependensi
+
+`pip freeze` mencetak daftar package terinstal dalam format `nama==versi` — standar untuk `requirements.txt`.
+
+Kapan dipakai: snapshot environment, commit dependensi ke repo, atau reproduce environment di mesin lain.
+
+```bash
+python3 -m pip freeze
+python3 -m pip freeze > requirements.txt
+python3 -m pip freeze --local              # hanya package lokal (bukan editable)
+python3 -m pip freeze | grep -i django
+
+# Output contoh:
+# certifi==2024.2.2
+# charset-normalizer==3.3.2
+# Django==5.0.6
+# requests==2.31.0
+```
+
+<Callout type="warning">
+`pip freeze` menangkap **semua** package termasuk dependensi transitif — file bisa panjang. Untuk proyek baru, pertimbangkan `pip-tools` (`pip-compile`) atau definisi dependensi di `pyproject.toml` agar lebih maintainable.
+</Callout>
+
+---
+
+### Perintah pip Lainnya
+
+```bash
+python3 -m pip download requests           # unduh wheel/sdist tanpa install
+python3 -m pip wheel .                       # build wheel dari proyek
+python3 -m pip cache dir                     # lokasi cache pip
+python3 -m pip cache purge                    # bersihkan cache
+python3 -m pip hash file.whl                 # hash untuk verifikasi
+python3 -m pip index versions django         # lihat versi tersedia di PyPI
+python3 -m pip install --dry-run package     # simulasi install (pip 22.2+)
+python3 -m pip install -r requirements.txt --no-deps   # tanpa dependensi
+```
+
+---
+
+## Virtual Environment (venv)
+
+**venv** adalah modul standar library Python untuk membuat virtual environment — folder terisolasi berisi interpreter symlink/copy dan pip sendiri. Setiap proyek sebaiknya punya venv sendiri.
+
+### `python3 -m venv` — Buat Virtual Environment
+
+`python3 -m venv` membuat folder environment baru — biasanya `.venv` atau `venv` di root proyek.
+
+Kapan dipakai: memulai proyek Python baru, isolasi dependensi, atau setup CI lokal.
+
+```bash
+python3 -m venv .venv
+python3 -m venv venv
+python3 -m venv /path/to/myenv
+
+# Dengan opsi
+python3 -m venv .venv --clear              # hapus isi lama jika ada
+python3 -m venv .venv --upgrade-deps      # upgrade pip/setuptools/wheel di venv baru
+python3 -m venv .venv --without-pip       # tanpa pip (jarang dipakai)
+python3 -m venv .venv --prompt myproject  # custom prompt saat aktif
+python3 -m venv .venv --copies            # copy binary, bukan symlink (Windows lama)
+```
+
+Struktur folder `.venv` (Linux/Mac):
+
+```
+.venv/
+├── bin/              # Mac/Linux (Scripts/ di Windows)
+│   ├── python
+│   ├── pip
+│   ├── activate
+│   └── ...
+├── lib/
+│   └── python3.12/
+│       └── site-packages/
+└── pyvenv.cfg
+```
+
+- **Nama `.venv`**: konvensi umum — tersembunyi di Mac/Linux, mudah di-`.gitignore`.
+- **`--upgrade-deps`**: memastikan pip di venv sudah versi terbaru sejak awal.
+
+---
+
+### Aktivasi & Deaktivasi venv
+
+Mengaktifkan venv mengubah `PATH` sehingga `python` dan `pip` mengarah ke environment terisolasi.
+
+Kapan dipakai: setiap kali bekerja di proyek — wajib sebelum `pip install` atau menjalankan app.
+
+```bash
+# Mac / Linux (bash/zsh)
+source .venv/bin/activate
+
+# Windows CMD
+.venv\Scripts\activate.bat
+
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# Setelah aktif, prompt berubah:
+# (.venv) user@host:~/project$
+
+# Verifikasi
+which python          # harus menunjuk ke .venv/bin/python
+python --version
+pip --version
+
+# Keluar dari venv
+deactivate
+```
+
+Tanda venv aktif:
+
+| Cek | Hasil jika venv aktif |
+| --- | --- |
+| `which python` | `.../proyek/.venv/bin/python` |
+| `echo $VIRTUAL_ENV` | path ke folder `.venv` |
+| Prompt terminal | Prefix `(.venv)` |
+
+<Callout type="tip">
+Tambahkan `.venv/` dan `venv/` ke **`.gitignore`** — venv tidak di-commit. Rekan tim membuat ulang dengan `python3 -m venv .venv` lalu `pip install -r requirements.txt`.
+</Callout>
+
+---
+
+### Workflow venv Lengkap
+
+```bash
+# 1. Buat proyek
+mkdir myapp && cd myapp
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Upgrade pip
+python -m pip install --upgrade pip
+
+# 3. Install dependensi
+pip install django requests pytest
+
+# 4. Snapshot untuk repo
+pip freeze > requirements.txt
+
+# 5. Kerja sehari-hari
+python manage.py runserver
+pytest
+
+# 6. Selesai
+deactivate
+```
+
+Clone proyek yang sudah ada:
+
+```bash
+git clone git@github.com:user/myapp.git
+cd myapp
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+---
+
+## requirements.txt
+
+**requirements.txt** adalah file teks berisi daftar dependensi proyek — satu package per baris. Ini standar de facto untuk reproduce environment, meski format modern `pyproject.toml` semakin umum.
+
+### Format requirements.txt
+
+Kapan dipakai: commit ke Git, deploy ke server, CI/CD pipeline, atau onboarding developer baru.
+
+```text
+# requirements.txt
+Django>=4.2,<5
+requests==2.31.0
+python-dotenv~=1.0.0
+pytest>=7.0
+gunicorn
+
+# Pin semua (dari pip freeze) — reproducible build
+# amqp==5.2.0
+# billiard==4.2.0
+# celery==5.3.6
+```
+
+```bash
+# Generate dari environment aktif
+pip freeze > requirements.txt
+
+# Install dari file
+pip install -r requirements.txt
+
+# Install hanya production (tanpa dev)
+pip install -r requirements-prod.txt
+
+# Upgrade semua sesuai constraint
+pip install -r requirements.txt --upgrade
+```
+
+### requirements terpisah (best practice)
+
+```text
+# requirements/base.txt — dependensi inti
+django>=5.0
+psycopg2-binary>=2.9
+
+# requirements/dev.txt — include base + dev tools
+-r base.txt
+pytest>=7.0
+black>=24.0
+ipython>=8.0
+
+# requirements/prod.txt
+-r base.txt
+gunicorn>=21.0
+```
+
+```bash
+pip install -r requirements/dev.txt
+```
+
+- **`-r base.txt`**: include file lain — hindari duplikasi.
+- **Pin vs range**: development boleh pakai `>=`; production sering pin exact (`==`) untuk build reproducible.
+
+---
+
+## pipx — CLI Tool Terisolasi
+
+**pipx** menginstal aplikasi Python CLI di environment terpisah per tool — binary tersedia global di `PATH` tanpa mengotori site-packages sistem atau venv proyek.
+
+Kapan dipakai: install tool global seperti `black`, `ruff`, `httpie`, `cookiecutter`, atau `poetry` tanpa venv proyek.
+
+```bash
+# Install pipx (sekali)
+brew install pipx          # Mac
+pipx ensurepath            # tambahkan ke PATH
+
+# Install CLI tool
+pipx install black
+pipx install ruff
+pipx install httpie
+pipx install poetry
+
+# Jalankan
+black --version
+ruff check .
+
+# Kelola
+pipx list                  # daftar tool terinstal
+pipx upgrade black         # upgrade satu tool
+pipx upgrade-all           # upgrade semua
+pipx uninstall black
+pipx reinstall black       # reinstall dari scratch
+
+# Install editable / dari repo
+pipx install --editable .
+pipx install git+https://github.com/user/tool.git
+```
+
+| pip di venv | pipx |
+| --- | --- |
+| Dependensi per proyek | Satu environment per CLI app |
+| Aktifkan venv dulu | Binary global di `~/.local/bin` |
+| Django, requests, pytest | black, ruff, poetry, httpie |
+
+<Callout type="info">
+**pipx** ideal untuk **aplikasi** CLI. **pip** di **venv** tetap dipakai untuk **library** yang di-import kode proyek (Django, FastAPI, pandas).
+</Callout>
+
+---
+
+## pytest — Testing
+
+**pytest** adalah framework testing Python paling populer — auto-discovery file `test_*.py`, fixture, parameterize, dan output error yang jelas.
+
+Kapan dipakai: menjalankan unit test, integration test, dan CI pipeline.
+
+```bash
+# Install di venv proyek
+pip install pytest pytest-cov
+
+# Menjalankan test
+pytest                           # discover & run semua test
+pytest tests/                    # folder spesifik
+pytest tests/test_api.py         # satu file
+pytest tests/test_api.py::test_login   # satu fungsi
+pytest -v                        # verbose — tampilkan nama test
+pytest -q                        # quiet
+pytest -x                        # stop pada failure pertama
+pytest --lf                      # jalankan ulang yang gagal terakhir
+pytest -k "login"                # filter nama test
+pytest --collect-only            # lihat test yang akan dijalankan tanpa run
+pytest -s                        # tampilkan print() output
+pytest --tb=short                # traceback ringkas
+pytest -n auto                   # parallel (butuh pytest-xdist)
+
+# Coverage
+pytest --cov=src --cov-report=html
+pytest --cov=src --cov-report=term-missing
+
+# Via python -m (eksplisit environment)
+python -m pytest
+python -m pytest tests/ -v
+```
+
+Konvensi penamaan pytest:
+
+| Pattern | Contoh |
+| --- | --- |
+| File | `test_module.py`, `module_test.py` |
+| Fungsi | `test_something()` |
+| Class | `TestSomething` (tanpa `__init__`) |
+
+Contoh file test minimal:
+
+```python
+# tests/test_math.py
+def test_add():
+    assert 1 + 1 == 2
+
+def test_divide():
+    result = 10 / 2
+    assert result == 5
+```
+
+Konfigurasi di `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+```
+
+Alternatif unittest bawaan:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+python -m unittest tests.test_api.TestLogin.test_valid_user
+```
+
+---
+
+## pyenv — Multi-Versi Python (Singkat)
+
+**pyenv** mengelola beberapa versi Python di satu mesin — switch per proyek lewat file `.python-version` tanpa mengganggu Python sistem.
+
+Kapan dipakai: proyek legacy Python 3.10 vs proyek baru 3.12, testing kompatibilitas, atau development library.
+
+```bash
+# Install (Mac)
+brew install pyenv
+
+# Setup shell (~/.zshrc)
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
+
+# Install & gunakan versi
+pyenv install 3.12.4
+pyenv install 3.11.9
+pyenv global 3.12.4              # default global
+pyenv local 3.11.9               # per-folder (.python-version)
+pyenv versions                    # daftar terinstal
+pyenv which python               # binary aktif
+
+# Di folder proyek dengan .python-version:
+python --version                 # 3.11.9
+python -m venv .venv
+```
+
+Plugin **pyenv-virtualenv** menggabungkan pyenv + venv naming — opsional untuk workflow lanjutan.
+
+<Callout type="tip">
+Di Mac dengan Homebrew, kombinasi umum: **pyenv** untuk versi Python + **venv** per proyek + **pipx** untuk CLI global. Hindari `sudo pip install` ke Python sistem.
+</Callout>
+
+---
+
+## Modul Standar Berguna via `python -m`
+
+### `python3 -m http.server` — Static File Server
+
+Modul `http.server` menyalakan web server HTTP sederhana untuk serve file statis — sangat berguna untuk preview HTML/JS lokal.
+
+Kapan dipakai: preview situs statis, share file cepat di jaringan lokal, atau demo tanpa setup Nginx.
+
+```bash
+python3 -m http.server                  # port 8000 default
+python3 -m http.server 3000             # port custom
+python3 -m http.server 8080 --bind 127.0.0.1   # hanya localhost
+python3 -m http.server 8000 --directory ./dist   # serve folder spesifik
+
+# Akses: http://localhost:8000
+# Directory listing otomatis jika tidak ada index.html
+```
+
+- **Bukan untuk production** — single-threaded, tidak aman, tanpa HTTPS.
+- **`--directory`**: serve folder build (mis. `dist/` dari Vite/React) tanpa `cd`.
+
+---
+
+### `python3 -m json.tool` — Pretty-print JSON
+
+Memformat dan validasi JSON di terminal — menggantikan kebutuhan `jq` untuk kasus sederhana.
+
+Kapan dipakai: debug API response, format file JSON, atau pipe dari curl.
+
+```bash
+python3 -m json.tool data.json
+cat response.json | python3 -m json.tool
+curl -s https://api.example.com/data | python3 -m json.tool
+
+# Compact output
+python3 -m json.tool --compact data.json
+
+# Sort keys
+python3 -m json.tool --sort-keys data.json
+```
+
+---
+
+### `python3 -m venv`, `pip`, `unittest`, `pdb`
+
+```bash
+# Debugger
+python3 -m pdb script.py
+# (Pdb) break main
+# (Pdb) continue
+# (Pdb) print(variable)
+
+# Compile semua file
+python3 -m compileall src/
+
+# Zipapp (executable zip)
+python3 -m zipapp myapp -m "myapp:main" -o myapp.pyz
+python3 myapp.pyz
+
+# Ensurepip (pasang pip jika belum ada)
+python3 -m ensurepip --upgrade
+```
+
+---
+
+## Lingkungan & Variabel Environment
+
+### Variabel environment Python umum
+
+Kapan dipakai: override behavior interpreter, debug import, atau konfigurasi deployment.
+
+```bash
+# Cari modul di path tambahan
+export PYTHONPATH="/path/to/src:$PYTHONPATH"
+python3 -c "import mypackage"
+
+# Jangan tulis .pyc
+export PYTHONDONTWRITEBYTECODE=1
+
+# Unbuffered output (sama dengan -u)
+export PYTHONUNBUFFERED=1
+
+# Warnings
+export PYTHONWARNINGS=default
+export PYTHONWARNINGS=error
+
+# UTF-8 (Python 3.7+ default, tapi eksplisit di shell)
+export PYTHONIOENCODING=utf-8
+
+# Jalankan dengan env inline
+PYTHONPATH=src python3 main.py
+PYTHONUNBUFFERED=1 python3 app.py
+```
+
+File `.env` (dengan `python-dotenv`):
+
+```bash
+pip install python-dotenv
+```
+
+```python
+from dotenv import load_dotenv
+load_dotenv()  # baca .env ke os.environ
+```
+
+---
+
+## pyproject.toml (Garis Besar)
+
+Format modern menggantikan `setup.py` + `requirements.txt` terpisah untuk banyak proyek.
+
+```toml
+[project]
+name = "myapp"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "black>=24.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+```
+
+```bash
+pip install -e ".[dev]"       # editable + dev dependencies
+pip install .                 # install package
+```
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek Python baru
+
+```bash
+mkdir myproject && cd myproject
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install django pytest black
+pip freeze > requirements.txt
+git init
+echo ".venv/" >> .gitignore
+echo "__pycache__/" >> .gitignore
+echo "*.pyc" >> .gitignore
+```
+
+### Clone proyek yang sudah ada
+
+```bash
+git clone git@github.com:user/myproject.git
+cd myproject
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+python main.py
+```
+
+### Menambah dependensi baru
+
+```bash
+source .venv/bin/activate
+pip install celery redis
+pip freeze > requirements.txt
+git add requirements.txt
+git commit -m "deps: add celery and redis"
+```
+
+### Cek sebelum commit
+
+```bash
+source .venv/bin/activate
+python -m py_compile src/**/*.py 2>/dev/null || true
+ruff check .                    # jika pakai ruff via pipx
+black --check .                 # format check
+pytest -q
+pip check                       # dependensi konsisten
+```
+
+### Serve dokumentasi / static site lokal
+
+```bash
+cd docs/_build/html
+python3 -m http.server 8000
+# atau
+cd dist && python3 -m http.server 3000
+```
+
+### Script one-liner di shell
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "import uuid; print(uuid.uuid4())"
+python3 -c "from datetime import datetime; print(datetime.now().isoformat())"
+```
+
+---
+
+## Alias & Shell Shortcut
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+alias py='python3'
+alias pip='python3 -m pip'
+alias venv='python3 -m venv .venv && source .venv/bin/activate'
+alias activate='source .venv/bin/activate'
+
+# Fungsi: buat venv + install requirements jika ada
+mkvenv() {
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  [ -f requirements.txt ] && pip install -r requirements.txt
+}
+```
+
+---
+
+## Troubleshooting Umum
+
+### `command not found: python` atau `pip`
+
+```bash
+# Cek instalasi
+which python3
+python3 --version
+
+# Mac: install lewat Homebrew
+brew install python
+
+# Selalu pakai python3 eksplisit
+python3 -m pip install package
+
+# Jangan andalkan pip global — buat venv
+python3 -m venv .venv && source .venv/bin/activate
+```
+
+---
+
+### `ModuleNotFoundError: No module named 'xxx'`
+
+```bash
+# 1. Pastikan venv aktif
+echo $VIRTUAL_ENV
+which python
+
+# 2. Cek modul terinstal di environment ini
+pip list | grep -i xxx
+pip show xxx
+
+# 3. Install di environment yang benar
+pip install xxx
+
+# 4. Cek PYTHONPATH jika package lokal
+export PYTHONPATH=src:$PYTHONPATH
+python -c "import mypackage"
+```
+
+---
+
+### pip install gagal — compiler / header missing
+
+Error umum saat install package dengan ekstensi C (psycopg2, numpy lama, dll.):
+
+```bash
+# Mac — install Xcode CLI tools
+xcode-select --install
+
+# Mac — PostgreSQL headers
+brew install postgresql
+
+# Gunakan binary wheel jika tersedia
+pip install psycopg2-binary    # bukan psycopg2
+
+# Upgrade pip/setuptools/wheel
+pip install --upgrade pip setuptools wheel
+```
+
+---
+
+### Konflik versi dependensi
+
+```bash
+pip check                      # laporkan conflict
+pip install pipdeptree
+pipdeptree                     # visualisasi pohon dependensi
+
+# Install versi kompatibel
+pip install "packageA>=1.0" "packageB<3.0"
+```
+
+---
+
+### Salah environment — package terinstal di tempat lain
+
+```bash
+# Di mana pip ini?
+which pip
+python -m pip --version
+
+# Di mana package terinstal?
+python -c "import requests; print(requests.__file__)"
+
+# Solusi: venv bersih
+deactivate
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+### Permission denied saat pip install (tanpa venv)
+
+```bash
+# JANGAN: sudo pip install (merusak Python sistem)
+
+# Benar: pakai venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install package
+
+# Atau pipx untuk CLI tool
+pipx install package
+```
+
+<Callout type="warning">
+**Jangan pernah** `sudo pip install` di Mac/Linux — bisa merusak Python sistem dan package manager OS. Selalu gunakan **venv** atau **pipx**.
+</Callout>
+
+---
+
+### venv tidak aktif setelah buka terminal baru
+
+```bash
+cd /path/to/project
+source .venv/bin/activate
+
+# Otomatisasi dengan direnv (opsional)
+# echo "source .venv/bin/activate" > .envrc
+# direnv allow
+```
+
+---
+
+### `externally-managed-environment` (PEP 668)
+
+Di Debian/Ubuntu modern dan beberapa distro, pip global diblokir:
+
+```bash
+# Pesan: error: externally-managed-environment
+
+# Solusi: venv (disarankan)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install package
+
+# Atau (tidak disarankan) override sistem
+python3 -m pip install --break-system-packages package
+```
+
+---
+
+### pytest tidak menemukan test
+
+```bash
+pytest --collect-only -v       # debug discovery
+# Pastikan nama file: test_*.py atau *_test.py
+# Pastikan fungsi: test_*
+# Cek pytest.ini / pyproject.toml — testpaths benar?
+
+# Import error saat collect
+python -c "import tests.test_api"   # debug import
+export PYTHONPATH=src:$PYTHONPATH
+pytest
+```
+
+---
+
+### http.server port sudah dipakai
+
+```bash
+python3 -m http.server 8001    # coba port lain
+lsof -i :8000                  # cek proses (Mac/Linux)
+kill -9 <PID>                  # hentikan proses
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Info** | `python3 --version`, `python3 -c`, `python3 -m site` |
+| **Jalankan** | `python3 script.py`, `python3 -m modul` |
+| **pip install** | `pip install pkg`, `pip install -r requirements.txt` |
+| **pip kelola** | `pip uninstall`, `pip list`, `pip show`, `pip freeze` |
+| **venv** | `python3 -m venv .venv`, `source .venv/bin/activate`, `deactivate` |
+| **Dependensi** | `requirements.txt`, `pip freeze > requirements.txt` |
+| **CLI global** | `pipx install tool` |
+| **Testing** | `pytest`, `python -m pytest` |
+| **Multi-versi** | `pyenv install`, `pyenv local` |
+| **Dev server** | `python3 -m http.server 8000` |
+| **Debug** | `python3 -m pdb`, `pip check`, `pipdeptree` |
+
+### Urutan perintah yang paling sering
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python main.py
+pytest
+pip freeze > requirements.txt
+deactivate
+```
+
+---
+
+## Penutup
+
+Enam perintah inti ekosistem Python CLI: **`python3 -m venv`**, **`source .venv/bin/activate`**, **`python -m pip install`**, **`pip freeze`**, **`python script.py`**, dan **`pytest`**. Dengan keenamnya, Anda sudah menutup workflow development Python dari setup proyek sampai testing.
+
+Langkah berikutnya: eksplorasi **`pyproject.toml`** untuk manajemen dependensi modern, **`pipx`** untuk CLI tool global, dan **`pyenv`** jika perlu beberapa versi Python paralel. Manfaatkan `python3 --help`, `python -m pip --help`, dan [dokumentasi resmi Python](https://docs.python.org/3/) sebagai referensi terbaru — ekosistem Python bergerak cepat, tapi fondasi CLI-nya stabil dan konsisten.

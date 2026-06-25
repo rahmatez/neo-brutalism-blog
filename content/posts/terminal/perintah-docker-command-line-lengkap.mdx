@@ -1,0 +1,1128 @@
+---
+title: "Perintah Docker Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Docker untuk image, container, volume, network, Docker Compose, dan operasi sehari-hari developer."
+date: "2025-06-26"
+category: terminal
+tags: ["docker", "cli", "devops", "container", "tutorial"]
+featured: true
+---
+
+Docker memungkinkan Anda menjalankan aplikasi dalam **container** — lingkungan terisolasi yang ringan dan konsisten di laptop, server, maupun cloud. Semua operasi utama bisa dilakukan lewat **command line** tanpa membuka Docker Desktop.
+
+<Callout type="tip">
+Pastikan Docker sudah berjalan sebelum menjalankan perintah. Cek dengan `docker version` atau `docker info`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami peran masing-masing komponen Docker:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Image** | Template read-only berisi aplikasi + dependensi |
+| **Container** | Instance yang berjalan dari sebuah image |
+| **Volume** | Penyimpanan data persisten di luar lifecycle container |
+| **Network** | Jaringan virtual antar container |
+| **Registry** | Repositori image (Docker Hub, GHCR, dll.) |
+| **Dockerfile** | File resep untuk build image custom |
+| **Compose** | Tool untuk menjalankan multi-container lewat `docker-compose.yml` |
+
+### Perintah informasi dasar
+
+Perintah ini berguna untuk memastikan Docker daemon berjalan, melihat versi yang terinstal, dan membuka dokumentasi bantuan saat Anda lupa sintaks.
+
+```bash
+docker version          # versi client & server
+docker info             # info daemon, storage, runtime
+docker help             # daftar perintah
+docker <command> --help # bantuan per perintah
+```
+
+- **`docker version`**: menampilkan versi Docker CLI (client) dan Docker Engine (server/daemon). Jika server error, berarti daemon belum berjalan.
+- **`docker info`**: detail lengkap — jumlah container, image, driver storage, runtime, dan konfigurasi sistem.
+- **`docker help` / `docker <command> --help`**: referensi cepat tanpa buka browser.
+
+---
+
+## Image — Membangun & Mengelola
+
+Image adalah fondasi semua container. Bagian ini mencakup mengunduh image dari registry, membangun image custom dari Dockerfile, memberi tag, push ke registry, dan membersihkan image yang tidak terpakai.
+
+### `docker pull` — Unduh Image
+
+`docker pull` mengunduh image dari registry (biasanya Docker Hub) ke mesin lokal Anda. Image yang sudah di-pull disimpan di cache lokal sehingga `docker run` tidak perlu unduh ulang.
+
+Kapan dipakai: sebelum menjalankan container pertama kali, saat deploy versi image tertentu, atau saat bekerja di mesin baru/CI yang belum punya cache image.
+
+```bash
+docker pull nginx
+docker pull nginx:1.27-alpine          # tag spesifik
+docker pull postgres:16
+docker pull ghcr.io/user/app:latest    # registry lain
+docker pull --platform linux/amd64 nginx   # platform tertentu
+```
+
+- **`nginx:1.27-alpine`**: tag menentukan versi dan varian image — `alpine` lebih kecil, cocok untuk production.
+- **`ghcr.io/...`**: format lengkap untuk registry selain Docker Hub (GitHub Container Registry, ECR, GCR, dll.).
+- **`--platform`**: unduh image untuk arsitektur tertentu — penting di Mac Apple Silicon saat image hanya tersedia untuk `linux/amd64`.
+
+---
+
+### `docker images` / `docker image ls` — Daftar Image
+
+Menampilkan semua image yang tersimpan di mesin lokal, beserta repository, tag, image ID, tanggal dibuat, dan ukuran.
+
+Kapan dipakai: audit disk, cek image mana yang tersedia sebelum `docker run`, atau identifikasi image dangling sebelum `prune`.
+
+```bash
+docker images
+docker image ls
+docker images -a                       # termasuk intermediate
+docker images nginx                    # filter nama
+docker images --filter "dangling=true" # image tanpa tag
+docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+```
+
+- **`-a`**: tampilkan intermediate layer image — biasanya dari proses `docker build`.
+- **Filter nama**: `docker images nginx` hanya menampilkan image yang repository-nya mengandung "nginx".
+- **`dangling=true`**: image tanpa tag (`<none>`) — kandidat utama untuk dibersihkan dengan `docker image prune`.
+- **`--format`**: custom output dengan Go template — berguna untuk scripting dan laporan.
+
+---
+
+### `docker build` — Build Image dari Dockerfile
+
+`docker build` membaca `Dockerfile` di direktori yang ditentukan, mengeksekusi setiap instruksi (FROM, COPY, RUN, dll.) sebagai layer, lalu menghasilkan image siap pakai.
+
+Kapan dipakai: saat membuat image aplikasi sendiri, CI/CD pipeline, atau rebuild setelah mengubah kode/dependensi.
+
+```bash
+docker build .                         # build dari Dockerfile di folder saat ini
+docker build -t myapp:1.0 .            # beri nama & tag
+docker build -t myapp:latest -f Dockerfile.prod .
+docker build --no-cache .              # tanpa cache layer
+docker build --build-arg NODE_ENV=production .
+docker build --target production .     # multi-stage build
+docker build -t myapp . --progress=plain   # log verbose
+```
+
+- **`-t myapp:1.0`**: memberi nama (`repository`) dan tag pada image hasil build — wajib sebelum `docker push`.
+- **`-f Dockerfile.prod`**: gunakan Dockerfile alternatif — berguna untuk environment production vs development.
+- **`--no-cache`**: abaikan cache layer — pastikan build benar-benar fresh, tapi lebih lambat.
+- **`--build-arg`**: kirim variabel ke Dockerfile (`ARG NODE_ENV`) — untuk konfigurasi build-time.
+- **`--target`**: stop di stage tertentu pada multi-stage Dockerfile — mis. hanya build stage `production`.
+- **`--progress=plain`**: output log tanpa animasi — lebih mudah dibaca di CI log.
+
+Contoh `Dockerfile` minimal:
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+Penjelasan singkat Dockerfile di atas:
+
+- **`FROM`**: base image — `alpine` lebih ringan dari `node:20` full.
+- **`WORKDIR`**: set direktori kerja di dalam container.
+- **`COPY package*.json` + `RUN npm ci`**: instal dependensi dulu (layer caching — `npm ci` hanya dijalankan ulang jika `package.json` berubah).
+- **`EXPOSE`**: dokumentasi port — tidak membuka port secara otomatis; tetap butuh `-p` saat `docker run`.
+- **`CMD`**: perintah default saat container start.
+
+---
+
+### `docker tag` — Beri Tag Baru
+
+Membuat referensi (alias) baru ke image yang sudah ada — image ID-nya sama, hanya nama/tag yang berbeda. Tidak menduplikasi data image.
+
+Kapan dipakai: sebelum push ke registry (format `username/repo:tag`), versioning (`myapp:1.0` → `myapp:latest`), atau menyiapkan image untuk environment berbeda.
+
+```bash
+docker tag myapp:1.0 myapp:latest
+docker tag myapp:latest username/myapp:1.0   # siap push ke Docker Hub
+```
+
+- **`myapp:1.0` → `myapp:latest`**: dua tag menunjuk ke image yang sama.
+- **`username/myapp:1.0`**: format wajib untuk push ke Docker Hub — `username` adalah akun Docker Hub Anda.
+
+---
+
+### `docker push` — Upload ke Registry
+
+Mengunggah image lokal ke registry remote agar bisa di-pull di server lain, CI/CD, atau tim.
+
+Kapan dipakai: setelah build dan tag, saat deploy ke staging/production, atau publish image untuk dipakai tim.
+
+```bash
+docker login                           # login Docker Hub
+docker login ghcr.io -u USERNAME     # GitHub Container Registry
+docker push username/myapp:1.0
+docker push username/myapp:latest
+```
+
+- **`docker login`**: autentikasi ke registry — simpan credential di `~/.docker/config.json`.
+- **`docker login ghcr.io`**: login ke GitHub Container Registry — butuh Personal Access Token dengan scope `write:packages`.
+- **Urutan workflow**: `build` → `tag` (dengan prefix username/registry) → `login` → `push`.
+
+---
+
+### `docker rmi` / `docker image rm` — Hapus Image
+
+Menghapus image dari mesin lokal untuk mengosongkan disk. Image yang masih dipakai container tidak bisa dihapus kecuali dengan `-f`.
+
+Kapan dipakai: setelah deploy versi baru, saat disk penuh, atau rutinitas pembersihan development.
+
+```bash
+docker rmi myapp:1.0
+docker rmi -f nginx:latest             # paksa hapus
+docker image prune                     # hapus dangling images
+docker image prune -a                  # hapus semua image tidak terpakai
+```
+
+- **`-f`**: paksa hapus meski ada container yang mereferensikan image (hati-hati).
+- **`docker image prune`**: hapus image dangling (`<none>:<none>`) — aman dan ringan.
+- **`docker image prune -a`**: hapus **semua** image yang tidak dipakai container manapun — lebih agresif, hemat disk lebih banyak.
+
+---
+
+### `docker image inspect` — Detail Image
+
+Menampilkan metadata lengkap image dalam format JSON — konfigurasi, layer, environment, exposed ports, entrypoint, dan lainnya.
+
+Kapan dipakai: debug image yang tidak jalan sesuai harapan, cek port yang di-expose, atau audit konfigurasi sebelum deploy.
+
+```bash
+docker image inspect nginx
+docker image inspect -f '{{.Config.ExposedPorts}}' nginx
+docker image history nginx             # riwayat layer
+```
+
+- **`docker image inspect`**: output JSON lengkap — bisa di-pipe ke `jq` untuk parsing.
+- **`-f '{{.Config.ExposedPorts}}'`**: Go template untuk ekstrak field spesifik — cepat tanpa scroll JSON panjang.
+- **`docker image history`**: tampilkan setiap layer image beserta perintah yang membentuknya — berguna audit Dockerfile.
+
+---
+
+### `docker save` & `docker load` — Export/Import Image
+
+`docker save` mengekspor image ke file tarball; `docker load` mengimpor tarball kembali menjadi image lokal. Berguna untuk transfer image tanpa registry.
+
+Kapan dipakai: lingkungan air-gapped (tanpa internet), backup image, atau transfer antar mesin tanpa push/pull ke registry.
+
+```bash
+docker save -o myapp.tar myapp:1.0
+docker save myapp:1.0 | gzip > myapp.tar.gz
+docker load -i myapp.tar
+docker load < myapp.tar.gz
+```
+
+- **`docker save -o myapp.tar`**: simpan ke file — bisa berisi satu atau beberapa image.
+- **Pipe ke `gzip`**: kompres untuk menghemat ruang saat transfer.
+- **`docker load`**: impor image — setelah load, image muncul di `docker images` siap dipakai.
+
+---
+
+### `docker import` — Buat Image dari Tarball Filesystem
+
+Membuat image baru dari arsip filesystem (bukan format `docker save`). Biasanya dipakai untuk mengimpor root filesystem yang diekspor dengan cara lain.
+
+Kapan dipakai: migrasi dari `docker export`, restore backup filesystem, atau buat image dari tarball custom.
+
+```bash
+docker import backup.tar mybackup:latest
+```
+
+- **Perbedaan dengan `docker load`**: `import` membuat image dari filesystem mentah; `load` memulihkan image lengkap beserta metadata dan history layer.
+
+---
+
+## Container — Menjalankan & Mengelola
+
+Container adalah instance berjalan dari image. Bagian ini mencakup membuat, menjalankan, menghentikan, debug, dan menghapus container — inti workflow Docker sehari-hari.
+
+### `docker run` — Buat & Jalankan Container
+
+Perintah paling penting di Docker. `docker run` membuat container baru dari image dan langsung menjalankannya. Kombinasi flag menentukan networking, storage, environment, dan mode eksekusi.
+
+Kapan dipakai: menjalankan database lokal, test image, deploy service tunggal, atau menjalankan perintah sekali pakai di container ephemeral.
+
+```bash
+docker run nginx                       # foreground
+docker run -d nginx                    # detached (background)
+docker run -d --name web nginx         # beri nama
+docker run -d -p 8080:80 nginx         # map port host:container
+docker run -d -p 127.0.0.1:8080:80 nginx   # bind ke localhost
+docker run -d -e NODE_ENV=production myapp
+docker run -d -e DB_HOST=postgres --env-file .env myapp
+docker run -d -v mydata:/var/lib/mysql mysql   # mount volume
+docker run -d -v $(pwd):/app myapp              # bind mount folder
+docker run --rm alpine echo "hello"              # hapus otomatis setelah selesai
+docker run -it alpine sh                         # interactive + TTY
+docker run -d --restart unless-stopped nginx     # auto-restart
+docker run -d --network mynet --link db:db myapp # network custom
+docker run -d -m 512m --cpus 1 myapp             # batas resource
+docker run -d --user 1000:1000 myapp             # non-root user
+docker run -d --entrypoint /bin/sh myapp         # override entrypoint
+docker run -d -w /app myapp npm start            # set working directory
+docker run -d --hostname app1 myapp
+docker run -d --add-host host.docker.internal:host-gateway myapp
+```
+
+Flag penting:
+
+| Flag | Fungsi |
+| --- | --- |
+| `-d` | Detached mode |
+| `-it` | Interactive + terminal |
+| `-p` | Port mapping `host:container` |
+| `-e` | Environment variable |
+| `--env-file` | File berisi env vars |
+| `-v` | Volume / bind mount |
+| `--name` | Nama container |
+| `--rm` | Hapus setelah stop |
+| `--restart` | Policy restart |
+| `-m` / `--cpus` | Batas memori & CPU |
+| `--network` | Attach ke network |
+
+Penjelasan flag dan opsi:
+
+- **Tanpa `-d`**: container berjalan di foreground — log tampil di terminal; `Ctrl+C` menghentikan container.
+- **`-d`**: detached — container berjalan di background, terminal bebas dipakai lagi.
+- **`--name web`**: beri nama human-readable — lebih mudah daripada ID panjang untuk `docker logs web`, `docker stop web`, dll.
+- **`-p 8080:80`**: map port 80 di container ke port 8080 di host — akses via `localhost:8080`.
+- **`-p 127.0.0.1:8080:80`**: bind hanya ke localhost — tidak exposed ke jaringan eksternal.
+- **`-e` / `--env-file`**: set environment variable — konfigurasi aplikasi tanpa rebuild image.
+- **`-v mydata:/var/lib/mysql`**: named volume — data persisten meski container dihapus.
+- **`-v $(pwd):/app`**: bind mount — folder host langsung terlihat di container; cocok development.
+- **`--rm`**: container otomatis dihapus setelah exit — ideal untuk perintah sekali jalan (`echo`, `npm test`).
+- **`-it`**: interactive + pseudo-TTY — wajib untuk shell (`sh`, `bash`).
+- **`--restart unless-stopped`**: auto-restart saat crash atau reboot host — kecuali Anda stop manual.
+- **`--network mynet`**: sambungkan ke network custom — container bisa resolve hostname satu sama lain.
+- **`-m 512m` / `--cpus 1`**: batas resource — cegah satu container menghabiskan seluruh RAM/CPU host.
+- **`--user 1000:1000`**: jalankan sebagai non-root — praktik keamanan production.
+- **`--entrypoint`**: override ENTRYPOINT dari image — mis. masuk shell alih-alih jalankan app default.
+- **`-w /app`**: set working directory sebelum CMD/ENTRYPOINT dijalankan.
+- **`--add-host`**: tambah entri ke `/etc/hosts` container — akses service di host machine.
+
+---
+
+### `docker ps` — Daftar Container
+
+Menampilkan container yang sedang berjalan (default) atau semua container termasuk yang sudah stop.
+
+Kapan dipakai: cek container aktif, cari container yang crash (`-a`), filter berdasarkan nama/status, atau dapatkan ID untuk scripting.
+
+```bash
+docker ps                              # container yang sedang berjalan
+docker ps -a                           # semua container (termasuk stopped)
+docker ps -q                           # hanya ID
+docker ps --filter "status=exited"
+docker ps --filter "name=web"
+docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker ps -l                           # container terakhir dibuat
+docker ps -s                           # tampilkan ukuran file
+```
+
+- **`-a`**: tampilkan semua — termasuk `Exited` — penting saat debug container yang crash.
+- **`-q`**: hanya ID — berguna untuk chaining: `docker rm $(docker ps -aq)`.
+- **`--filter "status=exited"`**: filter container yang sudah berhenti — kandidat untuk dibersihkan.
+- **`--filter "name=web"`**: filter berdasarkan nama container.
+- **`-l`**: container terakhir yang dibuat — cepat setelah `docker run` tanpa `--name`.
+- **`-s`**: tampilkan ukuran writable layer container di disk.
+
+---
+
+### `docker stop`, `start`, `restart`, `kill`
+
+Mengontrol lifecycle container yang sudah ada — tanpa membuat container baru.
+
+Kapan dipakai: hentikan service sementara, restart setelah config change, atau paksa kill container yang hang.
+
+```bash
+docker stop web                        # graceful stop (SIGTERM)
+docker stop -t 5 web                   # timeout 5 detik sebelum SIGKILL
+docker start web
+docker restart web
+docker kill web                        # langsung SIGKILL
+docker pause web
+docker unpause web
+```
+
+- **`docker stop`**: kirim SIGTERM dulu — aplikasi punya waktu cleanup (close DB connection, flush log). Default timeout 10 detik lalu SIGKILL.
+- **`-t 5`**: ubah grace period jadi 5 detik sebelum SIGKILL.
+- **`docker start`**: jalankan ulang container yang sudah di-stop — konfigurasi dan filesystem tetap sama.
+- **`docker restart`**: stop lalu start — berguna setelah ubah env di host atau apply config.
+- **`docker kill`**: langsung SIGKILL — tanpa graceful shutdown; pakai hanya jika `stop` tidak merespons.
+- **`pause` / `unpause`**: bekukan proses (cgroup freeze) tanpa stop — jarang dipakai, tapi berguna untuk debug snapshot.
+
+---
+
+### `docker rm` — Hapus Container
+
+Menghapus container yang sudah stop. Container yang masih running harus di-stop dulu atau dihapus paksa dengan `-f`.
+
+Kapan dipakai: bersihkan container sementara, hapus container test, atau kosongkan disk dari container exited.
+
+```bash
+docker rm web
+docker rm -f web                       # paksa hapus meski masih running
+docker rm $(docker ps -aq)             # hapus semua container stopped
+docker container prune                 # hapus semua container stopped
+```
+
+- **`-f`**: paksa hapus container yang masih running — setara `kill` + `rm`.
+- **`docker container prune`**: hapus semua container berstatus `exited` — aman dan cepat untuk pembersihan rutin.
+
+---
+
+### `docker logs` — Lihat Log
+
+Menampilkan output stdout/stderr dari proses utama container — setara `tail -f` pada log aplikasi.
+
+Kapan dipakai: debug error, monitor aplikasi real-time, atau audit output setelah container crash.
+
+```bash
+docker logs web
+docker logs -f web                     # follow (live)
+docker logs --tail 100 web              # 100 baris terakhir
+docker logs --since 30m web              # sejak 30 menit lalu
+docker logs --until 2025-06-26T10:00 web
+docker logs -t web                       # dengan timestamp
+```
+
+- **`-f`**: follow — stream log secara real-time; hentikan dengan `Ctrl+C` (container tetap jalan).
+- **`--tail 100`**: hanya 100 baris terakhir — berguna untuk log yang sangat panjang.
+- **`--since` / `--until`**: filter berdasarkan waktu — fokus ke window insiden tertentu.
+- **`-t`**: tambahkan timestamp di setiap baris log.
+
+---
+
+### `docker exec` — Jalankan Perintah di Container Berjalan
+
+Menjalankan perintah tambahan di dalam container yang **sudah berjalan** — tanpa membuat container baru.
+
+Kapan dipakai: masuk shell untuk debug, jalankan migrasi database, cek file di dalam container, atau run one-off script.
+
+```bash
+docker exec web ls /app
+docker exec -it web sh                 # shell interaktif
+docker exec -it web bash               # jika bash tersedia
+docker exec -u root -it web sh         # sebagai root
+docker exec -d web npm run migrate     # detached
+docker exec -e DEBUG=true web node script.js
+```
+
+- **`-it`**: wajib untuk shell interaktif — tanpa ini, perintah jalan tapi tidak bisa input.
+- **`-u root`**: jalankan sebagai user tertentu — berguna jika container default non-root tapi butuh akses root sementara.
+- **`-d`**: jalankan perintah di background di dalam container.
+- **`-e`**: set environment variable hanya untuk perintah ini.
+
+Perbedaan dengan `docker run`: `exec` butuh container yang sudah running; `run` membuat container baru.
+
+---
+
+### `docker attach` — Attach ke Proses Utama
+
+Menyambungkan terminal Anda ke stdin/stdout/stderr proses utama (PID 1) container yang berjalan di foreground.
+
+Kapan dipakai: container dijalankan tanpa `-d` dan Anda ingin kembali melihat output-nya, atau interaksi langsung dengan proses utama.
+
+```bash
+docker attach web
+# Ctrl+P lalu Ctrl+Q untuk detach tanpa stop container
+```
+
+- **Detach tanpa stop**: tekan `Ctrl+P` lalu `Ctrl+Q` — lepaskan terminal tanpa menghentikan container.
+- **Jangan `Ctrl+C`**: itu akan mengirim SIGINT ke proses utama dan bisa stop container.
+
+---
+
+### `docker cp` — Salin File ke/dari Container
+
+Menyalin file atau direktori antara filesystem host dan container — tanpa perlu volume mount.
+
+Kapan dipakai: ambil log dari container, copy config ke dalam container, atau backup file dari container yang tidak punya volume.
+
+```bash
+docker cp file.txt web:/app/file.txt
+docker cp web:/app/logs ./logs
+docker cp web:/etc/nginx/nginx.conf ./nginx.conf
+```
+
+- **Arah copy**: `host:container` untuk upload; `container:host` untuk download.
+- **Container harus running** (kecuali beberapa versi Docker yang mendukung copy dari stopped container).
+
+---
+
+### `docker inspect` — Detail Container/Image
+
+Menampilkan konfigurasi lengkap container atau image dalam format JSON — network, mounts, env, state, IP address, dan lainnya.
+
+Kapan dipakai: debug networking, cek IP container, audit environment variable, atau scripting otomatis.
+
+```bash
+docker inspect web
+docker inspect -f '{{.NetworkSettings.IPAddress}}' web
+docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' web
+docker inspect -f '{{json .Config.Env}}' web
+```
+
+- **`-f` dengan Go template**: ekstrak field spesifik — jauh lebih praktis daripada parse JSON manual.
+- **IP address**: di network bridge custom, container punya IP internal — berguna untuk debug koneksi.
+
+---
+
+### `docker stats` — Monitor Resource Real-time
+
+Menampilkan penggunaan CPU, memori, network I/O, dan block I/O container secara live — seperti `top` untuk container.
+
+Kapan dipakai: identifikasi container yang boros resource, monitor saat load test, atau troubleshoot performa.
+
+```bash
+docker stats
+docker stats web db
+docker stats --no-stream               # snapshot sekali
+docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"
+```
+
+- **Tanpa argumen**: monitor semua container running.
+- **`--no-stream`**: cetak satu snapshot lalu exit — cocok untuk scripting dan alerting.
+- **`--format`**: custom kolom output.
+
+---
+
+### `docker top` — Proses di Dalam Container
+
+Menampilkan proses yang berjalan di dalam container dari perspektif host — setara `ps` di dalam namespace container.
+
+Kapan dipakai: cek apakah proses aplikasi benar-benar jalan, identifikasi zombie process, atau debug container yang "running" tapi tidak merespons.
+
+```bash
+docker top web
+docker top web aux
+```
+
+- **`aux`**: format output mirip `ps aux` — PID, user, CPU%, command.
+
+---
+
+### `docker rename` — Ubah Nama Container
+
+Mengganti nama container yang sudah ada tanpa membuat ulang — ID dan konfigurasi tetap sama.
+
+Kapan dipakai: perbaiki penamaan yang salah, standardisasi naming convention, atau hindari konflik nama saat recreate container.
+
+```bash
+docker rename old-name new-name
+```
+
+- Container bisa di-rename meski sedang running atau stopped.
+
+---
+
+### `docker update` — Update Config Container Berjalan
+
+Mengubah konfigurasi resource dan restart policy container **tanpa** recreate — hanya field tertentu yang bisa diubah.
+
+Kapan dipakai: naikkan limit memori/CPU tanpa downtime recreate, atau ubah restart policy pada container production.
+
+```bash
+docker update --restart unless-stopped web
+docker update -m 1g --cpus 2 web
+```
+
+- **Yang bisa diubah**: restart policy, memory limit, CPU limit, dan beberapa opsi lain — **bukan** port mapping atau volume.
+- Perubahan resource langsung berlaku tanpa restart container (untuk limit; restart policy berlaku untuk restart berikutnya).
+
+---
+
+### `docker commit` — Buat Image dari Container
+
+Membuat image baru dari perubahan filesystem container saat ini — snapshot state container menjadi image.
+
+Kapan dipakai: simpan state debug sementara, buat image dari container yang sudah dikonfigurasi manual, atau prototyping cepat (bukan best practice untuk production — gunakan Dockerfile).
+
+```bash
+docker commit web myapp:snapshot
+docker commit -m "added debug tools" -a "Rahmat" web myapp:debug
+```
+
+- **`-m`**: pesan commit — mirip git commit message.
+- **`-a`**: author metadata pada image.
+- **Best practice**: untuk production, selalu gunakan Dockerfile agar reproducible — `commit` cocok untuk eksperimen.
+
+---
+
+### `docker wait` — Tunggu Container Berhenti
+
+Memblokir terminal sampai container berhenti, lalu mengembalikan exit code container — berguna untuk scripting.
+
+Kapan dipakai: orchestration sederhana, tunggu job selesai sebelum lanjut ke step berikutnya, atau CI script.
+
+```bash
+docker wait web                        # return exit code
+```
+
+- Exit code `0` = sukses; non-zero = error — sama seperti exit code proses Unix.
+
+---
+
+### `docker diff` — Lihat Perubahan Filesystem
+
+Membandingkan filesystem container saat ini dengan image aslinya — menampilkan file yang ditambah, diubah, atau dihapus.
+
+Kapan dipakai: audit perubahan di dalam container, debug kenapa file hilang, atau verifikasi side-effect instal manual.
+
+```bash
+docker diff web
+# A = added, D = deleted, C = changed
+```
+
+- **`A`**: file/direktori baru ditambahkan.
+- **`D`**: file dihapus dari image asli.
+- **`C`**: file diubah (content berbeda dari image).
+
+---
+
+### `docker port` — Lihat Port Mapping
+
+Menampilkan mapping port antara host dan container — port mana di host yang meneruskan ke port container.
+
+Kapan dipakai: lupa port mapping saat `docker run`, dokumentasi setup, atau verifikasi expose port sudah benar.
+
+```bash
+docker port web
+docker port web 80
+```
+
+- **`docker port web`**: semua mapping port container `web`.
+- **`docker port web 80`**: mapping spesifik untuk port 80 di dalam container.
+
+---
+
+### `docker export` & `docker import`
+
+`docker export` mengekspor filesystem container (bukan image lengkap) ke tarball; `docker import` membuat image baru dari tarball tersebut.
+
+Kapan dipakai: backup filesystem container, migrasi tanpa registry, atau buat image dari container yang sudah dimodifikasi manual.
+
+```bash
+docker export web > web-container.tar
+docker import web-container.tar web:exported
+```
+
+- **`export`**: hanya filesystem flat — **tanpa** history layer, metadata, atau Dockerfile.
+- **`import`**: buat image dari tarball export — kehilangan layer history dibanding `docker save`/`load`.
+
+---
+
+## Volume — Penyimpanan Persisten
+
+Data di dalam container bersifat ephemeral — hilang saat container dihapus kecuali disimpan di **volume** atau **bind mount**. Volume adalah cara Docker mengelola penyimpanan persisten.
+
+### `docker volume`
+
+Subcommand untuk membuat, melihat, dan menghapus named volume — penyimpanan yang dikelola Docker, terpisah dari lifecycle container.
+
+Kapan dipakai: database production, data yang harus survive container recreate, atau shared storage antar container.
+
+```bash
+docker volume create mydata
+docker volume ls
+docker volume inspect mydata
+docker volume rm mydata
+docker volume prune                    # hapus volume tidak terpakai
+
+# Gunakan saat run
+docker run -d -v mydata:/var/lib/postgresql/data postgres:16
+docker run -d --mount source=mydata,target=/data,type=volume alpine
+docker run -d --mount type=bind,source=$(pwd)/app,target=/app myapp
+```
+
+| Tipe mount | Kegunaan |
+| --- | --- |
+| **named volume** | Data persisten, dikelola Docker |
+| **bind mount** | Map folder host langsung ke container |
+| **tmpfs** | Data di memory (tidak persisten) |
+
+Penjelasan tipe mount:
+
+- **Named volume (`-v mydata:/path`)**: Docker mengelola lokasi di disk — portable, aman, direkomendasikan untuk data persisten (database, upload).
+- **Bind mount (`-v $(pwd):/app`)**: folder host langsung di-mount — perubahan real-time; ideal untuk development (hot reload).
+- **`--mount` syntax**: format eksplisit dan lebih readable — `type=volume`, `type=bind`, atau `type=tmpfs`.
+- **`docker volume prune`**: hapus volume yang tidak di-reference container manapun — **hati-hati**, data bisa hilang permanen.
+
+```bash
+docker run -d --tmpfs /tmp:rw,size=100m alpine
+```
+
+- **`tmpfs`**: data disimpan di RAM — cepat tapi hilang saat container stop; cocok untuk cache sementara atau `/tmp`.
+
+---
+
+## Network — Jaringan Antar Container
+
+Secara default container terisolasi. **Docker network** memungkinkan container saling berkomunikasi lewat hostname — tanpa perlu tahu IP address.
+
+### `docker network`
+
+Subcommand untuk membuat, mengelola, dan menghubungkan container ke jaringan virtual.
+
+Kapan dipakai: stack multi-container (API + DB + Redis), isolasi environment, atau koneksi antar service di Compose.
+
+```bash
+docker network ls
+docker network create mynet
+docker network create --driver bridge mynet
+docker network inspect mynet
+docker network connect mynet web
+docker network disconnect mynet web
+docker network rm mynet
+docker network prune
+
+# Run di network yang sama — bisa saling resolve by name
+docker run -d --name db --network mynet postgres:16
+docker run -d --name api --network mynet myapi
+# di dalam api container: ping db, connect ke host "db"
+```
+
+Driver umum:
+
+| Driver | Kegunaan |
+| --- | --- |
+| `bridge` | Default, container di host yang sama |
+| `host` | Pakai network stack host langsung |
+| `none` | Tanpa network |
+| `overlay` | Multi-host (Swarm/Kubernetes) |
+
+Penjelasan driver dan opsi:
+
+- **`bridge` (default)**: container di host yang sama bisa saling ping lewat hostname — DNS internal Docker otomatis resolve nama container.
+- **`host`**: container pakai network stack host langsung — tidak ada isolasi port; performa maksimal tapi kurang aman.
+- **`none`**: container tanpa network — untuk workload yang tidak butuh koneksi.
+- **`overlay`**: jaringan multi-host untuk Docker Swarm — container di mesin berbeda bisa komunikasi.
+- **`docker network connect/disconnect`**: tambah/lepas container dari network tanpa recreate.
+- **`docker network prune`**: hapus network yang tidak dipakai container.
+
+```bash
+docker run --network host nginx         # tidak perlu -p, langsung pakai port host
+```
+
+- **`--network host`**: nginx langsung bind port 80 di host — tidak perlu `-p 8080:80`; hanya Linux (di Mac/Windows behavior berbeda).
+
+---
+
+## Docker Compose — Multi-Container
+
+Compose mengelola stack aplikasi lewat file `docker-compose.yml` — definisi deklaratif untuk banyak service, volume, dan network sekaligus.
+
+Kapan dipakai: development lokal dengan banyak service (web + API + DB + Redis), replikasi environment production, atau orkestrasi stack tanpa menulis banyak perintah `docker run` manual.
+
+Contoh `docker-compose.yml`:
+
+```yaml
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://db:5432/myapp
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+```
+
+Penjelasan struktur Compose di atas:
+
+- **`services`**: daftar container yang akan dijalankan — masing-masing punya nama service (`web`, `db`).
+- **`build: .`**: build image dari Dockerfile di direktori saat ini untuk service `web`.
+- **`depends_on`**: urutan start — `web` start setelah `db` (catatan: tidak menunggu DB siap menerima koneksi; butuh healthcheck untuk itu).
+- **`volumes: pgdata`**: named volume persisten untuk data PostgreSQL — survive `docker compose down`.
+
+### Perintah Compose (v2 — `docker compose`)
+
+Semua operasi lifecycle stack — build, start, stop, log, exec, dan cleanup — lewat satu subcommand `docker compose`.
+
+```bash
+docker compose up                      # build & start semua service
+docker compose up -d                   # detached
+docker compose up -d --build           # rebuild image sebelum start
+docker compose up web                  # hanya service tertentu
+docker compose up --scale web=3        # replika (perlu setup khusus)
+docker compose down                    # stop & hapus container
+docker compose down -v                 # + hapus volumes
+docker compose down --rmi all          # + hapus images
+docker compose stop
+docker compose start
+docker compose restart
+docker compose pause
+docker compose unpause
+docker compose ps
+docker compose ps -a
+docker compose logs
+docker compose logs -f web
+docker compose logs --tail=50 web db
+docker compose exec web sh
+docker compose exec db psql -U postgres
+docker compose run --rm web npm test   # one-off command
+docker compose build
+docker compose build --no-cache web
+docker compose pull
+docker compose push
+docker compose config                  # validasi & tampilkan config
+docker compose config --services
+docker compose top
+docker compose cp web:/app/logs ./logs
+docker compose port web 3000
+docker compose ls                      # daftar project yang berjalan
+docker compose images
+docker compose rm
+docker compose kill
+docker compose create                  # buat container tanpa start
+docker compose events
+docker compose watch                   # auto-rebuild on file change (v2.22+)
+```
+
+Penjelasan perintah Compose penting:
+
+- **`up`**: build image (jika perlu) + create network/volume + start semua service — perintah utama development.
+- **`up -d`**: detached — stack jalan di background.
+- **`up --build`**: paksa rebuild image sebelum start — setelah ubah Dockerfile atau kode.
+- **`up web`**: hanya start service `web` dan dependensinya.
+- **`down`**: stop dan hapus container + network default — data di named volume tetap (kecuali `-v`).
+- **`down -v`**: hapus volume juga — **hati-hati**, data database hilang.
+- **`down --rmi all`**: hapus image yang dibuat Compose — bersihkan disk sepenuhnya.
+- **`logs -f web`**: follow log service tertentu — debug per-service.
+- **`exec web sh`**: shell di service yang sedang running — setara `docker exec` tapi pakai nama service.
+- **`run --rm web npm test`**: buat container sekali jalan untuk perintah tertentu — ideal untuk test/migrasi.
+- **`config`**: validasi dan render compose file final — tangkap typo sebelum `up`.
+- **`watch`**: auto-rebuild dan sync saat file berubah — workflow development modern (Docker Compose v2.22+).
+
+<Callout type="info">
+Docker Compose v1 (`docker-compose` dengan strip) sudah deprecated. Gunakan `docker compose` (subcommand) di Docker CLI modern.
+</Callout>
+
+### File & Environment
+
+Opsi untuk menggabungkan beberapa compose file, load environment dari file, dan custom project name.
+
+Kapan dipakai: override config production vs development, environment variable dari `.env`, atau jalankan beberapa project Compose di mesin yang sama tanpa konflik nama.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production up -d
+docker compose -p myproject up -d        # custom project name
+```
+
+- **`-f` ganda**: merge beberapa file — file kanan override file kiri; pola umum `base + override`.
+- **`--env-file`**: load variabel dari file selain `.env` default.
+- **`-p myproject`**: custom project name — prefix untuk container/network/volume; hindari konflik antar project.
+
+---
+
+## Registry & Autentikasi
+
+Operasi terkait registry image — login, logout, dan pencarian image di Docker Hub.
+
+Kapan dipakai: sebelum push/pull ke registry privat, setup CI credential, atau cari image official di Docker Hub.
+
+```bash
+docker login
+docker login registry.example.com
+docker logout
+docker logout registry.example.com
+
+docker search nginx                    # cari image di Docker Hub
+docker search --limit 5 postgres
+```
+
+- **`docker login`**: simpan credential — interaktif minta username/password atau token.
+- **`docker login registry.example.com`**: login ke registry privat (Harbor, Nexus, ECR, dll.).
+- **`docker logout`**: hapus credential tersimpan untuk registry tertentu.
+- **`docker search`**: cari image di Docker Hub — tampilkan stars, official badge, description.
+
+---
+
+## Sistem & Pembersihan
+
+Docker bisa mengumpulkan image, container, volume, dan network yang tidak terpakai — mengisi disk secara signifikan. Bagian ini untuk monitoring dan pembersihan.
+
+### `docker system`
+
+Subcommand untuk melihat penggunaan disk, stream event, dan prune resource tidak terpakai.
+
+Kapan dipakai: disk penuh, audit resource Docker, monitoring event real-time, atau maintenance rutin.
+
+```bash
+docker system df                       # penggunaan disk
+docker system df -v                    # detail per tipe
+docker system events                   # stream event real-time
+docker system info
+docker system prune                    # bersihkan resource tidak terpakai
+docker system prune -a                 # + semua image tidak terpakai
+docker system prune -a --volumes       # + volumes tidak terpakai
+```
+
+- **`docker system df`**: ringkasan disk — images, containers, volumes, build cache.
+- **`docker system df -v`**: breakdown per item — identifikasi siapa yang boros space.
+- **`docker system events`**: stream event Docker (create, start, die, destroy) — berguna untuk monitoring.
+- **`docker system prune`**: hapus container stopped, network tidak terpakai, dangling image, build cache.
+- **`prune -a`**: + semua image tanpa container yang running.
+- **`prune -a --volumes`**: + volume tidak terpakai — **sangat destruktif**.
+
+### Pembersihan Cepat (hati-hati!)
+
+Perintah prune bertingkat — dari aman (container stopped) hingga nuclear (semua resource tidak terpakai).
+
+```bash
+# Hapus semua container stopped
+docker container prune -f
+
+# Hapus semua image tidak terpakai
+docker image prune -a -f
+
+# Hapus semua volume tidak terpakai
+docker volume prune -f
+
+# Nuclear option — bersihkan semuanya
+docker system prune -a --volumes -f
+```
+
+- **`-f`**: skip konfirmasi — langsung eksekusi; hati-hati di production.
+- **Urutan aman**: mulai dari `container prune`, lalu `image prune`, terakhir `volume prune` jika yakin data tidak penting.
+
+<Callout type="warning">
+`docker system prune -a --volumes` akan menghapus **semua** image, container, network, dan volume yang tidak sedang dipakai. Pastikan tidak ada data penting di volume anonymous.
+</Callout>
+
+---
+
+## Context & Multi-Environment
+
+Docker Context memungkinkan Anda mengelola beberapa Docker daemon dari satu CLI — switch antar local, remote SSH, atau cloud tanpa ubah environment variable.
+
+Kapan dipakai: deploy ke server remote via SSH, kelola beberapa environment (dev/staging/prod), atau switch antara Docker Desktop dan remote host.
+
+```bash
+docker context ls
+docker context create staging --docker "host=ssh://user@staging-server"
+docker context use staging
+docker context use default
+docker context inspect
+docker context rm staging
+```
+
+- **`docker context ls`**: daftar context — tanda `*` menunjukkan context aktif.
+- **`create ... host=ssh://`**: koneksi ke Docker daemon remote lewat SSH — semua perintah `docker` diarahkan ke server itu.
+- **`docker context use`**: switch context — setelah ini, `docker ps` menampilkan container di host yang dipilih.
+- **`default`**: context lokal (Docker Desktop atau daemon lokal).
+
+Berguna saat mengelola Docker di mesin remote lewat SSH.
+
+---
+
+## Perintah Lanjutan
+
+Fitur lanjutan untuk build multi-platform, analisis keamanan image, healthcheck, dan filter global.
+
+### `docker buildx` — Build Multi-Platform
+
+Buildx adalah builder Docker yang mendukung multi-platform build (amd64 + arm64 sekaligus) dan push langsung ke registry.
+
+Kapan dipakai: publish image yang support Mac Apple Silicon dan Linux amd64, CI/CD multi-arch, atau build di mesin yang berbeda dari target deploy.
+
+```bash
+docker buildx ls
+docker buildx create --use
+docker buildx build --platform linux/amd64,linux/arm64 -t myapp:latest --push .
+```
+
+- **`buildx ls`**: daftar builder instance — default builder mungkin tidak support multi-platform.
+- **`create --use`**: buat dan aktifkan builder baru dengan driver `docker-container`.
+- **`--platform linux/amd64,linux/arm64`**: build untuk dua arsitektur — hasil manifest list di registry.
+- **`--push`**: push langsung ke registry — image multi-arch tidak disimpan lokal sebagai single image.
+
+### `docker scout` — Analisis Keamanan Image
+
+Docker Scout memindai image untuk known CVE (kerentanan keamanan) dan memberikan rekomendasi perbaikan.
+
+Kapan dipakai: audit keamanan sebelum deploy, CI pipeline security gate, atau review dependensi base image.
+
+```bash
+docker scout quickview nginx
+docker scout cves myapp:latest
+```
+
+- **`quickview`**: ringkasan cepat — jumlah vulnerability per severity.
+- **`cves`**: daftar detail CVE pada image — beserta package yang terdampak dan versi fix.
+
+### Healthcheck (di Dockerfile)
+
+Healthcheck mendefinisikan cara Docker mengecek apakah container benar-benar sehat — bukan hanya "running".
+
+Kapan dipakai: production deployment, orchestrator yang butuh readiness probe, atau `depends_on` dengan kondisi service healthy.
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost:3000/health || exit 1
+```
+
+- **`--interval=30s`**: cek setiap 30 detik.
+- **`--timeout=3s`**: healthcheck gagal jika tidak merespons dalam 3 detik.
+- **`CMD`**: perintah yang dijalankan — exit 0 = healthy, non-zero = unhealthy.
+
+```bash
+docker inspect -f '{{.State.Health.Status}}' web
+# starting | healthy | unhealthy
+```
+
+- **`starting`**: container baru jalan, healthcheck belum cukup iterasi.
+- **`healthy`**: healthcheck lulus.
+- **`unhealthy`**: healthcheck gagal berulang — pertimbangkan restart atau debug.
+
+### Filter & Format Global
+
+Flag `--filter` dan `--format` tersedia di banyak perintah `docker` — pola konsisten untuk query dan scripting.
+
+Kapan dipakai: otomasi script, filter resource berdasarkan label/status, atau output custom untuk monitoring.
+
+```bash
+docker ps --filter "label=env=production"
+docker ps --filter "publish=8080"
+docker images --filter "before=nginx:latest"
+docker container ls -q --filter "status=running"
+```
+
+- **`label=env=production`**: filter berdasarkan label yang di-set saat `docker run --label`.
+- **`publish=8080`**: container yang expose port 8080 di host.
+- **`before=nginx:latest`**: image yang dibuat sebelum image `nginx:latest`.
+- **`-q --filter status=running`**: hanya ID container running — untuk loop/script.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Development lokal
+
+Alur kerja tipikal dari clone project hingga stop stack — semua lewat Compose.
+
+```bash
+# 1. Clone & masuk project
+cd my-project
+
+# 2. Jalankan stack
+docker compose up -d --build
+
+# 3. Lihat log
+docker compose logs -f api
+
+# 4. Masuk container debug
+docker compose exec api sh
+
+# 5. Jalankan test
+docker compose run --rm api npm test
+
+# 6. Stop
+docker compose down
+```
+
+Langkah per langkah:
+
+1. **Clone & `cd`**: masuk ke direktori yang berisi `docker-compose.yml`.
+2. **`up -d --build`**: build image terbaru dan start semua service di background.
+3. **`logs -f api`**: monitor log service API secara real-time.
+4. **`exec api sh`**: masuk shell untuk debug, cek file, atau jalankan perintah manual.
+5. **`run --rm api npm test`**: jalankan test di container sekali jalan — container dihapus setelah selesai.
+6. **`down`**: stop dan bersihkan container — volume named tetap kecuali pakai `-v`.
+
+### Debug container yang crash
+
+Langkah sistematis saat container exit dengan error atau tidak start.
+
+```bash
+docker ps -a                           # cari container exited
+docker logs crashed-container
+docker inspect crashed-container
+docker start -ai crashed-container     # restart interaktif
+```
+
+1. **`docker ps -a`**: cari container dengan status `Exited` — catat exit code (0 = sukses, non-zero = error).
+2. **`docker logs`**: baca error message — sering langsung menunjukkan penyebab (port conflict, env missing, dll.).
+3. **`docker inspect`**: cek config — env, mounts, network, exit code detail.
+4. **`docker start -ai`**: restart interaktif — lihat output langsung di terminal.
+
+### Cek koneksi antar service
+
+Verifikasi networking antar service di stack Compose — pastikan hostname resolve dan port terbuka.
+
+```bash
+docker compose exec api ping db
+docker compose exec api nc -zv db 5432
+docker compose exec api curl http://web:3000
+```
+
+- **`ping db`**: cek DNS internal — hostname `db` harus resolve ke IP container database.
+- **`nc -zv db 5432`**: cek port PostgreSQL terbuka — `-z` scan, `-v` verbose.
+- **`curl http://web:3000`**: cek HTTP endpoint service `web` dari dalam container `api`.
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc`:
+
+```bash
+alias d='docker'
+alias dc='docker compose'
+alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+alias dlog='docker logs -f'
+alias dexec='docker exec -it'
+alias dcup='docker compose up -d'
+alias dcdown='docker compose down'
+alias dcps='docker compose ps'
+alias dclog='docker compose logs -f'
+```
+
+- **`d` / `dc`**: shortcut ketikan — hemat waktu di terminal sehari-hari.
+- **`dps`**: `docker ps` dengan format rapi — nama, status, port.
+- **`dlog` / `dclog`**: langsung follow log — perintah paling sering dipakai saat debug.
+- **`dexec`**: exec interaktif — default `-it` sudah included.
+- **`dcup` / `dcdown`**: start/stop stack Compose dengan satu kata.
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Image** | `pull`, `build`, `tag`, `push`, `images`, `rmi` |
+| **Container** | `run`, `ps`, `stop`, `start`, `rm`, `logs`, `exec` |
+| **Data** | `volume create/ls/rm`, `-v`, `--mount` |
+| **Network** | `network create/ls/connect`, `--network` |
+| **Compose** | `up`, `down`, `ps`, `logs`, `exec`, `build` |
+| **Info** | `inspect`, `stats`, `top`, `diff`, `port` |
+| **Registry** | `login`, `logout`, `search`, `push`, `pull` |
+| **Bersihkan** | `prune`, `system prune` |
+
+---
+
+## Penutup
+
+Kuasai dulu **`docker run`**, **`docker ps`**, **`docker logs`**, **`docker exec`**, dan **`docker compose up/down`** — lima perintah itu sudah menutup sebagian besar workflow development.
+
+Setelah nyaman, lanjut ke **volume**, **network**, **build multi-stage**, dan **`docker system prune`** untuk menjaga disk tetap bersih. Docker CLI sangat konsisten: hampir semua perintah mengikuti pola `docker <resource> <action>` — manfaatkan `docker <command> --help` saat ragu.

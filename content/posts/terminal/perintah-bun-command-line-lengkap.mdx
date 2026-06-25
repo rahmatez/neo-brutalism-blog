@@ -1,0 +1,866 @@
+---
+title: "Perintah Bun Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Bun: runtime, package manager, bundler, test runner, bunx, workspace, build, dan workflow sehari-hari developer JavaScript/TypeScript."
+date: "2025-06-24"
+category: terminal
+tags: ["bun", "javascript", "typescript", "cli", "tutorial"]
+featured: true
+---
+
+**Bun** adalah runtime JavaScript/TypeScript serba ada — menggabungkan **package manager**, **bundler**, **test runner**, dan **runtime** dalam satu binary. Kecepatan instalasi dan eksekusi menjadikannya alternatif populer untuk Node.js + npm.
+
+<Callout type="tip">
+Pastikan Bun sudah terpasang. Cek dengan `bun --version`. Instalasi: `curl -fsSL https://bun.sh/install | bash` atau `brew install oven-sh/bun/bun`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami peran masing-masing komponen Bun:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Runtime** | Mesin yang menjalankan file `.ts`, `.js`, `.jsx`, `.tsx` langsung — tanpa perlu `ts-node` atau compile manual |
+| **Package manager** | Mengelola dependensi proyek; kompatibel penuh dengan npm registry |
+| **Bundler** | Menggabungkan banyak file menjadi satu output siap deploy (browser, server, atau binary) |
+| **Test runner** | Menjalankan unit test dengan API mirip Jest/Vitest, built-in tanpa instal tambahan |
+| **bunx** | Menjalankan CLI dari package npm tanpa instal global — setara `npx` |
+| **bun.lock** | Lockfile yang mengunci versi exact dependensi; default biner (`bun.lockb`), bisa diubah ke text (`bun.lock`) |
+| **bunfig.toml** | File konfigurasi proyek Bun — registry, linker, preload test, dan lainnya |
+
+### Perintah informasi dasar
+
+```bash
+bun --version           # tampilkan versi Bun yang terinstal
+bun --revision          # versi + commit hash (berguna saat lapor bug)
+bun --help              # daftar semua perintah yang tersedia
+bun <command> --help    # bantuan detail untuk satu perintah, mis. bun test --help
+```
+
+---
+
+## `bun run` — Jalankan Script & File
+
+`bun run` adalah perintah paling sering dipakai. Fungsinya dua hal: menjalankan file TypeScript/JavaScript secara langsung, atau menjalankan script yang didefinisikan di `package.json` (bagian `"scripts"`).
+
+### Jalankan file TypeScript/JavaScript
+
+Bun bisa menjalankan file `.ts` dan `.tsx` **tanpa konfigurasi tambahan** — tidak perlu `tsc` atau `ts-node`. Cukup arahkan ke file entry point proyek Anda.
+
+```bash
+bun run index.ts        # jalankan file dengan runtime Bun
+bun run server.tsx      # JSX/TSX juga didukung native
+bun ./app.ts            # kata "run" boleh dihilangkan
+bun index.ts            # bentuk paling singkat
+```
+
+Kapan dipakai: saat development server belum ada script di `package.json`, atau saat mengetes satu file secara cepat.
+
+### Jalankan script dari package.json
+
+Jika proyek punya `"scripts"` di `package.json`, `bun run` akan menjalankannya — persis seperti `npm run`.
+
+```bash
+bun run dev             # jalankan script bernama "dev"
+bun run build           # jalankan script "build"
+bun run start           # jalankan script "start"
+bun run lint            # jalankan script "lint"
+bun dev                 # shorthand — "run" boleh dihilangkan untuk script
+```
+
+Kapan dipakai: workflow sehari-hari — development, build production, linting, dan sejenisnya.
+
+### Mode development: `--watch` dan `--hot`
+
+Saat coding, Anda ingin proses otomatis restart atau reload saat file berubah.
+
+```bash
+bun --watch index.ts            # restart proses penuh setiap ada perubahan file
+bun --hot index.ts              # hot reload — state variabel tetap, hanya modul yang berubah di-reload
+bun --watch --no-clear-screen index.ts   # jangan bersihkan terminal saat reload
+```
+
+- **`--watch`**: proses dihentikan lalu dijalankan ulang — cocok untuk server backend.
+- **`--hot`**: lebih cepat, state tidak hilang — cocok untuk UI development.
+
+### Evaluasi cepat: `-e` dan `-p`
+
+Menjalankan potongan kode JavaScript langsung di terminal tanpa membuat file.
+
+```bash
+bun -e "console.log('Hello')"           # evaluasi string sebagai script
+bun -p "2 + 2"                          # evaluasi lalu cetak hasilnya (print)
+bun -p "JSON.stringify(process.versions)"  # cek versi runtime
+```
+
+Kapan dipakai: debugging cepat, mengetes satu ekspresi, atau cek API Bun tanpa buat file `.js`.
+
+### Preload module: `-r` / `--preload`
+
+Memuat module tertentu **sebelum** file utama dijalankan — berguna untuk setup global, polyfill, atau load `.env`.
+
+```bash
+bun -r ./setup.ts index.ts              # load setup.ts dulu, baru index.ts
+bun --preload dotenv/config index.ts    # load dotenv sebelum kode utama
+```
+
+Kapan dipakai: konfigurasi test global, inisialisasi database mock, atau inject environment variable.
+
+### Workspace & filter
+
+Di proyek monorepo (banyak package dalam satu repo), flag ini mengontrol **package mana** yang dieksekusi.
+
+```bash
+bun run --workspaces build              # jalankan "build" di semua workspace
+bun run --filter 'pkg-*' test           # hanya workspace yang namanya diawali "pkg-"
+bun run --parallel --filter '*' build lint   # build + lint paralel di semua package
+bun run --sequential --workspaces build # jalankan satu per satu, berurutan
+bun run --parallel --no-exit-on-error --filter '*' test  # lanjut meski ada yang gagal
+```
+
+- **`--workspaces`**: target semua package di field `"workspaces"` di `package.json`.
+- **`--filter`**: filter berdasarkan nama atau glob pattern.
+- **`--parallel`**: jalankan bersamaan — lebih cepat di CI/monorepo.
+- **`--sequential`**: jalankan berurutan — berguna jika ada dependensi antar step.
+
+### Opsi runtime penting
+
+Flag ini mengontrol **bagaimana** Bun menjalankan kode, bukan **apa** yang dijalankan.
+
+```bash
+bun run --bun dev               # paksa script pakai runtime Bun, bukan Node.js
+bun run --shell=bun build       # gunakan shell Bun (lebih cepat) untuk npm scripts
+bun run --env-file=.env.local dev       # load file env khusus
+bun run --no-env-file script.ts # jangan load .env otomatis
+bun run --cwd=./apps/web dev    # jalankan seolah berada di folder apps/web
+bun run --inspect index.ts      # aktifkan debugger (Chrome DevTools / VS Code)
+bun run --inspect-brk index.ts  # debugger aktif + pause di baris pertama
+bun run -i index.ts             # auto-install package yang belum ada saat runtime
+bun run --smol index.ts         # mode hemat memori (GC lebih sering)
+```
+
+- **`--bun`**: beberapa package masih mendeteksi `node` di PATH; flag ini memastikan Bun yang dipakai.
+- **`--inspect` / `--inspect-brk`**: sambungkan debugger lewat `chrome://inspect` atau VS Code.
+- **`-i`**: praktis saat prototyping — Bun otomatis `install` package yang di-import tapi belum ada.
+
+---
+
+## Package Manager
+
+Bun sebagai package manager dirancang **drop-in replacement** npm — perintahnya familiar, tapi instalasi biasanya 10–30× lebih cepat berkat parallel download dan sistem cache yang efisien.
+
+### `bun install` — Instal Dependensi
+
+Membaca `package.json` (dan lockfile jika ada), lalu mengunduh serta menautkan semua dependensi ke `node_modules`.
+
+```bash
+bun install                     # instal semua dependensi (alias: bun i)
+bun install --production        # hanya dependencies, tanpa devDependencies
+bun install --frozen-lockfile   # CI: gagal jika lockfile perlu diubah
+bun install --force             # abaikan cache, unduh ulang semua dari registry
+bun install --dry-run           # simulasi — tampilkan apa yang akan dilakukan
+bun install --ignore-scripts    # skip script postinstall/preinstall (keamanan/CI)
+bun install --linker=hoisted    # struktur flat seperti npm (default lama)
+bun install --linker=isolated   # struktur terisolasi seperti pnpm
+bun install --omit=dev          # sama dengan --production
+bun install --lockfile-only     # hanya generate/update lockfile, tanpa install
+```
+
+Penjelasan flag penting:
+
+- **`--frozen-lockfile`**: wajib di CI/CD — memastikan build reproducible dan lockfile tidak berubah tanpa sengaja.
+- **`--ignore-scripts`**: mencegah eksekusi script dari package pihak ketiga — berguna di environment ketat.
+- **`--linker=hoisted` vs `isolated`**: hoisted = satu `node_modules` di root; isolated = tiap package punya dependensi sendiri (lebih ketat, hindari phantom dependency).
+
+Instal untuk workspace tertentu di monorepo:
+
+```bash
+bun install --filter "pkg-*"              # hanya workspace yang cocok pola
+bun install --filter "./packages/pkg-a"   # filter berdasarkan path
+bun install --filter "pkg-*" --filter "!pkg-c"  # semua pkg-* kecuali pkg-c
+```
+
+---
+
+### `bun add` — Tambah Package
+
+Menambahkan dependensi baru ke `package.json` **dan** langsung menginstalnya ke `node_modules`.
+
+```bash
+bun add hono                    # tambah ke dependencies (alias: bun a)
+bun add react react-dom         # tambah beberapa package sekaligus
+bun add -d vitest               # tambah ke devDependencies (-d = --dev)
+bun add -D @types/node          # -D sama dengan -d
+bun add --optional sharp        # optionalDependency — tidak gagal jika tidak support platform
+bun add --peer react            # peerDependency — untuk library/plugin
+bun add -E lodash               # exact version: "4.17.21" bukan "^4.17.21"
+bun add hono@^4.0.0             # versi spesifik dengan range semver
+bun add -g typescript           # instal global (tersedia di PATH sistem)
+bun add --trust some-package    # tambah ke trustedDependencies + izinkan lifecycle script
+```
+
+Kapan pakai flag mana:
+
+- **`-d` / `--dev`**: tool development — test runner, linter, type definitions.
+- **`--peer`**: saat membuat library yang mengharapkan consumer menyediakan dependency tertentu.
+- **`-E` / `--exact`**: kunci versi ketat — berguna di library atau proyek yang sensitif terhadap breaking change.
+- **`--trust`**: package yang butuh menjalankan script saat install (mis. native binding) perlu di-whitelist.
+
+---
+
+### `bun remove` — Hapus Package
+
+Menghapus package dari `package.json` dan `node_modules` sekaligus.
+
+```bash
+bun remove lodash               # hapus satu package (alias: bun r / bun rm)
+bun remove react react-dom      # hapus beberapa sekaligus
+bun remove -g typescript        # hapus package global
+```
+
+Setelah `remove`, lockfile (`bun.lock`) juga diperbarui otomatis.
+
+---
+
+### `bun update` — Perbarui Package
+
+Memperbarui dependensi ke versi terbaru **dalam range semver** yang tertulis di `package.json` (mis. `^4.0.0` → `4.5.2`, bukan `5.0.0`).
+
+```bash
+bun update                      # update semua package yang outdated
+bun update hono                 # update satu package saja
+bun update --latest             # abaikan range semver, ambil versi terbaru
+bun update -f                   # force: unduh ulang meski versi sama
+```
+
+- **`bun update`**: aman untuk rutinitas — menghormati semver range.
+- **`bun update --latest`**: agresif — bisa introduce breaking change, cek changelog dulu.
+
+---
+
+### `bun outdated` — Cek Versi Usang
+
+Menampilkan tabel package yang versi terinstalnya sudah ketinggalan dibanding registry npm.
+
+```bash
+bun outdated
+```
+
+Output menunjukkan: nama package, versi saat ini, versi wanted (dalam range), dan versi latest. Jalankan sebelum `bun update` untuk melihat dampaknya.
+
+---
+
+### `bun audit` — Cek Kerentanan Keamanan
+
+Memindai dependensi terinstal terhadap database advisory keamanan npm — mirip `npm audit`.
+
+```bash
+bun audit
+```
+
+Menampilkan package yang punya known vulnerability beserta severity dan saran perbaikan (update atau override).
+
+---
+
+### `bun info` — Metadata Package
+
+Mengambil informasi detail package dari registry npm tanpa menginstalnya.
+
+```bash
+bun info hono                   # versi, dependensi, maintainer, homepage, dll.
+```
+
+Berguna untuk cek versi tersedia, license, atau dependensi sebelum `bun add`.
+
+---
+
+### `bun why` — Lacak Alasan Package Terinstal
+
+Menjelaskan **mengapa** sebuah package ada di `node_modules` — sebagai dependensi langsung atau transitif dari package lain.
+
+```bash
+bun why react                   # tampilkan rantai dependensi ke react
+```
+
+Sangat berguna saat `node_modules` membengkak dan Anda ingin tahu siapa yang menarik package tertentu.
+
+---
+
+### `bun link` & `bun unlink` — Package Lokal
+
+Menghubungkan package lokal yang sedang dikembangkan ke proyek lain **tanpa publish** ke npm — setara `npm link`.
+
+```bash
+# Di folder package yang dikembangkan:
+cd ./my-local-package
+bun link                        # register package ini secara global
+
+# Di proyek yang memakainya:
+cd ../my-app
+bun link my-local-package       # pakai versi lokal, bukan dari npm
+
+# Putuskan hubungan:
+bun unlink my-local-package
+```
+
+Kapan dipakai: develop library dan test langsung di aplikasi consumer tanpa `npm publish` berulang.
+
+---
+
+### `bun patch` — Patch Package Pihak Ketiga
+
+Memungkinkan Anda mengedit kode di `node_modules` secara permanen — perubahan disimpan sebagai patch file di repo.
+
+```bash
+bun patch react@18.3.1          # ekstrak package ke folder sementer untuk diedit
+# ... edit file di folder yang diberikan ...
+bun patch --commit react@18.3.1 # simpan patch; tercatat di package.json
+```
+
+Kapan dipakai: bug kecil di dependency yang belum di-release fix-nya, atau butuh modifikasi sementara.
+
+---
+
+### `bun publish` — Publish ke npm Registry
+
+Mempublish package Anda ke npm registry (npmjs.com atau registry privat).
+
+```bash
+bun publish                     # publish versi di package.json
+bun publish --dry-run           # simulasi — lihat isi tarball tanpa upload
+bun publish --access public     # wajib untuk scoped package (@org/name) pertama kali
+```
+
+Pastikan sudah login (`npm login` atau token di `.npmrc`) sebelum publish.
+
+---
+
+## `bunx` — Jalankan CLI Package
+
+`bunx` (atau `bun x`) menjalankan executable dari package npm **tanpa instal global** — setara `npx`. Bun akan mengunduh ke cache global jika belum ada, lalu langsung menjalankan.
+
+```bash
+bunx prettier --write .         # format semua file dengan Prettier
+bunx prisma migrate dev         # jalankan Prisma CLI
+bunx create-next-app my-app     # scaffold proyek Next.js
+bunx cowsay "Hello, Bun!"       # contoh package CLI sederhana
+
+bunx --bun vite dev             # jalankan Vite dengan runtime Bun (lebih cepat)
+bunx -p @angular/cli ng new my-app   # binary "ng" dari package @angular/cli
+bunx --no-install eslint .      # gagal jika eslint belum ada — tidak auto-download
+```
+
+Penjelasan flag:
+
+- **`--bun`**: paksa CLI dijalankan dengan Bun, bukan Node — sering lebih cepat.
+- **`-p <package>`**: tentukan package saat nama binary berbeda dari nama package.
+- **`--no-install`**: hanya jalankan jika sudah terinstal — berguna di CI yang ketat.
+
+Kapan dipakai: tool sekali pakai (`create-*`), migrasi database, formatter, atau generator — tanpa mengotori instalasi global.
+
+---
+
+## `bun test` — Test Runner
+
+Bun punya test runner built-in dengan API kompatibel Jest. Otomatis menemukan file `*.test.ts`, `*.spec.ts`, `*.test.js`, atau file di folder `__tests__/`.
+
+### Menjalankan test
+
+```bash
+bun test                        # jalankan semua file test
+bun test auth                   # hanya file yang namanya mengandung "auth"
+bun test foo bar                # beberapa pattern sekaligus
+bun test --test-name-pattern "should login"   # filter berdasarkan nama test (alias: -t)
+bun test --watch                # re-run otomatis saat file berubah
+bun test --bail                 # hentikan suite setelah 1 test gagal
+bun test --bail=3               # hentikan setelah 3 kegagalan
+bun test --timeout 10000        # timeout per test: 10 detik (default 5 detik)
+bun test --pass-with-no-tests   # exit code 0 meski tidak ada file test
+```
+
+- **`--test-name-pattern`**: jalankan hanya test yang namanya cocok regex — fokus ke satu skenario.
+- **`--bail`**: hemat waktu di CI saat ada failure awal yang fatal.
+- **`--watch`**: mode TDD — test jalan ulang setiap save.
+
+### Snapshot & coverage
+
+```bash
+bun test -u                       # update semua snapshot yang berubah (alias: --update-snapshots)
+bun test --update-snapshots
+bun test --coverage               # hitung code coverage
+bun test --coverage-reporter=lcov # output format lcov (untuk Codecov/Coveralls)
+bun test --coverage-dir=coverage  # folder output coverage
+```
+
+- **Snapshot (`-u`)**: saat output test berubah secara disengaja (mis. komponen UI), update file `.snap`.
+- **Coverage**: ukur persentase baris/fungsi/branch yang ter-cover test.
+
+### CI & parallel
+
+```bash
+bun test --shard=1/3              # jalankan shard 1 dari 3 (bagi beban CI)
+bun test --shard=2/3
+bun test --parallel               # jalankan file test secara paralel
+bun test --changed                # hanya test file yang terpengaruh perubahan git
+bun test --changed=main           # bandingkan perubahan terhadap branch main
+bun test --rerun-each=5           # ulang tiap file 5 kali — deteksi flaky test
+bun test --retry=2                # retry otomatis tiap test yang gagal (max 2x)
+bun test --randomize              # acak urutan test — deteksi dependensi tersembunyi
+bun test --seed=12345             # seed tetap untuk reproduksi urutan acak
+```
+
+- **`--shard`**: di CI besar, bagi test ke beberapa job paralel (`1/3`, `2/3`, `3/3`).
+- **`--changed`**: hanya test yang relevan dengan diff — jauh lebih cepat di PR.
+- **`--rerun-each`**: menangkap test yang kadang lulus kadang gagal (race condition).
+
+### Reporter & output
+
+```bash
+bun test --dots                   # output minimal: satu titik per test
+bun test --only-failures          # sembunyikan test yang lulus
+bun test --reporter=junit --reporter-outfile=results.xml  # output XML untuk CI
+bun test --concurrent             # jalankan semua test secara concurrent
+bun test --max-concurrency=10     # batasi maks 10 test concurrent
+```
+
+Contoh file test:
+
+```typescript
+import { test, expect, describe } from "bun:test";
+
+describe("math", () => {
+  test("addition", () => {
+    expect(1 + 1).toBe(2);
+  });
+});
+```
+
+---
+
+## `bun build` — Bundler
+
+`bun build` mentranspile dan membundel TypeScript/JavaScript menjadi output siap deploy — untuk browser, Node.js, runtime Bun, atau binary standalone.
+
+### Build dasar
+
+```bash
+bun build ./index.ts                    # bundle ke stdout
+bun build ./src/index.tsx --outdir=dist # output ke folder dist/
+bun build ./index.ts --outfile=dist/bundle.js  # satu file output
+bun build --target=browser ./app.tsx    # optimasi untuk browser (default)
+bun build --target=node ./server.ts     # optimasi untuk Node.js
+bun build --target=bun ./cli.ts         # optimasi untuk runtime Bun
+```
+
+- **`--target=browser`**: resolve import untuk lingkungan browser, handle `import.meta`.
+- **`--target=node`**: output CommonJS/ESM untuk server Node.
+- **`--target=bun`**: gunakan API native Bun (`Bun.serve`, dll.).
+
+### Production & minify
+
+```bash
+bun build ./index.ts --production       # set NODE_ENV=production + aktifkan minify
+bun build ./index.ts --minify           # aktifkan semua opsi minify sekaligus
+bun build ./index.ts --minify-syntax --minify-whitespace --minify-identifiers
+bun build ./index.ts --keep-names       # pertahankan nama fungsi/kelas saat minify (debugging)
+```
+
+`--production` adalah shortcut untuk build siap deploy — ukuran file lebih kecil, performa lebih baik.
+
+### Format output & code splitting
+
+```bash
+bun build ./index.ts --format=esm       # ECMAScript Modules (default)
+bun build ./index.ts --format=cjs       # CommonJS (require/module.exports)
+bun build ./index.ts --format=iife      # Immediately Invoked Function Expression (browser script tag)
+bun build ./index.ts --splitting        # pisahkan chunk dinamis (dynamic import)
+bun build ./a.ts ./b.ts --outdir=dist   # multi entry point
+```
+
+- **`--splitting`**: hasilkan file terpisah per dynamic `import()` — lazy loading.
+- **Multi entry**: build beberapa halaman/app sekaligus dalam satu perintah.
+
+### External & packages
+
+```bash
+bun build ./index.ts -e react -e react-dom    # jangan bundle react (external)
+bun build ./index.ts --packages=external      # semua node_modules tetap external
+bun build ./index.ts --packages=bundle        # bundle semua dependensi (default)
+```
+
+Gunakan `-e` (external) saat target sudah punya React/Vue di CDN atau di-supply runtime (SSR framework).
+
+### Sourcemap & metadata
+
+```bash
+bun build ./index.ts --sourcemap=linked   # file .map terpisah
+bun build ./index.ts --sourcemap=inline   # sourcemap di dalam bundle
+bun build ./index.ts --sourcemap=external # sourcemap + referensi di bundle
+bun build ./index.ts --metafile=meta.json # analisis ukuran tiap module
+bun build ./index.ts --metafile-md=meta.md  # visualisasi graph (LLM-friendly)
+```
+
+Sourcemap penting untuk debugging production — stack trace menunjuk ke baris TypeScript asli, bukan bundle ter-minify.
+
+### Standalone executable: `--compile`
+
+```bash
+bun build ./cli.ts --compile --outfile=mycli           # binary standalone
+bun build ./cli.ts --compile --target=bun-darwin-arm64 # cross-compile ke macOS ARM
+bun build ./cli.ts --compile --bytecode                # sertakan bytecode cache
+```
+
+<Callout type="info">
+`--compile` menghasilkan binary yang bisa dijalankan **tanpa Bun terinstal** — ideal untuk distribusi CLI tool ke pengguna akhir.
+</Callout>
+
+### Opsi lanjutan
+
+```bash
+bun build ./index.ts --watch            # rebuild otomatis saat file berubah
+bun build ./index.ts --no-bundle        # transpile saja per file, tanpa bundling
+bun build ./index.ts --public-path=/assets/  # prefix URL untuk asset di bundle
+bun build ./index.ts --env=PUBLIC_*       # inline env var yang diawali PUBLIC_
+bun build ./index.ts --react-fast-refresh # aktifkan React Fast Refresh transform
+bun build ./index.ts --banner="use client"  # tambahkan banner di atas output (RSC)
+```
+
+---
+
+## `bun init` — Inisialisasi Proyek Baru
+
+Membuat struktur proyek Bun dari nol — menghasilkan `package.json`, `tsconfig.json`, dan `bunfig.toml`.
+
+```bash
+bun init                          # mode interaktif — tanya nama, entry file, dll.
+bun init --yes                    # terima semua default tanpa prompt (alias: -y)
+bun init -y
+bun init --minimal                # hanya buat type definitions, tanpa boilerplate
+bun init --react                  # scaffold proyek React dasar
+bun init --react=tailwind my-app  # React + Tailwind CSS
+bun init --react=shadcn my-app    # React + Tailwind + shadcn/ui
+```
+
+- **`--yes`**: cocok untuk scripting/automation — tidak ada pertanyaan interaktif.
+- **`--react=tailwind`**: langsung siap styling modern tanpa setup manual PostCSS.
+
+---
+
+## `bun create` — Buat Proyek dari Template
+
+Scaffold proyek dari template npm, GitHub repo, atau file React component.
+
+```bash
+bun create next-app my-app        # jalankan create-next-app via bunx
+bun create svelte my-app          # scaffold SvelteKit
+bun create elysia my-api          # scaffold API dengan Elysia framework
+bun create github:org/repo my-app # unduh repo GitHub sebagai template
+bun create ./MyComponent.tsx      # ubah satu komponen React jadi dev environment
+```
+
+Cara kerja `bun create <template>`: menjalankan `bunx create-<template>` di balik layar. Template dari GitHub diunduh langsung tanpa perlu `git clone` manual.
+
+---
+
+## `bun pm` — Utilitas Package Manager
+
+Subcommand tambahan untuk operasi low-level pada package manager Bun.
+
+```bash
+bun pm ls                         # daftar semua package terinstal (mirip npm ls)
+bun pm cache                      # tampilkan lokasi dan ukuran cache
+bun pm cache rm                   # hapus seluruh cache unduhan
+bun pm hash                       # hash dari lockfile biner
+bun pm hash-string                # hash dari lockfile text
+bun pm bin                        # path folder global bin (~/.bun/bin)
+bun pm migrate                    # konversi package-lock.json / yarn.lock → bun.lock
+bun pm pack                       # buat tarball .tgz dari package saat ini
+bun pm trust <pkg>                # tambah package ke trustedDependencies
+bun pm untrusted                  # daftar package yang belum di-trust
+```
+
+Migrasi dari npm:
+
+```bash
+rm -rf node_modules
+bun pm migrate                    # baca package-lock.json, buat bun.lock
+bun install
+```
+
+---
+
+## `bun repl` — Interactive REPL
+
+Membuka sesi Read-Eval-Print Loop — ketik JavaScript/TypeScript langsung di terminal dan lihat hasilnya langsung.
+
+```bash
+bun repl
+```
+
+Berguna untuk eksplorasi API, prototyping cepat, atau debug ekspresi tanpa buat file. Keluar dengan `Ctrl+D` atau `.exit`.
+
+---
+
+## `bun exec` — Jalankan Shell Script
+
+Menjalankan shell script (`.sh`) langsung dengan interpreter Bun — alternatif cepat untuk script sederhana.
+
+```bash
+bun exec ./deploy.sh
+```
+
+---
+
+## Debugging & Profiling
+
+Flag ini menempel pada perintah `bun run` atau `bun` langsung untuk analisis performa dan debugging.
+
+```bash
+bun --inspect server.ts           # buka port debugger (default 6499)
+bun --inspect-wait server.ts      # tunggu debugger terhubung sebelum eksekusi
+bun --inspect-brk server.ts       # pause di baris pertama — untuk set breakpoint awal
+bun --cpu-prof server.ts          # tulis CPU profile saat proses selesai
+bun --cpu-prof-md server.ts       # CPU profile format markdown (mudah dibaca AI/CLI)
+bun --heap-prof server.ts         # tulis heap snapshot (.heapsnapshot) saat exit
+```
+
+Cara pakai debugger:
+1. Jalankan dengan `--inspect`.
+2. Buka Chrome → `chrome://inspect` → klik "inspect" pada target Bun.
+3. Atau attach dari VS Code dengan konfigurasi launch `"type": "bun"`.
+
+---
+
+## `bun upgrade` — Perbarui Bun Itu Sendiri
+
+Memperbarui binary Bun ke versi terbaru — bukan dependensi proyek, tapi runtime Bun-nya sendiri.
+
+```bash
+bun upgrade                       # upgrade ke versi stable terbaru
+bun upgrade --canary              # upgrade ke build canary (fitur terbaru, kurang stabil)
+```
+
+Jalankan berkala untuk mendapatkan perbaikan bug dan fitur baru. Canary cocok untuk mencoba fitur bleeding-edge.
+
+---
+
+## Konfigurasi `bunfig.toml`
+
+File konfigurasi opsional di root proyek. Bun membacanya otomatis saat menjalankan perintah apapun di folder tersebut.
+
+```toml
+# bunfig.toml
+
+[install]
+exact = true                      # simpan versi exact (tanpa ^) di package.json
+registry = "https://registry.npmjs.org"
+cache = true
+linker = "hoisted"                # "hoisted" atau "isolated"
+minimumReleaseAge = 86400         # tolak package yang dirilis < 24 jam (keamanan)
+
+[install.scopes]
+"@myorg" = { token = "ghp_...", url = "https://npm.pkg.github.com" }
+
+[test]
+preload = ["./test-setup.ts"]     # load sebelum semua test
+coverage = true                   # aktifkan coverage secara default
+coverageReporter = ["text", "lcov"]
+
+[run]
+shell = "bun"                     # gunakan Bun shell untuk npm scripts
+```
+
+Load config dari path custom:
+
+```bash
+bun -c ./config/bunfig.toml install
+bun --config=./bunfig.toml test
+```
+
+---
+
+## Workspaces (Monorepo)
+
+Monorepo = satu repository berisi banyak package terkait. Bun mendukung field `"workspaces"` di `package.json` — mirip npm/yarn workspaces.
+
+Struktur `package.json` root:
+
+```json
+{
+  "name": "my-monorepo",
+  "workspaces": ["packages/*", "apps/*"]
+}
+```
+
+Perintah workspace:
+
+```bash
+bun install                       # install dependensi semua workspace sekaligus
+bun add zod --filter @myorg/utils # tambah zod hanya ke package @myorg/utils
+bun run --filter @myorg/web dev   # jalankan dev hanya di package web
+bun run --filter './apps/*' build # build semua app di folder apps/
+bun run --parallel --filter '*' lint test  # lint + test paralel di semua package
+```
+
+Keuntungan monorepo dengan Bun: satu `bun install` di root, dependensi di-dedupe, dan script bisa diorkestrasi dengan `--filter` + `--parallel`.
+
+---
+
+## Environment Variables & Flags Global
+
+Variabel dan flag yang berlaku lintas perintah Bun:
+
+| Variabel / Flag | Fungsi |
+| --- | --- |
+| `BUN_INSTALL` | Path folder instalasi Bun (default `~/.bun`) |
+| `NODE_ENV` | Environment: `development` atau `production` |
+| `--env-file=<path>` | Load variabel dari file `.env` custom |
+| `--no-env-file` | Nonaktifkan auto-load `.env` |
+| `--prefer-offline` | Resolve package dari cache disk, jangan cek registry |
+| `--prefer-latest` | Selalu ambil versi terbaru dari npm |
+| `--no-install` | Nonaktifkan auto-install saat `bun run` |
+| `-i` / `--install=fallback` | Auto-install package yang hilang saat runtime |
+
+Contoh penggunaan:
+
+```bash
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0   # nonaktifkan cache transpiler (debug)
+bun --env-file=.env.production run start     # load env production
+bun --prefer-offline run dev                 # kerja offline, pakai cache
+```
+
+---
+
+## Perbandingan dengan npm
+
+| Tugas | npm | Bun |
+| --- | --- | --- |
+| Instal dependensi | `npm install` | `bun install` |
+| Tambah package | `npm install pkg` | `bun add pkg` |
+| Hapus package | `npm uninstall pkg` | `bun remove pkg` |
+| Jalankan script | `npm run dev` | `bun run dev` / `bun dev` |
+| Jalankan CLI | `npx pkg` | `bunx pkg` |
+| Test | `npm test` (via script) | `bun test` (built-in) |
+| Bundle | butuh webpack/esbuild | `bun build` (built-in) |
+| Jalankan TS | butuh ts-node/tsx | `bun file.ts` (native) |
+
+<Callout type="warning">
+Tidak semua package Node.js 100% kompatibel dengan Bun — terutama native addon kompleks. Uji proyek Anda sebelum migrasi penuh dari Node.js.
+</Callout>
+
+---
+
+## Troubleshooting Umum
+
+### Lockfile conflict di CI
+
+```bash
+bun install --frozen-lockfile
+# pastikan bun.lock (atau bun.lockb) di-commit ke git
+```
+
+Jika CI gagal dengan pesan lockfile out of date, jalankan `bun install` lokal dan commit lockfile yang diperbarui.
+
+### Script masih pakai Node.js
+
+```bash
+bun run --bun dev
+```
+
+Beberapa framework mendeteksi `node` di PATH. Flag `--bun` memastikan runtime Bun yang dipakai.
+
+### Dependensi tidak ditemukan saat run
+
+```bash
+bun install                       # install ulang semua dependensi
+bun run -i index.ts               # auto-install package yang hilang saat runtime
+```
+
+### Bersihkan cache dan reinstall
+
+```bash
+bun pm cache rm
+rm -rf node_modules bun.lock
+bun install
+```
+
+### Konversi lockfile npm → bun
+
+```bash
+rm -rf node_modules
+bun pm migrate
+bun install
+```
+
+---
+
+## Workflow Harian Developer
+
+### Setup proyek baru
+
+```bash
+mkdir my-app && cd my-app
+bun init --react=tailwind         # scaffold React + Tailwind
+bun add hono                      # tambah framework backend
+bun dev                           # jalankan dev server
+```
+
+### Rutinitas development
+
+```bash
+bun install                       # sync dependensi setelah pull
+bun run dev                       # dev server
+bun test --watch                  # test mode TDD
+bun run lint                      # cek code style
+bun run build                     # build production
+```
+
+### Sebelum commit / CI
+
+```bash
+bun test --coverage               # pastikan coverage memadai
+bun run build                     # pastikan build tidak error
+bun audit                         # cek kerentanan keamanan
+bun outdated                      # review package yang perlu diupdate
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc` untuk mempercepat ketikan:
+
+```bash
+alias bi='bun install'
+alias ba='bun add'
+alias br='bun remove'
+alias bd='bun run dev'
+alias bt='bun test'
+alias btw='bun test --watch'
+alias bb='bun run build'
+alias bx='bunx'
+alias bu='bun update'
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Runtime** | `bun file.ts`, `bun run`, `--watch`, `--hot` |
+| **Package** | `install`, `add`, `remove`, `update`, `outdated` |
+| **CLI tool** | `bunx` |
+| **Test** | `test`, `--coverage`, `--watch`, `--shard` |
+| **Build** | `build`, `--target`, `--compile`, `--minify` |
+| **Proyek** | `init`, `create` |
+| **Workspace** | `--filter`, `--workspaces`, `--parallel` |
+| **Debug** | `--inspect`, `--cpu-prof`, `--heap-prof` |
+| **Maint** | `upgrade`, `pm cache`, `audit`, `patch` |
+
+---
+
+## Penutup
+
+Empat perintah inti Bun: **`bun install`**, **`bun run`**, **`bun test`**, dan **`bun build`**. Dengan keempatnya, Anda sudah menutup sebagian besar workflow JavaScript/TypeScript modern — tanpa toolchain terpisah.
+
+Langkah berikutnya: eksplorasi **`bunx`** untuk CLI tool, **`--filter`** untuk monorepo, dan **`bun build --compile`** untuk distribusi binary. Bun terus berkembang cepat — gunakan `bun <command> --help` dan [dokumentasi resmi](https://bun.com/docs) sebagai referensi terbaru.

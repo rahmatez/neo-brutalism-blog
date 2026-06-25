@@ -1,0 +1,910 @@
+---
+title: "Perintah Terminal Mac: Navigasi & Manajemen File"
+description: "Panduan lengkap perintah command line di macOS untuk berpindah direktori, melihat isi folder, membuat, menyalin, memindahkan, dan mengelola file lewat Terminal."
+date: "2025-06-24"
+category: terminal
+tags: ["macos", "terminal", "bash", "cli", "tutorial"]
+featured: true
+---
+
+Terminal di macOS memberi akses langsung ke **shell** (biasanya `zsh` sejak macOS Catalina). Dengan perintah yang tepat, Anda bisa menavigasi seluruh sistem file, mengelola folder, dan mengotomatiskan pekerjaan tanpa menyentuh Finder.
+
+<Callout type="tip">
+Buka Terminal lewat **Spotlight** (`Cmd + Space`, ketik "Terminal") atau lewat **Applications → Utilities → Terminal**.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami tiga hal ini:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Working directory** | Folder tempat Anda berada saat ini di Terminal |
+| **Path absolut** | Jalur penuh dari root, misalnya `/Users/nama/Documents` |
+| **Path relatif** | Jalur dari posisi saat ini, misalnya `../Downloads` |
+
+Di Mac, home directory Anda biasanya berada di `/Users/username` dan bisa diakses dengan tilde (`~`). Shell mengekspansi `~` ke path home user yang sedang login — jadi `cd ~/Documents` selalu mengarah ke folder Documents milik Anda, bukan user lain.
+
+```bash
+# Lihat user & home directory
+whoami
+echo $HOME
+echo ~
+```
+
+- **`whoami`**: menampilkan username yang sedang login — berguna untuk memastikan Anda tidak sedang menjalankan perintah sebagai user yang salah.
+- **`echo $HOME`**: mencetak variabel lingkungan `HOME` yang berisi path absolut ke home directory.
+- **`echo ~`**: shell mengekspansi tilde ke path yang sama dengan `$HOME`.
+
+Kapan dipakai: saat pertama kali membuka Terminal, atau saat script perlu tahu lokasi home directory tanpa hardcode username.
+
+---
+
+## Navigasi Direktori
+
+Bagian ini mencakup perintah untuk mengetahui posisi Anda di filesystem, berpindah antar folder, melihat isi direktori, dan membuka folder di Finder.
+
+### `pwd` — Print Working Directory
+
+`pwd` (print working directory) menampilkan **path absolut** dari folder tempat Anda berada saat ini. Tidak ada flag yang sering dipakai — cukup ketik `pwd` dan tekan Enter.
+
+Kapan dipakai: sebelum menjalankan `rm`, `mv`, atau `cp` yang berbahaya — memastikan Anda berada di folder yang benar. Juga berguna saat dokumentasi atau script membutuhkan path lengkap.
+
+```bash
+pwd
+# /Users/rahmatez
+```
+
+- Output selalu path absolut, dimulai dari `/` (root filesystem).
+- Di macOS, `pwd` mengikuti symlink — jika Anda `cd` ke symlink, `pwd` menampilkan path fisik, bukan path symlink.
+
+### `cd` — Change Directory
+
+`cd` (change directory) adalah perintah **paling sering dipakai** di Terminal. Fungsinya memindahkan working directory Anda ke folder lain. Tanpa argumen, `cd` mengembalikan Anda ke home directory.
+
+Kapan dipakai: setiap kali Anda ingin masuk ke folder proyek, naik ke folder induk, atau kembali ke lokasi sebelumnya.
+
+```bash
+cd Documents          # masuk ke folder Documents (relatif)
+cd /Users/rahmatez    # path absolut
+cd ~                  # ke home directory
+cd                    # sama dengan cd ~ (kembali ke home)
+cd ..                 # naik satu level ke folder induk
+cd ../..              # naik dua level
+cd -                  # kembali ke direktori sebelumnya
+cd /                  # ke root filesystem
+```
+
+- **Tanpa argumen / `cd ~`**: kembali ke home directory — shortcut cepat dari folder mana pun.
+- **`cd ..`**: naik satu level — `../..` naik dua level, dan seterusnya.
+- **`cd -`**: toggle ke direktori sebelumnya (seperti tombol "back") — berguna saat bolak-balik antara dua folder.
+- **Path relatif vs absolut**: `cd Documents` relatif dari posisi saat ini; `cd /Users/nama/Documents` absolut dari root.
+
+<Callout type="warning">
+Nama folder yang mengandung spasi harus dibungkus tanda kutip: `cd "My Projects"` atau di-escape: `cd My\ Projects`.
+</Callout>
+
+### `ls` — List Directory
+
+`ls` (list) menampilkan isi folder — file, subfolder, dan symlink. Secara default hanya menampilkan item yang tidak tersembunyi (nama yang tidak diawali titik `.`).
+
+Kapan dipakai: setiap kali Anda ingin melihat apa saja yang ada di folder saat ini — sebelum copy, delete, atau navigasi lebih dalam.
+
+```bash
+ls                    # daftar file & folder
+ls -l                 # format panjang (izin, ukuran, tanggal)
+ls -la                # termasuk file tersembunyi (yang diawali .)
+ls -lah               # -l + -a + ukuran human-readable
+ls -lt                # urut berdasarkan waktu modifikasi (terbaru dulu)
+ls -ltr               # urut waktu (terlama dulu)
+ls -lh                # ukuran file dalam KB/MB/GB
+ls -R                 # rekursif — semua subfolder
+ls -d */              # hanya tampilkan folder
+ls -1                 # satu item per baris
+ls -F                 # tambahkan / di akhir nama folder
+ls -@                 # tampilkan extended attributes (khusus Mac)
+ls -l@                # detail + extended attributes
+```
+
+Penjelasan flag penting:
+
+- **`-l` (long format)**: tampilkan izin, jumlah link, pemilik, grup, ukuran, tanggal modifikasi, dan nama — format standar untuk inspeksi detail.
+- **`-a` (all)**: sertakan file tersembunyi seperti `.zshrc`, `.git`, `.env` — wajib saat mencari file konfigurasi.
+- **`-h` (human-readable)**: ukuran dalam KB/MB/GB, bukan byte mentah — gabungkan dengan `-l` menjadi `-lh` atau `-lah`.
+- **`-t`**: urut berdasarkan waktu modifikasi, terbaru di atas — tambahkan `-r` untuk terbalik (terlama dulu).
+- **`-R` (recursive)**: tampilkan isi semua subfolder — hati-hati di folder besar seperti home directory.
+- **`-d */`**: hanya tampilkan direktori di level saat ini, tanpa isinya.
+- **`-1` (satu)**: satu item per baris — berguna untuk pipe ke perintah lain.
+- **`-F` (classify)**: tambahkan `/` di akhir folder, `*` di executable, `@` di symlink.
+- **`-@`**: tampilkan extended attributes macOS (xattr) — khusus Mac, berguna untuk debug metadata file.
+
+Kombinasi yang sering dipakai:
+
+```bash
+ls -lahF ~/Downloads
+ls -lt | head         # 10 file terbaru di folder ini
+```
+
+- **`ls -lahF`**: kombinasi paling populer — detail lengkap, file tersembunyi, ukuran readable, dan indikator tipe file.
+- **`ls -lt | head`**: 10 file terbaru — pipe output ke `head` untuk membatasi baris.
+
+### `pushd`, `popd`, dan `dirs` — Tumpukan Direktori
+
+`pushd` dan `popd` mengelola **tumpukan (stack) direktori** — seperti history navigasi yang bisa di-push dan pop. `dirs` menampilkan isi tumpukan.
+
+Kapan dipakai: saat sering bolak-balik antar beberapa folder dalam satu sesi — misalnya antara folder source code dan folder log, tanpa harus mengetik path panjang berulang kali.
+
+```bash
+pushd ~/Projects      # simpan lokasi saat ini, lalu pindah
+pushd ~/Documents     # simpan lagi, pindah lagi
+dirs                  # lihat tumpukan direktori
+popd                  # kembali ke direktori sebelumnya di tumpukan
+popd
+```
+
+- **`pushd <path>`**: simpan working directory saat ini ke tumpukan, lalu pindah ke `<path>`.
+- **`popd`**: keluarkan direktori teratas dari tumpukan dan pindah ke sana.
+- **`dirs`**: tampilkan semua direktori di tumpukan — direktori aktif selalu di posisi teratas.
+- **`dirs -v`**: tampilkan dengan nomor urut — bisa dipakai dengan `cd ~n` untuk langsung ke entri ke-n.
+
+### `tree` — Tampilan Hierarki
+
+`tree` menampilkan struktur folder dalam bentuk pohon hierarkis — lebih mudah dibaca daripada `ls -R` untuk proyek dengan banyak subfolder.
+
+Kapan dipakai: saat ingin melihat struktur proyek secara visual, dokumentasi folder, atau audit isi direktori.
+
+Tidak terinstal secara default. Pasang lewat Homebrew:
+
+```bash
+brew install tree
+tree                  # tampilkan struktur folder
+tree -L 2             # batasi kedalaman 2 level
+tree -a               # sertakan file tersembunyi
+tree -d               # hanya folder
+```
+
+- **`-L <n>`**: batasi kedalaman tampilan ke n level — mencegah output meledak di folder besar.
+- **`-a`**: sertakan file dan folder tersembunyi.
+- **`-d`**: hanya tampilkan direktori, abaikan file.
+- **`--dirsfirst`**: tampilkan folder sebelum file di setiap level.
+
+### `open` — Buka di Finder atau Aplikasi Default
+
+`open` adalah perintah **khas macOS** untuk membuka file, folder, atau URL di aplikasi GUI default — setara double-click di Finder.
+
+Kapan dipakai: saat ingin beralih dari Terminal ke GUI — buka folder di Finder, edit file di TextEdit, atau buka proyek di VS Code tanpa keluar dari shell.
+
+```bash
+open .                # buka folder saat ini di Finder
+open ~/Documents      # buka folder Documents
+open file.txt         # buka dengan aplikasi default
+open -a "Visual Studio Code" .   # buka folder di VS Code
+open -R file.txt      # tampilkan file di Finder (Reveal)
+open -e file.txt      # buka di TextEdit
+```
+
+- **`open .`**: buka working directory saat ini di Finder — shortcut paling sering dipakai.
+- **`-a "App Name"`**: paksa buka dengan aplikasi tertentu — nama harus persis seperti di `/Applications`.
+- **`-R` (Reveal)**: tampilkan file di Finder dan sorot — berguna setelah membuat file lewat Terminal.
+- **`-e`**: buka di TextEdit — shortcut untuk file teks sederhana.
+- **`-t`**: buka di aplikasi default untuk tipe file tersebut.
+
+---
+
+## Melihat & Membaca File
+
+Perintah di bagian ini untuk menampilkan, membaca, dan menganalisis isi file tanpa membuka aplikasi GUI.
+
+### `cat` — Tampilkan Seluruh Isi File
+
+`cat` (concatenate) membaca file dan mencetak seluruh isinya ke terminal. Cocok untuk file kecil; untuk file besar gunakan `less`.
+
+Kapan dipakai: melihat isi file konfigurasi kecil, menggabungkan beberapa file, atau pipe isi file ke perintah lain.
+
+```bash
+cat file.txt
+cat file1.txt file2.txt    # gabungkan beberapa file
+cat -n file.txt            # dengan nomor baris
+```
+
+- **Beberapa argumen**: `cat` membaca file secara berurutan dan menggabungkan output — setara `type` di Windows.
+- **`-n`**: tambahkan nomor baris di setiap baris output.
+- **`-b`**: nomor baris hanya untuk baris non-kosong.
+- **`-A`**: tampilkan karakter tersembunyi (tab sebagai `^I`, akhir baris sebagai `$`) — berguna untuk debug format file.
+
+### `less` dan `more` — Baca File Panjang
+
+`less` dan `more` adalah **pager** — program untuk membaca file panjang secara interaktif dengan scroll. `less` lebih modern dan kaya fitur; `more` lebih sederhana.
+
+Kapan dipakai: membaca log panjang, file konfigurasi besar, atau output perintah yang panjang (via pipe).
+
+```bash
+less file.log              # scroll interaktif (q untuk keluar)
+less +G file.log           # langsung ke akhir file
+more file.log              # pager sederhana (kurang fitur dari less)
+```
+
+Navigasi di `less`:
+
+- `Space` — halaman berikutnya
+- `b` — halaman sebelumnya
+- `/teks` — cari ke bawah
+- `?teks` — cari ke atas
+- `g` — ke awal file
+- `G` — ke akhir file
+- `q` — keluar dari less
+
+- **`less +G`**: buka file langsung di akhir — sangat berguna untuk log yang baru ditambahkan.
+- **`less +/pattern`**: buka file dan langsung cari pattern tertentu.
+- **`less -N`**: tampilkan nomor baris di sisi kiri.
+- **`less -S`**: jangan wrap baris panjang — scroll horizontal untuk melihat baris utuh.
+
+### `head` dan `tail` — Awal & Akhir File
+
+`head` menampilkan baris **awal** file; `tail` menampilkan baris **akhir**. Keduanya default 10 baris.
+
+Kapan dipakai: `head` untuk melihat header CSV atau awal log; `tail` untuk melihat error terbaru di log; `tail -f` untuk monitoring log real-time.
+
+```bash
+head file.txt              # 10 baris pertama
+head -n 20 file.txt        # 20 baris pertama
+tail file.txt              # 10 baris terakhir
+tail -n 50 file.log        # 50 baris terakhir
+tail -f file.log           # ikuti log secara real-time (live)
+```
+
+- **`-n <num>`**: tentukan jumlah baris — `head -n 5` atau `head -5`.
+- **`tail -f` (follow)**: terus membaca file saat ada baris baru — standar untuk monitoring log server atau build.
+- **`tail -F`**: seperti `-f`, tapi tetap follow meski file di-rotate atau di-rename (mis. logrotate).
+- **`head -c 100`**: tampilkan 100 byte pertama, bukan baris.
+
+### `wc` — Hitung Baris, Kata, Byte
+
+`wc` (word count) menghitung jumlah baris, kata, dan byte dalam file atau input.
+
+Kapan dipakai: menghitung jumlah baris kode, kata dalam dokumen, atau ukuran file dalam byte — sering dipakai dengan pipe.
+
+```bash
+wc file.txt                # baris, kata, byte
+wc -l *.md                 # hitung baris semua file .md
+wc -w file.txt             # hanya kata
+wc -c file.txt             # hanya byte
+```
+
+- **`-l` (lines)**: hanya hitung baris.
+- **`-w` (words)**: hanya hitung kata (dipisah whitespace).
+- **`-c` (bytes)**: hanya hitung byte — ukuran file dalam karakter ASCII.
+- **`-m` (chars)**: hitung karakter — berbeda dari byte untuk teks multibyte/Unicode.
+
+### `file` — Deteksi Tipe File
+
+`file` menganalisis magic bytes dan metadata untuk menentukan **tipe file sebenarnya** — bukan hanya dari ekstensi.
+
+Kapan dipakai: saat ekstensi file menyesatkan, verifikasi format sebelum memproses, atau debug file yang corrupt.
+
+```bash
+file document.pdf
+file image.png
+file script.sh
+```
+
+- Output menunjukkan tipe MIME dan detail — misalnya "PNG image data, 1920 x 1080".
+- **`file -I`**: tampilkan MIME type saja (mis. `image/png`).
+- **`file -b`**: brief mode — tanpa nama file di output, hanya tipe.
+
+### `stat` — Metadata File
+
+`stat` menampilkan metadata detail file: ukuran, izin, pemilik, timestamp akses/modifikasi/perubahan, dan inode.
+
+Kapan dipakai: inspeksi timestamp presisi, debug izin file, atau script yang butuh metadata tanpa parsing `ls -l`.
+
+```bash
+stat file.txt
+stat -f "%Sm %N" -t "%Y-%m-%d %H:%M" *   # format khusus Mac
+```
+
+- **`stat -f`**: format output kustom (BSD/macOS) — berbeda dari Linux `stat --format`.
+- **`%Sm`**: waktu modifikasi; **`%N`**: nama file; **`-t`**: format tanggal.
+- Di macOS, `stat` menggunakan sintaks BSD — jangan copy-paste contoh Linux `--format` tanpa adaptasi.
+
+---
+
+## Membuat & Mengubah File
+
+Perintah untuk membuat file kosong, folder baru, dan mengedit file lewat editor terminal atau GUI.
+
+### `touch` — Buat File Kosong atau Update Timestamp
+
+`touch` membuat file kosong jika belum ada, atau memperbarui **timestamp modifikasi** file yang sudah ada tanpa mengubah isinya.
+
+Kapan dipakai: membuat placeholder file, memicu rebuild (Makefile bergantung timestamp), atau memperbarui waktu modifikasi tanpa edit isi.
+
+```bash
+touch notes.txt            # buat file kosong (jika belum ada)
+touch -c old.txt           # tidak buat file baru jika tidak ada
+touch file1.txt file2.txt  # beberapa file sekaligus
+touch -t 202501011200 file.txt   # set waktu modifikasi manual
+```
+
+- **`-c` (no-create)**: jangan buat file baru — hanya update timestamp file yang sudah ada.
+- **`-t [[CC]YY]MMDDhhmm[.ss]`**: set waktu modifikasi manual — format `202501011200` = 1 Jan 2025, 12:00.
+- **`-a`**: hanya update waktu akses (access time), bukan modifikasi.
+- **`-m`**: hanya update waktu modifikasi.
+
+### `mkdir` — Buat Folder
+
+`mkdir` (make directory) membuat satu atau beberapa folder baru.
+
+Kapan dipakai: membuat struktur folder proyek, folder backup, atau rantai direktori bertingkat.
+
+```bash
+mkdir projects             # satu folder
+mkdir folder1 folder2      # beberapa folder
+mkdir -p src/components/ui   # buat rantai folder (parent otomatis)
+mkdir -p backups/2025/06
+```
+
+- **`-p` (parents)**: buat folder induk yang belum ada — `mkdir -p a/b/c` membuat `a`, `a/b`, dan `a/b/c` sekaligus. Tanpa `-p`, perintah gagal jika parent belum ada.
+- **`-v` (verbose)**: tampilkan setiap folder yang dibuat — berguna di script.
+- **`-m 755`**: set izin folder saat dibuat (opsional).
+
+### `nano`, `vim`, dan editor lain
+
+Editor teks di Terminal untuk membuat dan mengubah file langsung dari shell.
+
+Kapan dipakai: edit cepat file konfigurasi, `.zshrc`, atau file teks tanpa membuka aplikasi GUI.
+
+```bash
+nano file.txt              # editor terminal sederhana
+vim file.txt               # editor modal (perlu belajar dulu)
+code .                     # buka folder di VS Code (jika terinstal)
+```
+
+- **`nano`**: paling ramah pemula — shortcut di bawah (`Ctrl+O` simpan, `Ctrl+X` keluar).
+- **`vim`**: powerful tapi punya kurva belajar — mode Normal, Insert, Visual.
+- **`code .`**: buka folder saat ini di VS Code — butuh `code` di PATH (install "Shell Command" dari VS Code).
+
+---
+
+## Menyalin, Memindahkan, Menghapus
+
+Operasi dasar manajemen file — copy, move/rename, delete, dan alternatif aman untuk menghapus.
+
+### `cp` — Copy
+
+`cp` (copy) menyalin file atau folder ke lokasi baru. Untuk folder, wajib pakai flag rekursif.
+
+Kapan dipakai: backup file, duplikasi folder proyek, atau menyalin file ke lokasi lain tanpa menghapus aslinya.
+
+```bash
+cp file.txt backup.txt           # salin file
+cp file.txt ~/Documents/         # salin ke folder lain
+cp -r folder/ folder-backup/     # salin folder (rekursif)
+cp -i file.txt dest.txt          # konfirmasi jika akan menimpa
+cp -v file.txt dest.txt          # verbose — tampilkan proses
+cp -a source/ dest/              # salin dengan atribut & symlink (archive mode)
+cp -n file.txt dest.txt          # jangan timpa file yang sudah ada
+```
+
+Penjelasan flag penting:
+
+- **`-r` / `-R` (recursive)**: wajib untuk menyalin folder beserta seluruh isinya.
+- **`-i` (interactive)**: tanya konfirmasi sebelum menimpa file yang sudah ada — safety net penting.
+- **`-v` (verbose)**: tampilkan setiap file yang disalin — berguna untuk audit atau debug.
+- **`-a` (archive)**: salin rekursif sambil mempertahankan izin, timestamp, symlink, dan atribut — setara `cp -rp`. Pilihan terbaik untuk backup folder.
+- **`-n` (no-clobber)**: jangan timpa file destinasi yang sudah ada — aman untuk script idempotent.
+- **`-u` (update)**: hanya salin jika source lebih baru dari destinasi.
+- **`-p`**: pertahankan atribut (izin, ownership, timestamp) — bagian dari `-a`.
+
+### `mv` — Move / Rename
+
+`mv` (move) memindahkan file/folder ke lokasi lain, atau **rename** jika destinasi di folder yang sama.
+
+Kapan dipakai: rename file, reorganisasi folder, atau memindahkan file ke lokasi baru. Lebih cepat dari copy+delete karena hanya mengubah pointer di filesystem (untuk file di volume yang sama).
+
+```bash
+mv old-name.txt new-name.txt     # rename file
+mv file.txt ~/Documents/         # pindahkan file
+mv folder/ ~/Archive/            # pindahkan folder
+mv -i file.txt existing.txt      # konfirmasi sebelum timpa
+mv -n file.txt dest.txt          # jangan timpa
+```
+
+- **Rename vs move**: `mv a.txt b.txt` di folder sama = rename; `mv a.txt ~/Docs/` = pindah.
+- **`-i`**: konfirmasi sebelum menimpa file destinasi.
+- **`-n`**: jangan timpa file yang sudah ada di destinasi.
+- **`-v`**: verbose — tampilkan setiap operasi move.
+- **`-u`**: hanya pindah jika source lebih baru atau destinasi belum ada.
+
+### `rm` — Remove (Hapus Permanen!)
+
+`rm` (remove) menghapus file atau folder **secara permanen** — tidak masuk Trash, tidak bisa di-undo.
+
+Kapan dipakai: membersihkan file sementara, menghapus build artifact, atau menghapus folder yang sudah tidak diperlukan. **Selalu double-check path sebelum menjalankan.**
+
+```bash
+rm file.txt                      # hapus file
+rm -i file.txt                   # konfirmasi dulu
+rm -r folder/                    # hapus folder beserta isinya
+rm -rf folder/                   # paksa hapus tanpa konfirmasi
+rm -d empty-folder/              # hapus folder kosong
+```
+
+Penjelasan flag penting:
+
+- **`-i` (interactive)**: tanya konfirmasi untuk setiap file — sangat disarankan saat belajar.
+- **`-r` / `-R` (recursive)**: hapus folder beserta seluruh isinya — wajib untuk folder non-kosong.
+- **`-f` (force)**: jangan tanya, abaikan file tidak ada — kombinasi `-rf` sangat berbahaya.
+- **`-d`**: hapus folder kosong saja (tanpa `-r`).
+- **`-v`**: tampilkan setiap file yang dihapus.
+
+<Callout type="warning">
+`rm -rf` **tidak bisa di-undo**. Tidak ada Recycle Bin di Terminal. Selalu double-check path sebelum menjalankannya — terutama `rm -rf ~/something` yang bisa salah ketik.
+</Callout>
+
+### `trash` — Alternatif Aman (opsional)
+
+macOS tidak punya perintah `trash` bawaan di shell. Package Homebrew `trash` memindahkan file ke **Trash macOS** — bisa dipulihkan lewat Finder.
+
+Kapan dipakai: sebagai pengganti `rm` yang lebih aman, terutama saat belum yakin ingin menghapus permanen.
+
+```bash
+brew install trash
+trash file.txt                   # pindahkan ke Trash, bisa dipulihkan
+trash -l                         # lihat isi Trash
+trash -e                         # kosongkan Trash
+```
+
+- **`trash <file>`**: pindah ke `~/.Trash` — setara drag ke Trash di Finder.
+- **`trash -l`**: list isi Trash dari command line.
+- **`trash -e`**: empty Trash — setara "Empty Trash" di Finder.
+
+### `ln` — Buat Link
+
+`ln` (link) membuat **hard link** atau **symbolic link** (symlink) ke file/folder lain.
+
+Kapan dipakai: symlink untuk shortcut ke file di lokasi lain, alias konfigurasi, atau link library — hard link jarang dipakai sehari-hari.
+
+```bash
+ln -s /path/to/original link-name    # symbolic link (shortcut)
+ln file.txt hardlink.txt             # hard link
+ls -la                               # lihat symlink (panah ->)
+readlink link-name                   # lihat target symlink
+```
+
+- **`ln -s` (symbolic)**: buat shortcut yang menunjuk ke path lain — bisa menyeberangi filesystem, bisa broken jika target dihapus.
+- **`ln` tanpa `-s` (hard link)**: dua nama untuk file fisik yang sama — tidak bisa untuk folder, tidak bisa cross-filesystem.
+- **`readlink`**: tampilkan target symlink — `readlink -f` untuk resolve path absolut (Linux; di Mac pakai `greadlink` dari coreutils).
+
+---
+
+## Pencarian File & Isi
+
+Perintah untuk menemukan file berdasarkan nama, metadata, atau mencari teks di dalam file.
+
+### `find` — Cari File Berdasarkan Nama, Tipe, Ukuran
+
+`find` adalah perintah pencarian file paling powerful di Unix — mencari berdasarkan nama, tipe, ukuran, tanggal modifikasi, izin, dan lainnya.
+
+Kapan dipakai: mencari file `.log` lama, folder `node_modules`, file besar, atau menjalankan perintah pada hasil pencarian.
+
+```bash
+find . -name "*.md"                  # cari file .md di folder saat ini
+find ~ -name "config.json"           # cari di seluruh home
+find . -type f                       # hanya file
+find . -type d                       # hanya direktori
+find . -type d -name "node_modules"    # cari folder tertentu
+find . -maxdepth 2 -name "*.tsx"     # batasi kedalaman
+find . -mtime -7                     # dimodifikasi dalam 7 hari terakhir
+find . -size +10M                    # file lebih besar dari 10 MB
+find . -empty                        # file/folder kosong
+find . -name "*.log" -delete         # cari lalu hapus (hati-hati!)
+```
+
+Penjelasan opsi penting:
+
+- **`.`**: mulai pencarian dari working directory saat ini — ganti dengan path lain seperti `~` atau `/Users/nama`.
+- **`-name "pattern"`**: cocokkan nama file — gunakan wildcard `*` dan `?`.
+- **`-iname`**: case-insensitive version of `-name`.
+- **`-type f`**: hanya file biasa; **`-type d`**: hanya direktori; **`-type l`**: symlink.
+- **`-maxdepth n`**: batasi kedalaman pencarian — `-maxdepth 1` hanya level saat ini.
+- **`-mtime -7`**: dimodifikasi dalam 7 hari terakhir — `+7` = lebih dari 7 hari lalu.
+- **`-size +10M`**: file lebih besar dari 10 MB — `+` lebih besar, `-` lebih kecil.
+- **`-empty`**: file kosong atau folder kosong.
+- **`-delete`**: hapus file yang cocok — **sangat berbahaya**, selalu test dengan tanpa `-delete` dulu.
+- **`-exec cmd {} \;`**: jalankan perintah pada setiap hasil — mis. `find . -name "*.tmp" -exec rm {} \;`.
+
+### `mdfind` — Cari lewat Spotlight (khas Mac)
+
+`mdfind` memanfaatkan **indeks Spotlight** macOS untuk pencarian cepat berdasarkan nama, konten, atau metadata file — jauh lebih cepat dari `find` di drive besar.
+
+Kapan dipakai: mencari dokumen berdasarkan isi teks, file berdasarkan tipe MIME, atau pencarian cepat di seluruh Mac.
+
+```bash
+mdfind "quarterly report"            # cari berdasarkan konten/nama
+mdfind -name "invoice.pdf"             # cari berdasarkan nama file
+mdfind "kMDItemContentType == 'public.image'"   # cari semua gambar
+mdfind -onlyin ~/Documents "budget"    # batasi ke folder tertentu
+```
+
+- **Query teks**: Spotlight mencari di nama file dan konten — tidak perlu tahu lokasi pasti.
+- **`-name`**: cari hanya berdasarkan nama file — lebih presisi untuk nama exact.
+- **`kMDItemContentType`**: filter berdasarkan tipe MIME — `public.image`, `public.pdf`, dll.
+- **`-onlyin <path>`**: batasi pencarian ke folder tertentu — mempercepat dan mempersempit hasil.
+- **`-count`**: tampilkan jumlah hasil saja, bukan path.
+
+### `grep` — Cari Teks di Dalam File
+
+`grep` (global regular expression print) mencari baris yang mengandung pattern teks atau regex di dalam file.
+
+Kapan dipakai: mencari error di log, TODO di source code, string tertentu di konfigurasi, atau filter output perintah lain.
+
+```bash
+grep "error" file.log                # cari kata di satu file
+grep -r "TODO" src/                  # cari rekursif di folder
+grep -i "warning" *.log              # case-insensitive
+grep -n "function" app.js            # tampilkan nomor baris
+grep -l "import React" *.tsx         # hanya tampilkan nama file yang cocok
+grep -c "404" access.log             # hitung jumlah kemunculan
+grep -v "debug" app.log              # baris yang TIDAK mengandung "debug"
+```
+
+Penjelasan flag penting:
+
+- **`-r` / `-R` (recursive)**: cari di semua file dalam folder dan subfolder.
+- **`-i` (ignore-case)**: abaikan huruf besar/kecil — `Error` cocok dengan `error`.
+- **`-n` (line-number)**: tampilkan nomor baris di samping hasil.
+- **`-l` (files-with-matches)**: hanya tampilkan nama file yang punya match, bukan barisnya.
+- **`-c` (count)**: hitung jumlah baris yang cocok per file.
+- **`-v` (invert)**: tampilkan baris yang **tidak** mengandung pattern — filter noise.
+- **`-w` (word-regexp)**: cocokkan whole word saja — `grep -w "log"` tidak cocok "logging".
+- **`-E` (extended-regexp)**: gunakan regex extended — `grep -E "error|warning"`.
+- **`--color=auto`**: sorot match dengan warna (default di banyak terminal).
+
+### `which` dan `whereis` — Lokasi Perintah
+
+`which` dan `whereis` membantu menemukan **lokasi executable** di PATH — berguna saat debug "command not found" atau versi ganda.
+
+Kapan dipakai: memastikan perintah yang dijalankan berasal dari mana, atau mencari binary setelah instal Homebrew/nvm.
+
+```bash
+which node                           # path ke executable
+which python3
+whereis git
+type cd                              # jenis perintah (builtin/alias/file)
+```
+
+- **`which`**: tampilkan path pertama ke executable di PATH — `which -a` tampilkan semua.
+- **`whereis`**: tampilkan path binary, source, dan manual page.
+- **`type`**: tentukan apakah perintah adalah builtin shell, alias, function, atau file — `type cd` biasanya "builtin".
+
+---
+
+## Izin File & Kepemilikan
+
+macOS (seperti Unix) menggunakan sistem izin untuk mengontrol siapa yang bisa membaca, menulis, dan menjalankan file.
+
+### Membaca izin dari `ls -l`
+
+Output `ls -l` menampilkan string izin 10 karakter di awal setiap baris — memahami format ini penting sebelum mengubah izin dengan `chmod`.
+
+```bash
+ls -l file.txt
+# -rw-r--r--  1 user  staff  1024 Jun 24 10:00 file.txt
+# │└─┬─┘└─┬─┘
+# │  │    └── others: read
+# │  └─────── group: read
+# └────────── owner: read + write
+```
+
+Jenis utama:
+
+| Simbol | Arti |
+| --- | --- |
+| `-` | File biasa |
+| `d` | Direktori |
+| `l` | Symbolic link |
+| `r` | Read (baca) |
+| `w` | Write (tulis) |
+| `x` | Execute (jalankan) |
+
+- **Karakter pertama**: tipe (`-` file, `d` direktori, `l` symlink).
+- **Karakter 2–4**: izin owner (user).
+- **Karakter 5–7**: izin group.
+- **Karakter 8–10**: izin others (semua user lain).
+- **`@` di akhir nama**: file punya extended attributes macOS.
+
+### `chmod` — Ubah Izin
+
+`chmod` (change mode) mengubah izin baca, tulis, dan execute pada file atau folder.
+
+Kapan dipakai: membuat script executable (`chmod +x`), mengunci file sensitif, atau memperbaiki izin folder yang tidak bisa diakses.
+
+```bash
+chmod +x script.sh                   # tambah izin execute
+chmod 755 script.sh                  # rwxr-xr-x
+chmod 644 file.txt                   # rw-r--r--
+chmod -R 755 folder/                 # rekursif ke semua isi folder
+chmod u+w file.txt                   # user: tambah write
+chmod go-rwx private.txt             # group & others: hapus semua izin
+```
+
+Penjelasan mode penting:
+
+- **Simbolik**: `u` user, `g` group, `o` others, `a` all; `+` tambah, `-` hapus, `=` set exact.
+- **`chmod +x`**: tambah execute untuk semua — shortcut umum untuk script.
+- **Oktal (angka)**: `7` = rwx, `6` = rw-, `5` = r-x, `4` = r--. `755` = owner rwx, group r-x, others r-x.
+- **`644`**: file teks standar — owner read+write, lainnya read saja.
+- **`600`**: file privat — hanya owner yang bisa baca/tulis.
+- **`-R` (recursive)**: terapkan ke folder dan seluruh isinya.
+
+### `chown` dan `chgrp` — Ubah Pemilik
+
+`chown` mengubah **pemilik** file; `chgrp` mengubah **grup** file. Di macOS, mengubah ownership biasanya butuh `sudo`.
+
+Kapan dipakai: memperbaiki ownership setelah copy dari drive lain, atau saat file dibuat oleh proses root dan perlu diakses user biasa.
+
+Biasanya butuh `sudo`.
+
+```bash
+sudo chown username file.txt
+sudo chown -R username:staff folder/
+chgrp staff file.txt
+```
+
+- **`chown user:group`**: ubah pemilik dan grup sekaligus.
+- **`-R`**: rekursif ke seluruh isi folder.
+- **`chgrp`**: setara `chown :group` — hanya ubah grup.
+- Di Mac, grup default user biasanya `staff`.
+
+---
+
+## Informasi Disk & Ukuran Folder
+
+Perintah untuk memantau ruang disk, ukuran folder, dan informasi volume di macOS.
+
+### `df` — Disk Free — Ruang Disk
+
+`df` (disk free) menampilkan penggunaan ruang disk pada semua volume yang ter-mount.
+
+Kapan dipakai: cek sisa ruang disk sebelum download besar, backup, atau build proyek — mencegah "disk full" error.
+
+```bash
+df -h                                # ringkasan semua volume (human-readable)
+df -h /                              # ruang di root volume
+df -h ~                              # ruang di home volume
+```
+
+- **`-h` (human-readable)**: tampilkan ukuran dalam KB/MB/GB — wajib untuk dibaca manusia.
+- **`-H`**: sama seperti `-h` tapi basis 1000 (SI) bukan 1024.
+- **`/` atau `~`**: batasi ke volume tertentu — output lebih ringkas.
+- Kolom **Use%**: persentase terpakai — waspadai jika mendekati 100%.
+- **`df -i`**: tampilkan penggunaan inode — relevan jika banyak file kecil.
+
+### `du` — Disk Usage — Ukuran Folder
+
+`du` (disk usage) menghitung **ukuran aktual** folder dan file — berbeda dari `df` yang menampilkan ruang volume.
+
+Kapan dipakai: menemukan folder mana yang memakan ruang terbanyak, audit ukuran proyek, atau bersihkan cache besar.
+
+```bash
+du -sh folder/                       # total ukuran folder
+du -sh *                             # ukuran tiap item di folder ini
+du -sh ~/* | sort -hr | head -10     # 10 folder terbesar di home
+du -d 1 -h ~/Projects               # kedalaman 1 level (Mac BSD du)
+du -ah folder/ | sort -hr | head -20 # file terbesar
+```
+
+Penjelasan flag penting:
+
+- **`-s` (summarize)**: tampilkan total saja, bukan setiap subfolder — gabungkan dengan `-h` menjadi `-sh`.
+- **`-h`**: ukuran human-readable (KB/MB/GB).
+- **`-d 1`**: batasi kedalaman ke 1 level (macOS BSD `du`) — setara `-maxdepth 1` di GNU du Linux.
+- **`-a`**: tampilkan ukuran setiap file, bukan hanya folder.
+- **Pipe ke `sort -hr`**: urutkan dari terbesar — `head -10` ambil 10 teratas.
+- **`du` bisa lambat** di folder besar — batasi scope dengan path spesifik.
+
+### `diskutil` — Manajemen Disk (khas Mac)
+
+`diskutil` adalah utilitas **khas macOS** untuk informasi dan manajemen disk, partisi, dan volume APFS.
+
+Kapan dipakai: melihat daftar disk fisik, info volume, atau troubleshoot masalah mount — bukan untuk sehari-hari, tapi penting saat setup drive eksternal.
+
+```bash
+diskutil list                        # daftar semua disk & partisi
+diskutil info /                      # info volume root
+diskutil info disk0
+diskutil apfs list                   # detail APFS container
+```
+
+- **`diskutil list`**: tampilkan semua disk fisik dan partisi — identifikasi `disk0`, `disk1`, dll.
+- **`diskutil info <volume>`**: detail volume — filesystem, UUID, ruang, mount point.
+- **`diskutil apfs list`**: struktur APFS container, volume, dan snapshot — khusus macOS High Sierra+.
+- **Hati-hati**: perintah seperti `diskutil eraseDisk` menghapus data — jangan jalankan tanpa paham.
+
+---
+
+## Perintah Mac yang Sering Dipakai
+
+Perintah bawaan macOS yang tidak ada di Linux standar — clipboard, metadata, dan integrasi GUI.
+
+### Clipboard: `pbcopy` dan `pbpaste`
+
+`pbcopy` dan `pbpaste` mengakses **clipboard sistem macOS** dari Terminal — setara Cmd+C dan Cmd+V di GUI.
+
+Kapan dipakai: salin output perintah ke clipboard, tempel isi clipboard ke file, atau otomatisasi workflow copy-paste.
+
+```bash
+cat file.txt | pbcopy                # salin isi file ke clipboard
+pbpaste > pasted.txt                 # tempel dari clipboard ke file
+ls -la | pbcopy                      # salin output ke clipboard
+pwd | pbcopy
+```
+
+- **`pbcopy`**: baca dari stdin, tulis ke clipboard — pipe output perintah apa pun.
+- **`pbpaste`**: baca clipboard, tulis ke stdout — redirect ke file dengan `>`.
+- **`pbpaste | grep pattern`**: filter isi clipboard tanpa paste manual.
+- Tidak ada flag umum — keduanya sederhana dan powerful untuk otomatisasi.
+
+### Metadata file: `mdls`
+
+`mdls` (metadata list) menampilkan **metadata Spotlight** untuk file — dimensi gambar, durasi video, ukuran, tanggal dibuat, dll.
+
+Kapan dipakai: cek metadata file tanpa buka aplikasi, script yang butuh info file, atau debug indexing Spotlight.
+
+```bash
+mdls photo.jpg                       # semua metadata Spotlight
+mdls -name kMDItemPixelWidth photo.jpg
+mdls -name kMDItemFSSize file.zip
+```
+
+- **Tanpa flag**: tampilkan semua metadata yang terindeks Spotlight.
+- **`-name kMDItem...`**: tampilkan satu atribut spesifik — lebih ringkas.
+- **`kMDItemPixelWidth` / `kMDItemPixelHeight`**: dimensi gambar.
+- **`kMDItemFSSize`**: ukuran file dalam byte.
+- **`kMDItemContentCreationDate`**: tanggal pembuatan file.
+
+### Buka URL dari Terminal
+
+`open` juga bisa membuka URL di browser default — integrasi seamless antara shell dan GUI.
+
+```bash
+open https://developer.apple.com
+```
+
+- Browser default (Safari, Chrome, dll.) akan terbuka dengan URL tersebut.
+- **`open "https://..."`**: kutip URL jika mengandung karakter khusus shell.
+
+---
+
+## Wildcard & Globbing
+
+Shell Mac mendukung **globbing** — pola wildcard untuk memilih banyak file sekaligus tanpa mengetik satu per satu.
+
+Kapan dipakai: operasi batch pada banyak file — copy semua `.jpg`, hapus semua `.log`, atau list file dengan pola tertentu.
+
+```bash
+ls *.txt                             # semua file .txt
+ls report-2025-*.pdf                 # pola dengan wildcard
+ls [abc]*.sh                         # file .sh yang diawali a, b, atau c
+ls file?.txt                         # file1.txt, file2.txt, dst.
+cp *.{jpg,png} ~/Pictures/           # brace expansion
+```
+
+Penjelasan pola:
+
+- **`*`**: cocokkan nol atau lebih karakter — `*.txt` = semua file berakhiran .txt.
+- **`?`**: cocokkan tepat satu karakter — `file?.txt` = file1.txt, fileA.txt, tapi bukan file10.txt.
+- **`[abc]`**: cocokkan salah satu karakter dalam kurung — `[abc]*` = diawali a, b, atau c.
+- **`{a,b,c}` (brace expansion)**: expand ke beberapa pola — `*.{jpg,png}` = `*.jpg` dan `*.png`.
+- **Globbing dilakukan shell**, bukan perintah — `ls *.txt` di-expand shell sebelum `ls` dijalankan.
+
+<Callout type="tip">
+Gunakan `Tab` untuk **autocomplete** nama file dan folder — ini mengurangi typo yang berbahaya saat `rm` atau `mv`.
+</Callout>
+
+---
+
+## Redirection & Pipe
+
+**Redirection** mengarahkan output (atau input) perintah ke file; **pipe** menghubungkan output satu perintah ke input perintah lain — fondasi workflow shell yang powerful.
+
+Kapan dipakai: simpan log ke file, gabungkan beberapa perintah dalam satu baris, filter dan proses data tanpa file perantara.
+
+```bash
+ls -la > listing.txt                 # simpan output ke file (timpa)
+ls -la >> listing.txt                # tambahkan ke akhir file
+echo "hello" 2> errors.log           # redirect stderr
+command &> all.log                   # stdout + stderr ke satu file
+
+ls -la | less                        # pipe output ke perintah lain
+find . -name "*.md" | wc -l          # hitung jumlah file .md
+cat file.txt | grep "error" | head -5
+```
+
+Penjelasan operator penting:
+
+- **`>` (redirect stdout)**: timpa file dengan output perintah — hati-hati, file lama hilang.
+- **`>>` (append)**: tambahkan output ke akhir file — aman untuk log berkelanjutan.
+- **`2>`**: redirect stderr (error) ke file — pisahkan error dari output normal.
+- **`&>` atau `2>&1`**: gabungkan stdout dan stderr ke satu file.
+- **`<` (input redirect)**: baca input dari file, bukan keyboard — `sort < file.txt`.
+- **`|` (pipe)**: output perintah kiri jadi input perintah kanan — rantai perintah sekuensial.
+- **Pipe hanya stdout** — untuk stderr gunakan `2>&1 |` jika perlu.
+
+Contoh workflow:
+
+```bash
+# Simpan daftar file terbesar ke file
+du -sh ~/* | sort -hr | head -20 > ~/biggest-folders.txt
+
+# Cari error di log, tampilkan 5 teratas
+grep -i error app.log | tail -5
+
+# Hitung baris kode TypeScript di proyek
+find . -name "*.ts" -o -name "*.tsx" | xargs wc -l
+```
+
+---
+
+## Alias & Shortcut Berguna
+
+**Alias** memendekkan perintah panjang menjadi shortcut — tambahkan ke `~/.zshrc` agar permanen di setiap sesi Terminal baru.
+
+Kapan dipakai: mempercepat perintah yang sering dipakai, mencegah typo, atau menambahkan flag default yang aman (mis. `mkdir -pv`).
+
+Tambahkan ke `~/.zshrc` agar permanen:
+
+```bash
+alias ll='ls -lahF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias c='clear'
+alias h='history'
+alias mkdir='mkdir -pv'              # buat parent + verbose
+
+# Reload setelah edit
+source ~/.zshrc
+```
+
+- **`ll`**: shortcut untuk `ls -lahF` — format listing lengkap.
+- **`..` / `...`**: naik satu atau dua level direktori.
+- **`mkdir='mkdir -pv'`**: override `mkdir` dengan versi yang buat parent otomatis dan verbose.
+- **`source ~/.zshrc`**: reload konfigurasi tanpa buka Terminal baru.
+
+Perintah riwayat:
+
+```bash
+history                              # daftar perintah sebelumnya
+!!                                   # ulangi perintah terakhir
+!n                                   # jalankan perintah nomor n dari history
+Ctrl + R                             # cari di history (reverse search)
+```
+
+- **`history`**: tampilkan daftar perintah — nomor di kiri bisa dipakai dengan `!n`.
+- **`!!`**: ulangi perintah terakhir — `sudo !!` jalankan perintah terakhir dengan sudo.
+- **`!n`**: jalankan perintah nomor n dari output `history`.
+- **`Ctrl + R`**: reverse search — ketik sebagian perintah, temukan di history interaktif.
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah |
+| --- | --- |
+| **Navigasi** | `pwd`, `cd`, `ls`, `pushd`, `popd`, `open` |
+| **Lihat file** | `cat`, `less`, `head`, `tail`, `wc`, `file`, `stat` |
+| **Buat** | `touch`, `mkdir` |
+| **Ubah** | `cp`, `mv`, `rm`, `ln` |
+| **Cari** | `find`, `mdfind`, `grep`, `which` |
+| **Izin** | `chmod`, `chown`, `ls -l` |
+| **Disk** | `df`, `du`, `diskutil` |
+| **Mac khusus** | `open`, `pbcopy`, `pbpaste`, `mdls`, `mdfind` |
+
+---
+
+## Penutup
+
+Kuasai dulu **`pwd`**, **`cd`**, **`ls`**, **`cp`**, **`mv`**, **`rm`**, dan **`find`** — enam perintah itu sudah menutup 80% kebutuhan navigasi dan manajemen file sehari-hari di Mac.
+
+Setelah nyaman, lanjut ke **`grep`**, **`chmod`**, **`du`**, dan **`pbcopy`/`pbpaste`** untuk workflow yang lebih cepat. Praktikkan di folder uji coba dulu sebelum menyentuh file penting, terutama saat memakai `rm -rf`.

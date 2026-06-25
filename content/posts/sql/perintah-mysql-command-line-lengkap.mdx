@@ -1,0 +1,1526 @@
+---
+title: "Perintah MySQL Command Line Lengkap"
+description: "Panduan lengkap perintah CLI MySQL dan MariaDB: mysql client, mysqldump, mysqladmin, mysqlimport, koneksi, query, backup restore, user grants, batch mode, dan troubleshooting."
+date: "2025-06-24"
+category: sql
+tags: ["mysql", "mariadb", "sql", "database", "cli", "tutorial"]
+featured: true
+---
+
+**MySQL** adalah sistem manajemen basis data relasional (RDBMS) open source yang paling banyak dipakai di dunia — dari aplikasi web hingga data warehouse. **MariaDB** adalah fork kompatibel yang mempertahankan sintaks dan tool CLI serupa. Dengan perintah `mysql`, `mysqldump`, `mysqladmin`, dan `mysqlimport` di terminal, Anda bisa mengelola database tanpa GUI — ideal untuk server, CI/CD, scripting, dan workflow developer sehari-hari.
+
+<Callout type="tip">
+Pastikan MySQL/MariaDB sudah terpasang. Cek dengan `mysql --version`. Di Mac: `brew install mysql` atau `brew install mariadb`. Di Ubuntu/Debian: `sudo apt install mysql-client` atau `mariadb-client`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti MySQL — istilah ini muncul terus di dokumentasi, output terminal, dan error message:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Server (mysqld)** | Proses daemon yang berjalan di background — menerima koneksi dan mengeksekusi query |
+| **Client (mysql)** | Program CLI untuk terhubung ke server dan menjalankan perintah SQL |
+| **Instance** | Satu instalasi MySQL yang berjalan — bisa punya banyak database |
+| **Database (schema)** | Kontainer logis untuk tabel, view, procedure, dan objek lain |
+| **Table** | Struktur data berbaris dan berkolom — unit utama penyimpanan data |
+| **Row (record)** | Satu entri data dalam tabel |
+| **Column (field)** | Atribut/kolom dalam tabel dengan tipe data tertentu |
+| **Index** | Struktur akselerasi pencarian — seperti indeks buku |
+| **Primary Key** | Kolom unik yang mengidentifikasi setiap baris |
+| **Foreign Key** | Relasi antar tabel — menjaga integritas referensial |
+| **User & Privilege** | Akun akses dan hak operasi (SELECT, INSERT, GRANT, dll.) |
+| **Socket** | File Unix untuk koneksi lokal tanpa TCP — default di Mac/Linux |
+| **Port** | Nomor port TCP default MySQL: **3306** |
+
+### Arsitektur koneksi CLI
+
+```
+Terminal  ──mysql client──►  mysqld (server)  ──►  Data files (/var/lib/mysql)
+   │                              │
+   └── TCP :3306 atau socket ─────┘
+```
+
+### Perintah informasi dasar
+
+```bash
+mysql --version              # versi client MySQL
+mysql --help                 # bantuan lengkap client
+mysqldump --help             # bantuan mysqldump
+mysqladmin --help            # bantuan mysqladmin
+man mysql                    # manual page (Mac/Linux)
+```
+
+- **`mysql --version`**: langkah pertama saat troubleshooting — pastikan client dan server versinya kompatibel.
+- **`mysql --help`**: daftar semua flag koneksi dan mode operasi tanpa buka browser.
+
+---
+
+## Instalasi & Menjalankan Server
+
+### Instalasi MySQL / MariaDB
+
+MySQL dan MariaDB menyediakan server database dan kumpulan tool CLI. Pilih salah satu — keduanya kompatibel untuk sebagian besar perintah di artikel ini.
+
+Kapan dipakai: setup mesin development baru, server production, atau container Docker untuk proyek lokal.
+
+```bash
+# macOS (Homebrew)
+brew install mysql
+brew services start mysql          # jalankan sebagai service
+brew services stop mysql
+brew services restart mysql
+
+# macOS — MariaDB
+brew install mariadb
+brew services start mariadb
+
+# Ubuntu/Debian
+sudo apt update
+sudo apt install mysql-server mysql-client
+sudo systemctl start mysql
+sudo systemctl enable mysql
+sudo systemctl status mysql
+
+# Docker (development cepat)
+docker run -d --name mysql-dev \
+  -e MYSQL_ROOT_PASSWORD=secret \
+  -e MYSQL_DATABASE=appdb \
+  -p 3306:3306 \
+  mysql:8.4
+
+# Cek apakah server berjalan
+mysqladmin ping -h 127.0.0.1 -u root -p
+```
+
+- **`brew services start mysql`**: jalankan MySQL sebagai background service di Mac — auto-start saat boot.
+- **`systemctl`**: cara standar mengelola service di Linux.
+- **Docker**: cocok untuk development — data hilang saat container dihapus kecuali pakai volume.
+
+<Callout type="warning">
+Setelah instalasi fresh, MySQL 8+ mungkin memberikan **password root sementara** di log instalasi. Segera jalankan `mysql_secure_installation` untuk hardening.
+</Callout>
+
+---
+
+### `mysql_secure_installation` — Hardening Awal
+
+`mysql_secure_installation` adalah script interaktif untuk mengamankan instalasi MySQL baru — set password root, hapus user anonim, nonaktifkan remote root, dan hapus database test.
+
+Kapan dipakai: pertama kali setup server MySQL/MariaDB di production atau mesin development yang akan diakses jaringan.
+
+```bash
+sudo mysql_secure_installation
+```
+
+Langkah yang ditanyakan script:
+
+| Langkah | Rekomendasi |
+| --- | --- |
+| Set root password | Ya — gunakan password kuat |
+| Remove anonymous users | Ya |
+| Disallow root login remotely | Ya (kecuali butuh remote admin) |
+| Remove test database | Ya |
+| Reload privilege tables | Ya |
+
+---
+
+## Koneksi dengan `mysql` Client
+
+### `mysql` — Terhubung ke Server
+
+Perintah `mysql` adalah client CLI utama — membuka sesi interaktif atau menjalankan query satu kali dari shell.
+
+Kapan dipakai: setiap kali Anda perlu query database, eksplorasi schema, atau administrasi dari terminal.
+
+```bash
+# Koneksi lokal (socket default)
+mysql -u root -p
+
+# Koneksi dengan host dan port eksplisit
+mysql -h 127.0.0.1 -P 3306 -u root -p
+
+# Koneksi ke database tertentu langsung
+mysql -u root -p appdb
+mysql -h db.example.com -u deploy -p production
+
+# Koneksi tanpa prompt password (hati-hati di production!)
+mysql -u root -p'SecretPass123'    # tidak ada spasi setelah -p
+mysql -u root --password=SecretPass123
+
+# Koneksi via socket custom
+mysql -u root -p --socket=/tmp/mysql.sock
+
+# Koneksi dengan charset
+mysql -u root -p --default-character-set=utf8mb4 appdb
+```
+
+Flag koneksi penting:
+
+| Flag | Arti |
+| --- | --- |
+| **`-h`** | Host server — `127.0.0.1` pakai TCP, `localhost` pakai socket |
+| **`-P`** | Port (huruf besar) — default 3306 |
+| **`-u`** | Username |
+| **`-p`** | Password — prompt interaktif jika tanpa nilai |
+| **`-D`** | Database default saat connect |
+| **`--socket`** | Path socket Unix untuk koneksi lokal |
+
+- **`localhost` vs `127.0.0.1`**: di banyak sistem, `localhost` memakai Unix socket (lebih cepat), `127.0.0.1` memakai TCP.
+- **`-p` tanpa spasi**: `-psecret` langsung kirim password — hindari di shared machine (terlihat di `ps`).
+
+---
+
+### Prompt Interaktif & Perintah Meta
+
+Setelah terhubung, Anda masuk ke prompt `mysql>`. MySQL client punya perintah meta (bukan SQL) yang diawali backslash.
+
+Kapan dipakai: navigasi cepat antar database, lihat status koneksi, atau keluar dari sesi.
+
+```sql
+-- Di dalam prompt mysql>
+
+SELECT VERSION();              -- versi server
+SELECT USER();                 -- user saat ini
+SELECT DATABASE();             -- database aktif
+STATUS;                        -- info koneksi lengkap
+
+USE appdb;                     -- pindah database
+USE mysql;                     -- database sistem (user, privilege)
+
+\h SELECT                      -- bantuan untuk perintah SQL
+\?                             -- daftar perintah meta mysql client
+\c                             -- batalkan query yang sedang diketik
+\r                             -- refresh buffer input
+\G                             -- tampilkan hasil vertikal (bukan tabel)
+
+\! clear                       -- jalankan perintah shell (clear terminal)
+\! ls -la                      -- jalankan perintah OS dari dalam mysql
+
+source /path/to/script.sql;    -- eksekusi file SQL
+\. /path/to/script.sql         -- sama dengan source (meta command)
+
+exit                           -- keluar
+quit                           -- keluar
+```
+
+- **`\G`**: format output vertikal — sangat berguna untuk `SHOW CREATE TABLE` atau hasil dengan banyak kolom.
+- **`source` / `\.`**: jalankan file `.sql` berisi banyak statement — seperti `psql -f` di PostgreSQL.
+- **`exit` / `quit`**: tutup sesi client — tidak menghentikan server.
+
+---
+
+## Eksplorasi Database & Tabel
+
+### `SHOW DATABASES` — Daftar Database
+
+`SHOW DATABASES` menampilkan semua database yang ada di instance MySQL — termasuk database sistem.
+
+Kapan dipakai: audit instance, cek database proyek ada atau belum, atau troubleshooting koneksi ke database yang salah.
+
+```sql
+SHOW DATABASES;
+SHOW DATABASES LIKE 'app%';        -- filter dengan pattern
+SHOW SCHEMAS;                      -- alias SHOW DATABASES (MySQL 5.0+)
+```
+
+Database sistem penting:
+
+| Database | Fungsi |
+| --- | --- |
+| **`mysql`** | Tabel user, privilege, dan konfigurasi sistem |
+| **`information_schema`** | Metadata semua database (read-only) |
+| **`performance_schema`** | Metrik performa dan monitoring |
+| **`sys`** | View dan procedure diagnostik (MySQL 5.7+) |
+
+---
+
+### `SHOW TABLES` — Daftar Tabel
+
+`SHOW TABLES` menampilkan semua tabel di database yang sedang aktif (`USE`).
+
+Kapan dipakai: eksplorasi schema, verifikasi migrasi, atau cek tabel hasil import.
+
+```sql
+USE appdb;
+SHOW TABLES;
+SHOW TABLES LIKE 'user%';
+SHOW FULL TABLES;                  -- tampilkan tipe (BASE TABLE / VIEW)
+SHOW TABLES FROM appdb;              -- tanpa perlu USE dulu
+SHOW TABLES IN appdb WHERE Tables_in_appdb LIKE 'order%';
+```
+
+Dari CLI tanpa masuk interaktif:
+
+```bash
+mysql -u root -p -e "SHOW TABLES FROM appdb;"
+mysql -u root -p appdb -e "SHOW TABLES;"
+```
+
+---
+
+### `SHOW CREATE TABLE` — DDL Asli Tabel
+
+Menampilkan perintah `CREATE TABLE` lengkap yang digunakan untuk membuat tabel — termasuk engine, charset, index, dan constraint.
+
+Kapan dipakai: dokumentasi schema, replikasi struktur ke environment lain, atau debug migrasi.
+
+```sql
+SHOW CREATE TABLE users\G
+SHOW CREATE TABLE orders\G
+```
+
+Output `\G` (vertikal) lebih mudah dibaca karena statement `CREATE TABLE` biasanya panjang.
+
+---
+
+## Struktur Tabel: DESCRIBE & SHOW COLUMNS
+
+### `DESCRIBE` / `DESC` — Struktur Kolom
+
+`DESCRIBE` menampilkan struktur tabel — nama kolom, tipe data, nullable, key, default, dan extra (auto_increment, on update).
+
+Kapan dipakai: sebelum menulis query, debug error kolom tidak ditemukan, atau review schema saat onboarding proyek.
+
+```sql
+DESCRIBE users;
+DESC users;
+DESCRIBE users id;                 -- info satu kolom saja
+SHOW COLUMNS FROM users;
+SHOW COLUMNS FROM users LIKE 'email%';
+SHOW FIELDS FROM users;            -- alias SHOW COLUMNS
+```
+
+Kolom output `DESCRIBE`:
+
+| Kolom | Arti |
+| --- | --- |
+| **Field** | Nama kolom |
+| **Type** | Tipe data (`INT`, `VARCHAR(255)`, `DATETIME`, dll.) |
+| **Null** | `YES` = boleh NULL, `NO` = wajib diisi |
+| **Key** | `PRI` = primary key, `UNI` = unique, `MUL` = index |
+| **Default** | Nilai default |
+| **Extra** | `auto_increment`, `on update CURRENT_TIMESTAMP`, dll. |
+
+Dari CLI:
+
+```bash
+mysql -u root -p appdb -e "DESCRIBE users;"
+mysql -u root -p appdb -e "DESCRIBE users\G"
+```
+
+---
+
+### `SHOW INDEX` — Index pada Tabel
+
+Menampilkan semua index yang ada di tabel — penting untuk optimasi query dan debug performa lambat.
+
+Kapan dipakai: investigasi query lambat, review migrasi index, atau sebelum menambah index baru.
+
+```sql
+SHOW INDEX FROM users;
+SHOW INDEX FROM orders FROM appdb;
+```
+
+---
+
+## Query Data: SELECT
+
+### `SELECT` — Membaca Data
+
+`SELECT` adalah perintah SQL paling sering dipakai — mengambil data dari satu atau lebih tabel.
+
+Kapan dipakai: hampir setiap operasi read — laporan, debug data, validasi migrasi, atau eksplorasi isi tabel.
+
+```sql
+-- Dasar
+SELECT * FROM users;
+SELECT id, name, email FROM users;
+SELECT id, name FROM users WHERE status = 'active';
+SELECT * FROM users WHERE created_at >= '2025-01-01';
+
+-- Sorting & limit
+SELECT * FROM users ORDER BY created_at DESC;
+SELECT * FROM users ORDER BY name ASC LIMIT 10;
+SELECT * FROM users LIMIT 10 OFFSET 20;    -- pagination (baris 21-30)
+
+-- Aggregation
+SELECT COUNT(*) FROM users;
+SELECT status, COUNT(*) AS total FROM users GROUP BY status;
+SELECT status, COUNT(*) AS total FROM users GROUP BY status HAVING total > 10;
+
+-- Join
+SELECT u.name, o.total
+FROM users u
+INNER JOIN orders o ON o.user_id = u.id
+WHERE o.status = 'paid';
+
+SELECT u.name, o.total
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id;
+
+-- Subquery
+SELECT * FROM users
+WHERE id IN (SELECT user_id FROM orders WHERE total > 1000);
+
+-- Pattern matching
+SELECT * FROM users WHERE email LIKE '%@gmail.com';
+SELECT * FROM users WHERE name LIKE 'A%';       -- mulai dengan A
+
+-- NULL handling
+SELECT * FROM users WHERE deleted_at IS NULL;
+SELECT * FROM users WHERE phone IS NOT NULL;
+SELECT COALESCE(phone, 'N/A') AS phone FROM users;
+```
+
+Tips performa dari CLI:
+
+```sql
+EXPLAIN SELECT * FROM users WHERE email = 'test@example.com';
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'test@example.com';  -- MySQL 8.0.18+
+```
+
+- **`EXPLAIN`**: lihat rencana eksekusi query — apakah pakai index atau full table scan.
+- **`LIMIT`**: selalu batasi hasil saat eksplorasi tabel besar — hindari `SELECT *` tanpa limit di production.
+
+---
+
+### `SELECT` dari CLI (Non-Interaktif)
+
+```bash
+# Query satu baris
+mysql -u root -p appdb -e "SELECT COUNT(*) FROM users;"
+
+# Query dengan output tab-separated (untuk script)
+mysql -u root -p appdb -B -e "SELECT id, name FROM users LIMIT 5;"
+
+# Query ke file
+mysql -u root -p appdb -e "SELECT * FROM users;" > users_export.txt
+
+# Hanya nilai kolom pertama (silent, skip header)
+mysql -u root -p appdb -N -e "SELECT name FROM users LIMIT 5;"
+```
+
+---
+
+## Menulis Data: INSERT
+
+### `INSERT` — Menambah Data
+
+`INSERT` menambahkan baris baru ke tabel — satu baris, banyak baris, atau dari hasil query.
+
+Kapan dipakai: seed data development, import manual, atau operasi write dari script.
+
+```sql
+-- Satu baris
+INSERT INTO users (name, email, status)
+VALUES ('Rahmat Eza', 'rahmat@example.com', 'active');
+
+-- Banyak baris sekaligus (lebih efisien)
+INSERT INTO users (name, email, status) VALUES
+  ('Alice', 'alice@example.com', 'active'),
+  ('Bob', 'bob@example.com', 'active'),
+  ('Charlie', 'charlie@example.com', 'inactive');
+
+-- Insert dari SELECT
+INSERT INTO users_archive (id, name, email)
+SELECT id, name, email FROM users WHERE status = 'deleted';
+
+-- Insert or update (upsert) — MySQL
+INSERT INTO users (id, name, email, login_count)
+VALUES (1, 'Rahmat', 'rahmat@example.com', 1)
+ON DUPLICATE KEY UPDATE
+  login_count = login_count + 1,
+  name = VALUES(name);
+
+-- IGNORE duplicate (skip error)
+INSERT IGNORE INTO users (email, name) VALUES ('dup@example.com', 'Test');
+```
+
+- **`ON DUPLICATE KEY UPDATE`**: upsert berdasarkan unique key/primary key — sangat berguna untuk sync data.
+- **Multi-row INSERT**: jauh lebih cepat daripada banyak `INSERT` tunggal — prefer untuk bulk load.
+
+Dari CLI:
+
+```bash
+mysql -u root -p appdb -e "
+INSERT INTO users (name, email) VALUES ('CLI User', 'cli@example.com');
+"
+```
+
+---
+
+## Mengubah Data: UPDATE
+
+### `UPDATE` — Memperbarui Data
+
+`UPDATE` mengubah nilai kolom pada baris yang memenuhi kondisi `WHERE`.
+
+Kapan dipakai: koreksi data, migrasi nilai, atau operasi batch update — **selalu sertakan `WHERE`** kecuali memang ingin update semua baris.
+
+```sql
+-- Update satu kolom
+UPDATE users SET status = 'inactive' WHERE id = 42;
+
+-- Update banyak kolom
+UPDATE users
+SET name = 'Rahmat Eza', updated_at = NOW()
+WHERE id = 1;
+
+-- Update dengan kondisi
+UPDATE orders SET status = 'cancelled'
+WHERE created_at < '2024-01-01' AND status = 'pending';
+
+-- Update dengan JOIN
+UPDATE orders o
+INNER JOIN users u ON u.id = o.user_id
+SET o.discount = 10
+WHERE u.status = 'vip';
+
+-- Update dengan LIMIT (hati-hati!)
+UPDATE users SET status = 'reviewed' WHERE status = 'new' LIMIT 100;
+```
+
+<Callout type="warning">
+**Jangan pernah** jalankan `UPDATE` tanpa `WHERE` di production tanpa backup. Selalu preview dulu dengan `SELECT` kondisi yang sama:
+
+```sql
+SELECT * FROM users WHERE id = 42;   -- preview
+UPDATE users SET status = 'inactive' WHERE id = 42;
+```
+</Callout>
+
+---
+
+## Menghapus Data: DELETE
+
+### `DELETE` — Menghapus Baris
+
+`DELETE` menghapus baris dari tabel berdasarkan kondisi — berbeda dari `TRUNCATE` yang menghapus semua baris dan reset auto_increment.
+
+Kapan dipakai: hapus data spesifik, cleanup record lama, atau operasi maintenance — selalu backup dulu di production.
+
+```sql
+-- Hapus baris spesifik
+DELETE FROM users WHERE id = 99;
+
+-- Hapus dengan kondisi
+DELETE FROM sessions WHERE expires_at < NOW();
+
+-- Hapus dengan JOIN
+DELETE o FROM orders o
+INNER JOIN users u ON u.id = o.user_id
+WHERE u.status = 'banned';
+
+-- Hapus dengan LIMIT
+DELETE FROM logs WHERE created_at < '2024-01-01' LIMIT 1000;
+
+-- Hapus semua baris (lebih lambat dari TRUNCATE, bisa rollback di transaction)
+DELETE FROM temp_import;
+
+-- TRUNCATE — hapus semua, reset auto_increment, tidak bisa rollback mudah
+TRUNCATE TABLE temp_import;
+```
+
+Perbedaan `DELETE` vs `TRUNCATE`:
+
+| Aspek | DELETE | TRUNCATE |
+| --- | --- | --- |
+| **WHERE** | Bisa filter baris | Hapus semua baris |
+| **Rollback** | Bisa (dalam transaction) | DDL — tidak bisa rollback mudah |
+| **Trigger** | Dijalankan | Tidak dijalankan |
+| **Kecepatan** | Lebih lambat (per baris) | Lebih cepat |
+| **Auto increment** | Tidak reset | Reset ke awal |
+
+---
+
+## DDL: CREATE, ALTER, DROP
+
+### `CREATE DATABASE` / `CREATE TABLE`
+
+Perintah DDL (Data Definition Language) membuat struktur database dan tabel.
+
+Kapan dipakai: setup proyek baru, migrasi schema, atau membuat tabel sementara untuk import.
+
+```sql
+-- Buat database
+CREATE DATABASE appdb
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE DATABASE IF NOT EXISTS appdb;
+
+-- Buat tabel
+CREATE TABLE users (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL,
+  email      VARCHAR(255) NOT NULL UNIQUE,
+  status     ENUM('active', 'inactive') DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Buat tabel dari SELECT (copy struktur + data)
+CREATE TABLE users_backup AS SELECT * FROM users;
+```
+
+- **`utf8mb4`**: charset wajib untuk emoji dan karakter Unicode penuh — jangan pakai `utf8` lama (hanya 3 byte).
+- **`InnoDB`**: engine default modern — mendukung transaction, foreign key, dan row-level locking.
+
+---
+
+### `ALTER TABLE` — Ubah Struktur
+
+`ALTER TABLE` menambah, mengubah, atau menghapus kolom dan index tanpa kehilangan data (dalam banyak kasus).
+
+Kapan dipakai: evolusi schema aplikasi, tambah kolom fitur baru, atau optimasi index.
+
+```sql
+-- Tambah kolom
+ALTER TABLE users ADD COLUMN phone VARCHAR(20) AFTER email;
+ALTER TABLE users ADD COLUMN bio TEXT NULL;
+
+-- Ubah kolom
+ALTER TABLE users MODIFY COLUMN name VARCHAR(200) NOT NULL;
+ALTER TABLE users CHANGE COLUMN phone mobile VARCHAR(20);  -- rename + ubah tipe
+
+-- Hapus kolom
+ALTER TABLE users DROP COLUMN bio;
+
+-- Index
+ALTER TABLE users ADD INDEX idx_email (email);
+ALTER TABLE users ADD UNIQUE INDEX idx_phone (phone);
+ALTER TABLE users DROP INDEX idx_email;
+
+-- Foreign key
+ALTER TABLE orders
+  ADD CONSTRAINT fk_orders_user
+  FOREIGN KEY (user_id) REFERENCES users(id)
+  ON DELETE CASCADE;
+```
+
+<Callout type="info">
+`ALTER TABLE` pada tabel besar bisa **lock** tabel lama — di production, pertimbangkan tool seperti `pt-online-schema-change` (Percona) atau migrasi online MySQL 8.
+</Callout>
+
+---
+
+### `DROP` — Hapus Objek
+
+Menghapus database, tabel, atau objek lain — **operasi destruktif dan tidak bisa di-undo**.
+
+Kapan dipakai: cleanup environment development, hapus tabel sementara, atau decommission database.
+
+```sql
+DROP TABLE IF EXISTS temp_import;
+DROP TABLE users_backup;
+DROP DATABASE IF EXISTS old_appdb;
+```
+
+Selalu double-check nama database/tabel sebelum `DROP` — terutama di production.
+
+---
+
+## Backup dengan `mysqldump`
+
+### `mysqldump` — Export Database
+
+`mysqldump` adalah tool CLI standar untuk membuat backup logical (file SQL) dari database — berisi `CREATE TABLE` dan `INSERT` statements.
+
+Kapan dipakai: backup rutin, migrasi antar server, snapshot sebelum migrasi schema, atau restore ke environment lain.
+
+```bash
+# Dump satu database
+mysqldump -u root -p appdb > appdb_backup.sql
+
+# Dump dengan timestamp di nama file
+mysqldump -u root -p appdb > "appdb_$(date +%Y%m%d_%H%M%S).sql"
+
+# Dump ke remote host
+mysqldump -h db.example.com -u backup -p appdb > appdb_backup.sql
+
+# Dump semua database
+mysqldump -u root -p --all-databases > all_databases.sql
+
+# Dump beberapa database
+mysqldump -u root -p --databases appdb analytics logs > multi_backup.sql
+
+# Dump hanya struktur (tanpa data)
+mysqldump -u root -p --no-data appdb > appdb_schema.sql
+
+# Dump hanya data (tanpa CREATE TABLE)
+mysqldump -u root -p --no-create-info appdb > appdb_data.sql
+
+# Dump tabel tertentu
+mysqldump -u root -p appdb users orders > tables_backup.sql
+
+# Dump dengan kompresi
+mysqldump -u root -p appdb | gzip > appdb_backup.sql.gz
+
+# Dump single transaction (InnoDB, konsisten tanpa lock)
+mysqldump -u root -p --single-transaction appdb > appdb_backup.sql
+
+# Dump dengan routines dan triggers
+mysqldump -u root -p --routines --triggers appdb > appdb_full.sql
+
+# Dump untuk replikasi (dengan posisi binlog)
+mysqldump -u root -p --master-data=2 --single-transaction appdb > appdb_replica.sql
+```
+
+Flag penting `mysqldump`:
+
+| Flag | Fungsi |
+| --- | --- |
+| **`--single-transaction`** | Snapshot konsisten InnoDB tanpa lock tabel |
+| **`--no-data`** | Hanya schema (DDL) |
+| **`--no-create-info`** | Hanya data (DML) |
+| **`--routines`** | Include stored procedure & function |
+| **`--triggers`** | Include trigger |
+| **`--where`** | Filter baris: `--where="created_at > '2025-01-01'"` |
+| **`--set-gtid-purged=OFF`** | Hindari GTID issue saat restore (replication setup) |
+
+Contoh dump dengan filter:
+
+```bash
+mysqldump -u root -p appdb users \
+  --where="status='active'" \
+  > active_users.sql
+```
+
+---
+
+## Restore dari Backup
+
+### Restore dengan `mysql` Client
+
+File hasil `mysqldump` di-restore dengan mengalirkan isinya ke client `mysql` — ke database yang sudah ada atau baru dibuat.
+
+Kapan dipakai: recovery setelah kehilangan data, clone database ke staging, atau migrasi server.
+
+```bash
+# Buat database kosong dulu (jika belum ada)
+mysql -u root -p -e "CREATE DATABASE appdb_restored CHARACTER SET utf8mb4;"
+
+# Restore dari file SQL
+mysql -u root -p appdb_restored < appdb_backup.sql
+
+# Restore database baru dari dump yang include CREATE DATABASE
+mysql -u root -p < appdb_with_create.sql
+
+# Restore dari file terkompresi
+gunzip < appdb_backup.sql.gz | mysql -u root -p appdb
+
+# Restore dengan pv (progress bar)
+pv appdb_backup.sql | mysql -u root -p appdb
+
+# Restore satu tabel dari dump multi-tabel (extract dulu)
+sed -n '/CREATE TABLE `users`/,/^-- Table structure/p' appdb_backup.sql | mysql -u root -p appdb
+```
+
+Langkah restore aman:
+
+```bash
+# 1. Backup kondisi saat ini (jika ada data)
+mysqldump -u root -p appdb > appdb_before_restore.sql
+
+# 2. Restore
+mysql -u root -p appdb < appdb_backup.sql
+
+# 3. Verifikasi
+mysql -u root -p appdb -e "SHOW TABLES; SELECT COUNT(*) FROM users;"
+```
+
+<Callout type="warning">
+Restore ke database production **menimpa data existing**. Selalu backup dulu dan test restore di staging sebelum production.
+</Callout>
+
+---
+
+## Administrasi dengan `mysqladmin`
+
+### `mysqladmin` — Tool Administrasi Server
+
+`mysqladmin` adalah utilitas CLI untuk tugas administratif — cek status server, buat/hapus database, flush privilege, matikan server, dan monitoring.
+
+Kapan dipakai: health check otomatis, script monitoring, restart server, atau operasi admin tanpa masuk SQL interaktif.
+
+```bash
+# Cek apakah server hidup
+mysqladmin -u root -p ping
+mysqladmin -u root -p ping -i 5          # ping setiap 5 detik
+
+# Status server
+mysqladmin -u root -p status
+mysqladmin -u root -p extended-status   # metrik detail
+mysqladmin -u root -p extended-status -i 1 | grep Threads  # monitor threads
+
+# Variabel server
+mysqladmin -u root -p variables
+mysqladmin -u root -p variables | grep max_connections
+
+# Proses yang berjalan
+mysqladmin -u root -p processlist
+
+# Buat / hapus database
+mysqladmin -u root -p create newdb
+mysqladmin -u root -p drop olddb
+
+# Flush (reload cache)
+mysqladmin -u root -p flush-privileges     # reload grant tables
+mysqladmin -u root -p flush-logs           # rotate log
+mysqladmin -u root -p flush-tables         # tutup semua tabel
+mysqladmin -u root -p flush-hosts          # reset host cache
+mysqladmin -u root -p flush-status         # reset status counters
+
+# Password
+mysqladmin -u root -p password 'NewSecret123'
+
+# Matikan server
+mysqladmin -u root -p shutdown
+
+# Reload konfigurasi (jika support dynamic variables)
+mysqladmin -u root -p reload
+```
+
+Output `mysqladmin status` umum:
+
+```
+Uptime: 86400  Threads: 5  Questions: 120000  Slow queries: 2
+Opens: 500  Flush tables: 1  Open tables: 200  Queries per second avg: 1.389
+```
+
+- **`ping`**: return `mysqld is alive` — ideal untuk health check di load balancer atau monitoring.
+- **`flush-privileges`**: wajib setelah edit tabel `mysql.user` langsung (jarang dilakukan — prefer `GRANT`).
+- **`shutdown`**: matikan server dengan graceful — tunggu transaction selesai.
+
+---
+
+## Import Data dengan `mysqlimport`
+
+### `mysqlimport` — Load Data dari File
+
+`mysqlimport` mengimpor data dari file teks (satu file per tabel) ke database — wrapper CLI untuk `LOAD DATA INFILE`.
+
+Kapan dipakai: bulk import CSV/TSV, migrasi data dari sistem lain, atau seed database besar.
+
+```bash
+# Siapkan file data (tab-separated default)
+# users.txt — kolom sesuai urutan tabel, tanpa header
+
+# Import ke tabel users di database appdb
+mysqlimport -u root -p \
+  --local \
+  --fields-terminated-by=',' \
+  --fields-enclosed-by='"' \
+  --lines-terminated-by='\n' \
+  --ignore-lines=1 \
+  appdb /path/to/users.csv
+
+# Import dengan column mapping (via LOAD DATA di SQL)
+mysql -u root -p appdb -e "
+LOAD DATA LOCAL INFILE '/path/to/users.csv'
+INTO TABLE users
+FIELDS TERMINATED BY ','
+ENCLOSED BY '\"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(name, email, status);
+"
+```
+
+Flag `mysqlimport`:
+
+| Flag | Fungsi |
+| --- | --- |
+| **`--local`** | Baca file dari client machine (butuh `LOCAL INFILE` enabled) |
+| **`--fields-terminated-by`** | Pemisah kolom — `,` untuk CSV |
+| **`--fields-enclosed-by`** | Karakter quote — `"` |
+| **`--lines-terminated-by`** | Pemisah baris |
+| **`--ignore-lines`** | Skip N baris pertama (header) |
+| **`--replace`** | REPLACE jika duplicate key |
+| **`--ignore`** | IGNORE jika duplicate key |
+
+Alternatif import dari CLI:
+
+```bash
+# Import file SQL
+mysql -u root -p appdb < seed_data.sql
+
+# Import CSV sederhana
+mysql -u root -p appdb -e "
+LOAD DATA LOCAL INFILE '/tmp/products.csv'
+INTO TABLE products
+FIELDS TERMINATED BY ','
+IGNORE 1 LINES;
+"
+```
+
+---
+
+## User, Privilege & Keamanan Akses
+
+### Membuat User & Memberi Grant
+
+Manajemen akses di MySQL memakai perintah SQL `CREATE USER` dan `GRANT` — menentukan siapa bisa akses database apa dan operasi apa.
+
+Kapan dipakai: setup user aplikasi (least privilege), user read-only untuk reporting, atau user backup khusus.
+
+```sql
+-- Buat user
+CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'StrongPass123!';
+CREATE USER 'appuser'@'%' IDENTIFIED BY 'StrongPass123!';       -- dari host manapun
+CREATE USER 'readonly'@'10.0.0.%' IDENTIFIED BY 'ReadOnlyPass!'; -- subnet tertentu
+
+-- Beri privilege
+GRANT SELECT, INSERT, UPDATE, DELETE ON appdb.* TO 'appuser'@'localhost';
+GRANT ALL PRIVILEGES ON appdb.* TO 'appuser'@'localhost';
+GRANT SELECT ON appdb.* TO 'readonly'@'10.0.0.%';
+GRANT SELECT, LOCK TABLES ON appdb.* TO 'backup'@'localhost';
+
+-- Privilege administratif (hati-hati!)
+GRANT PROCESS, RELOAD ON *.* TO 'monitor'@'localhost';
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+
+-- Terapkan perubahan
+FLUSH PRIVILEGES;
+
+-- Lihat privilege user
+SHOW GRANTS FOR 'appuser'@'localhost';
+SHOW GRANTS FOR CURRENT_USER();
+
+-- Ubah password
+ALTER USER 'appuser'@'localhost' IDENTIFIED BY 'NewPassword456!';
+-- MySQL 5.7 lama:
+SET PASSWORD FOR 'appuser'@'localhost' = PASSWORD('NewPassword456!');
+
+-- Hapus privilege
+REVOKE DELETE ON appdb.* FROM 'appuser'@'localhost';
+
+-- Hapus user
+DROP USER 'olduser'@'localhost';
+```
+
+Prinsip least privilege untuk aplikasi web:
+
+```sql
+-- User aplikasi: hanya DML pada database proyek
+CREATE USER 'webapp'@'%' IDENTIFIED BY 'AppSecret789!';
+GRANT SELECT, INSERT, UPDATE, DELETE ON myapp_production.* TO 'webapp'@'%';
+FLUSH PRIVILEGES;
+
+-- User migrasi: DDL + DML (hanya untuk CI/CD)
+CREATE USER 'migrator'@'10.0.0.5' IDENTIFIED BY 'MigrateSecret!';
+GRANT ALL PRIVILEGES ON myapp_production.* TO 'migrator'@'10.0.0.5';
+FLUSH PRIVILEGES;
+```
+
+---
+
+### Melihat & Mengelola User
+
+```sql
+-- Daftar user (MySQL 8+)
+SELECT user, host FROM mysql.user;
+
+-- User yang sedang terkoneksi
+SHOW PROCESSLIST;
+SELECT * FROM information_schema.PROCESSLIST;
+
+-- Kill koneksi bermasalah
+KILL 12345;                    -- connection ID dari PROCESSLIST
+KILL QUERY 12345;              -- hanya hentikan query, bukan koneksi
+```
+
+Dari CLI:
+
+```bash
+mysqladmin -u root -p processlist
+mysqladmin -u root -p kill 12345
+```
+
+---
+
+## Batch Mode: `-e`, `-B`, dan Scripting
+
+### `-e` — Execute Query dari Shell
+
+Flag `-e` / `--execute` menjalankan SQL langsung dari command line tanpa masuk prompt interaktif — fondasi scripting dan otomasi.
+
+Kapan dipakai: cron job, CI/CD pipeline, shell script, health check, atau one-liner cepat.
+
+```bash
+# Query tunggal
+mysql -u root -p -e "SELECT VERSION();"
+
+# Banyak statement (pisah dengan ;)
+mysql -u root -p appdb -e "
+  SELECT COUNT(*) AS total_users FROM users;
+  SELECT COUNT(*) AS total_orders FROM orders;
+"
+
+# Multi-line dari heredoc
+mysql -u root -p appdb <<'SQL'
+SELECT id, name FROM users WHERE status = 'active' LIMIT 5;
+UPDATE users SET last_login = NOW() WHERE id = 1;
+SQL
+
+# Dengan variable shell
+TABLE="users"
+mysql -u root -p appdb -e "SELECT COUNT(*) FROM ${TABLE};"
+```
+
+---
+
+### `-B` / `--batch` — Output Tab-Separated
+
+Mode batch menghasilkan output tab-separated tanpa border tabel — ideal untuk parsing dengan `awk`, `cut`, atau pipe ke script.
+
+Kapan dipakai: scripting, export data ke file, integrasi dengan tool Unix, atau otomasi reporting.
+
+```bash
+# Batch mode — tab-separated, tanpa format tabel
+mysql -u root -p appdb -B -e "SELECT id, name, email FROM users LIMIT 5;"
+
+# Kombinasi flag scripting
+mysql -u root -p appdb -B -N -e "SELECT email FROM users;"
+# -B = batch (tab-separated)
+# -N = skip column names (no header)
+
+# Silent mode — hanya error ke stderr
+mysql -u root -p appdb -s -B -e "SELECT COUNT(*) FROM users;"
+
+# Raw mode
+mysql -u root -p appdb --raw -B -e "SELECT content FROM posts LIMIT 1;"
+
+# Output ke CSV manual
+mysql -u root -p appdb -B -e "SELECT id, name, email FROM users;" \
+  | sed 's/\t/,/g' > users.csv
+```
+
+Flag output CLI:
+
+| Flag | Fungsi |
+| --- | --- |
+| **`-B` / `--batch`** | Tab-separated, tanpa ASCII table |
+| **`-N` / `--skip-column-names`** | Tanpa header kolom |
+| **`-s` / `--silent`** | Kurangi output meta |
+| **`-r` / `--raw`** | Tanpa escape karakter |
+| **`-t` / `--table`** | Format tabel (default interaktif) |
+| **`--xml`** | Output XML |
+| **`--html`** | Output HTML table |
+
+---
+
+### File Konfigurasi: `~/.my.cnf`
+
+Simpan kredensial dan default koneksi di file konfigurasi — hindari ketik password berulang dan hardcode di script.
+
+Kapan dipakai: development lokal, user backup otomatis, atau environment dengan koneksi database tetap.
+
+```ini
+# ~/.my.cnf
+[client]
+user=root
+password=YourLocalDevPassword
+host=127.0.0.1
+port=3306
+default-character-set=utf8mb4
+
+[mysql]
+database=appdb
+
+[mysqldump]
+single-transaction
+routines
+triggers
+```
+
+Set permission file:
+
+```bash
+chmod 600 ~/.my.cnf
+```
+
+Setelah itu, cukup jalankan:
+
+```bash
+mysql -e "SHOW TABLES;"
+mysqldump appdb > backup.sql
+```
+
+<Callout type="warning">
+Jangan commit `~/.my.cnf` ke Git. Untuk production, gunakan secret manager atau environment variable — bukan plaintext password di disk.
+</Callout>
+
+---
+
+## Koneksi Aman: SSL/TLS
+
+### Koneksi Terenkripsi ke MySQL
+
+MySQL mendukung koneksi SSL/TLS — enkripsi data in-transit antara client dan server. Wajib untuk koneksi remote production.
+
+Kapan dipakai: koneksi ke database cloud (RDS, Cloud SQL, PlanetScale), server remote, atau compliance requirement.
+
+```bash
+# Koneksi dengan SSL wajib
+mysql -h db.example.com -u appuser -p \
+  --ssl-mode=REQUIRED \
+  appdb
+
+# Dengan CA certificate
+mysql -h db.example.com -u appuser -p \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca=/path/to/ca.pem \
+  --ssl-cert=/path/to/client-cert.pem \
+  --ssl-key=/path/to/client-key.pem \
+  appdb
+
+# Cek status SSL di sesi aktif
+mysql -u root -p -e "SHOW STATUS LIKE 'Ssl_cipher';"
+mysql -u root -p -e "\s"    # di prompt interaktif, lihat baris SSL
+```
+
+Mode `--ssl-mode`:
+
+| Mode | Perilaku |
+| --- | --- |
+| **`DISABLED`** | Tanpa SSL |
+| **`PREFERRED`** | SSL jika tersedia (default lama) |
+| **`REQUIRED`** | Wajib SSL, tidak verifikasi sertifikat |
+| **`VERIFY_CA`** | SSL + verifikasi CA |
+| **`VERIFY_IDENTITY`** | SSL + verifikasi CA + hostname |
+
+Di `~/.my.cnf`:
+
+```ini
+[client]
+ssl-mode=REQUIRED
+ssl-ca=/path/to/ca.pem
+```
+
+---
+
+## Transaction & Locking
+
+### Transaction dari CLI
+
+Transaction memastikan sekumpulan operasi SQL bersifat atomic — semua berhasil atau semua di-rollback.
+
+Kapan dipakai: operasi multi-step yang harus konsisten, transfer data, atau update terkait di banyak tabel.
+
+```sql
+START TRANSACTION;
+-- atau: BEGIN;
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+
+-- Jika semua OK:
+COMMIT;
+
+-- Jika ada masalah:
+ROLLBACK;
+```
+
+```bash
+mysql -u root -p appdb -e "
+START TRANSACTION;
+DELETE FROM temp_sessions WHERE expires_at < NOW();
+UPDATE stats SET cleaned_sessions = cleaned_sessions + ROW_COUNT();
+COMMIT;
+"
+```
+
+---
+
+## Monitoring & Performa
+
+### Query & Status dari CLI
+
+```sql
+-- Proses aktif
+SHOW FULL PROCESSLIST;
+
+-- Variabel server
+SHOW VARIABLES LIKE 'max_connections';
+SHOW VARIABLES LIKE 'innodb%';
+
+-- Status server
+SHOW GLOBAL STATUS LIKE 'Threads_connected';
+SHOW GLOBAL STATUS LIKE 'Slow_queries';
+
+-- Ukuran tabel
+SELECT
+  table_name,
+  ROUND(data_length / 1024 / 1024, 2) AS data_mb,
+  ROUND(index_length / 1024 / 1024, 2) AS index_mb
+FROM information_schema.tables
+WHERE table_schema = 'appdb'
+ORDER BY data_length DESC;
+```
+
+```bash
+# Enable slow query log sementara
+mysqladmin -u root -p set global slow_query_log = 'ON';
+mysqladmin -u root -p set global long_query_time = 2;
+
+# Cek koneksi
+mysqladmin -u root -p extended-status | grep -E 'Threads|Connections|Aborted'
+```
+
+---
+
+## MariaDB: Catatan Kompatibilitas
+
+MariaDB adalah fork MySQL yang dikembangkan komunitas — CLI tool dan sintaks SQL sebagian besar identik.
+
+Kapan relevan: server Linux modern (Debian/Ubuntu default MariaDB), atau proyek yang migrasi dari MySQL ke MariaDB.
+
+```bash
+# MariaDB client
+mariadb --version
+mariadb -u root -p          # pengganti mysql (symlink di banyak distro)
+
+# Dump MariaDB
+mariadb-dump -u root -p appdb > backup.sql
+mariadb-admin ping -u root -p
+```
+
+Perbedaan yang perlu diperhatikan:
+
+| Aspek | MySQL 8 | MariaDB 10.x+ |
+| --- | --- | --- |
+| **Authentication** | `caching_sha2_password` default | `mysql_native_password` umum |
+| **JSON** | Tipe `JSON` native | `JSON` alias `LONGTEXT` + validasi |
+| **Window functions** | MySQL 8.0+ | MariaDB 10.2+ |
+| **CLI binary** | `mysql`, `mysqldump` | `mariadb`, `mariadb-dump` (alias tersedia) |
+
+Untuk artikel ini, perintah `mysql` dan `mysqldump` berlaku di keduanya kecuali disebutkan lain.
+
+---
+
+## MySQL vs PostgreSQL CLI — Perbandingan Singkat
+
+Keduanya adalah RDBMS populer dengan client CLI — tapi konvensi dan tool berbeda.
+
+| Aspek | MySQL / MariaDB | PostgreSQL |
+| --- | --- | --- |
+| **Client** | `mysql` | `psql` |
+| **Connect** | `mysql -u user -p -h host dbname` | `psql -U user -h host -d dbname` |
+| **List databases** | `SHOW DATABASES;` | `\l` atau `SELECT datname FROM pg_database;` |
+| **List tables** | `SHOW TABLES;` | `\dt` atau query `information_schema` |
+| **Describe table** | `DESCRIBE tbl;` | `\d tbl` |
+| **Execute from shell** | `mysql -e "SQL;"` | `psql -c "SQL;"` |
+| **Batch output** | `mysql -B -N` (tab-separated) | `psql -t -A` (unaligned) |
+| **Run SQL file** | `mysql db < file.sql` | `psql db -f file.sql` |
+| **Backup** | `mysqldump` | `pg_dump` |
+| **Restore** | `mysql db < dump.sql` | `psql db < dump.sql` |
+| **Admin tool** | `mysqladmin` | `pg_ctl`, `pg_isready` |
+| **Interactive meta** | `\?`, `\G`, `source` | `\?`, `\x`, `\i` |
+| **Default port** | 3306 | 5432 |
+| **Quit** | `exit` / `quit` | `\q` |
+
+Kapan pilih MySQL CLI workflow:
+
+- Stack LAMP/WordPress, Laravel default MySQL, atau hosting shared yang umum MySQL.
+- Butuh `mysqldump`/`mysqlimport` untuk backup logical SQL.
+- Tim sudah familiar dengan `SHOW TABLES`, `DESCRIBE`, dan sintaks MySQL.
+
+Kapan pilih PostgreSQL CLI workflow:
+
+- Proyek butuh fitur advanced (CTE recursive, JSONB, full-text search built-in).
+- Ekosistem Python/Django/Rails yang sering default PostgreSQL.
+- Butuh `pg_dump` custom format (`-Fc`) untuk backup fleksibel.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek dengan database lokal
+
+```bash
+# 1. Jalankan MySQL (Docker)
+docker run -d --name mysql-dev \
+  -e MYSQL_ROOT_PASSWORD=devpass \
+  -e MYSQL_DATABASE=myapp_dev \
+  -e MYSQL_USER=dev \
+  -e MYSQL_PASSWORD=devpass \
+  -p 3306:3306 \
+  mysql:8.4
+
+# 2. Tunggu siap
+until mysqladmin ping -h 127.0.0.1 -u root -pdevpass --silent; do sleep 1; done
+
+# 3. Connect & eksplorasi
+mysql -h 127.0.0.1 -u dev -pdevpass myapp_dev -e "SHOW TABLES;"
+
+# 4. Jalankan migrasi / seed
+mysql -h 127.0.0.1 -u dev -pdevpass myapp_dev < db/schema.sql
+mysql -h 127.0.0.1 -u dev -pdevpass myapp_dev < db/seed.sql
+```
+
+---
+
+### Debug data aplikasi
+
+```bash
+# Cek jumlah record
+mysql -u root -p myapp_dev -e "
+  SELECT 'users' AS tbl, COUNT(*) AS cnt FROM users
+  UNION ALL
+  SELECT 'orders', COUNT(*) FROM orders;
+"
+
+# Cari user spesifik
+mysql -u root -p myapp_dev -e "
+  SELECT * FROM users WHERE email = 'test@example.com'\G
+"
+
+# Lihat order terbaru
+mysql -u root -p myapp_dev -e "
+  SELECT o.id, u.email, o.total, o.status
+  FROM orders o
+  JOIN users u ON u.id = o.user_id
+  ORDER BY o.created_at DESC
+  LIMIT 10;
+"
+```
+
+---
+
+### Backup & restore rutin
+
+```bash
+#!/bin/bash
+# backup.sh — backup harian database
+
+DB_NAME="myapp_production"
+BACKUP_DIR="/var/backups/mysql"
+DATE=$(date +%Y%m%d_%H%M%S)
+FILENAME="${BACKUP_DIR}/${DB_NAME}_${DATE}.sql.gz"
+
+mkdir -p "$BACKUP_DIR"
+
+mysqldump -u backup -p"$MYSQL_BACKUP_PASS" \
+  --single-transaction \
+  --routines \
+  --triggers \
+  "$DB_NAME" | gzip > "$FILENAME"
+
+# Hapus backup lebih dari 7 hari
+find "$BACKUP_DIR" -name "*.sql.gz" -mtime +7 -delete
+
+echo "Backup selesai: $FILENAME"
+```
+
+```bash
+# Restore ke staging
+gunzip < myapp_production_20250624.sql.gz | mysql -u root -p myapp_staging
+```
+
+---
+
+### Review sebelum deploy migrasi
+
+```bash
+# 1. Backup dulu
+mysqldump -u root -p myapp_staging > staging_before_migration.sql
+
+# 2. Jalankan migrasi
+mysql -u root -p myapp_staging < migrations/20250624_add_index.sql
+
+# 3. Verifikasi
+mysql -u root -p myapp_staging -e "DESCRIBE users;"
+mysql -u root -p myapp_staging -e "SHOW INDEX FROM users;"
+
+# 4. Rollback jika gagal
+mysql -u root -p myapp_staging < staging_before_migration.sql
+```
+
+---
+
+## Troubleshooting Umum
+
+### `ERROR 2002 (HY000): Can't connect to local MySQL server`
+
+Server MySQL tidak berjalan atau socket/port salah.
+
+```bash
+# Cek service
+brew services list | grep mysql          # Mac
+sudo systemctl status mysql              # Linux
+
+# Start server
+brew services start mysql
+sudo systemctl start mysql
+
+# Cek port
+lsof -i :3306
+netstat -an | grep 3306
+
+# Pakai TCP eksplisit
+mysql -h 127.0.0.1 -u root -p
+```
+
+---
+
+### `ERROR 1045 (28000): Access denied for user`
+
+Username/password salah atau user tidak punya privilege dari host tersebut.
+
+```bash
+# Reset password root (Mac Homebrew)
+brew services stop mysql
+mysqld_safe --skip-grant-tables &
+mysql -u root
+# Di mysql>:
+# FLUSH PRIVILEGES;
+# ALTER USER 'root'@'localhost' IDENTIFIED BY 'NewPassword';
+# exit
+brew services restart mysql
+
+# Cek user dan host
+mysql -u root -p -e "SELECT user, host FROM mysql.user;"
+```
+
+---
+
+### `ERROR 1049 (42000): Unknown database`
+
+Database belum dibuat atau nama salah (case-sensitive di Linux).
+
+```bash
+mysql -u root -p -e "SHOW DATABASES;"
+mysql -u root -p -e "CREATE DATABASE appdb CHARACTER SET utf8mb4;"
+```
+
+---
+
+### `ERROR 1146 (42S02): Table doesn't exist`
+
+Tabel belum dibuat, salah database aktif, atau typo nama tabel.
+
+```sql
+SELECT DATABASE();           -- cek database aktif
+USE appdb;
+SHOW TABLES;
+SHOW TABLES LIKE '%user%';
+```
+
+---
+
+### `ERROR 1215: Cannot add foreign key constraint`
+
+Tipe kolom tidak cocok, tabel referensi belum ada, atau engine bukan InnoDB.
+
+```sql
+-- Cek engine
+SHOW CREATE TABLE orders\G
+SHOW CREATE TABLE users\G
+
+-- Pastikan tipe kolom sama persis
+DESCRIBE orders;
+DESCRIBE users;
+```
+
+---
+
+### `ERROR 2006: MySQL server has gone away`
+
+Koneksi terputus — query terlalu besar, timeout, atau server restart.
+
+```bash
+# Cek dan naikkan limit
+mysql -u root -p -e "SHOW VARIABLES LIKE 'max_allowed_packet';"
+mysqladmin -u root -p set global max_allowed_packet=67108864   # 64MB
+
+# Di ~/.my.cnf
+# [mysqld]
+# max_allowed_packet=64M
+# wait_timeout=28800
+```
+
+---
+
+### Import lambat atau gagal
+
+```bash
+# Nonaktifkan key check sementara (import besar)
+mysql -u root -p appdb -e "
+  SET FOREIGN_KEY_CHECKS=0;
+  SET UNIQUE_CHECKS=0;
+  SET AUTOCOMMIT=0;
+"
+# ... import ...
+mysql -u root -p appdb -e "
+  SET FOREIGN_KEY_CHECKS=1;
+  SET UNIQUE_CHECKS=1;
+  COMMIT;
+"
+
+# Atau gunakan mysqlimport dengan --disable-keys
+mysqlimport -u root -p --disable-keys appdb /path/to/table.txt
+```
+
+---
+
+### Charset / encoding rusak
+
+```sql
+-- Cek charset database dan tabel
+SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME
+FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'appdb';
+
+SHOW CREATE DATABASE appdb;
+SHOW CREATE TABLE users\G
+
+-- Perbaiki database
+ALTER DATABASE appdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE users CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+---
+
+### Koneksi penuh (`Too many connections`)
+
+```bash
+mysqladmin -u root -p extended-status | grep Max_used_connections
+mysql -u root -p -e "SHOW VARIABLES LIKE 'max_connections';"
+mysql -u root -p -e "SHOW PROCESSLIST;"
+
+# Naikkan sementara
+mysqladmin -u root -p set global max_connections = 500;
+
+# Kill koneksi idle lama
+mysqladmin -u root -p kill <connection_id>
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah / Tool Utama |
+| --- | --- |
+| **Koneksi** | `mysql -u user -p -h host dbname` |
+| **Eksplorasi** | `SHOW DATABASES`, `SHOW TABLES`, `DESCRIBE` |
+| **Read** | `SELECT`, `EXPLAIN` |
+| **Write** | `INSERT`, `UPDATE`, `DELETE` |
+| **DDL** | `CREATE`, `ALTER`, `DROP` |
+| **Backup** | `mysqldump` |
+| **Restore** | `mysql db < backup.sql` |
+| **Admin** | `mysqladmin ping`, `status`, `processlist` |
+| **Import** | `mysqlimport`, `LOAD DATA INFILE` |
+| **Akses** | `CREATE USER`, `GRANT`, `FLUSH PRIVILEGES` |
+| **Scripting** | `-e`, `-B`, `-N`, `~/.my.cnf` |
+| **Keamanan** | `--ssl-mode=REQUIRED`, least privilege |
+| **Debug** | `SHOW PROCESSLIST`, `EXPLAIN`, slow query log |
+
+---
+
+## Penutup
+
+Enam perintah inti workflow MySQL CLI: **`mysql`** (koneksi & query), **`SHOW`/`DESCRIBE`** (eksplorasi schema), **`SELECT`/`INSERT`/`UPDATE`/`DELETE`** (operasi data), **`mysqldump`** (backup), dan **`mysqladmin`** (administrasi server). Dengan keenamnya, Anda sudah menutup kebutuhan developer sehari-hari — dari development lokal hingga operasi server.
+
+Langkah berikutnya: kuasai **batch mode** (`-B`, `-N`, `-e`) untuk scripting, **`GRANT`** dengan prinsip least privilege, **SSL/TLS** untuk koneksi remote, dan **`EXPLAIN`** untuk optimasi query. MySQL punya ekosistem tool yang luas — manfaatkan `mysql --help`, `mysqldump --help`, dan [dokumentasi resmi MySQL](https://dev.mysql.com/doc/) atau [MariaDB](https://mariadb.com/kb/) sebagai referensi terbaru.

@@ -1,0 +1,1259 @@
+---
+title: "Perintah Modern CLI Tools: fzf, eza & tlrc"
+description: "Panduan lengkap fuzzy finder, ls modern, dan tldr cheat sheet di terminal: fzf, eza, tlrc — instalasi, keybinding, integrasi shell, dan workflow sehari-hari."
+date: "2025-06-24"
+category: terminal
+tags: ["fzf", "eza", "tlrc", "tldr", "cli", "tutorial"]
+featured: true
+---
+
+**fzf**, **eza**, dan **tlrc** adalah tiga CLI tool modern yang menggantikan workflow terminal klasik — `grep`/`find` interaktif, `ls` yang kaku, dan `man` yang bertele-tele. Ketiganya tidak saling menggantikan; mereka melengkapi satu sama lain: **eza** untuk melihat isi folder dengan cepat, **fzf** untuk memilih file/perintah secara interaktif, dan **tlrc** untuk mengingat sintaks perintah yang jarang dipakai.
+
+<Callout type="tip">
+Pastikan ketiga tool sudah terpasang. Di Mac dengan Homebrew: `brew install fzf eza tlrc`. Setelah instal fzf, jalankan `$(brew --prefix)/opt/fzf/install` untuk mengaktifkan keybinding shell (Ctrl+R, Ctrl+T, Alt+C).
+</Callout>
+
+## Mengapa Tool Modern Menggantikan ls, grep, dan man?
+
+Terminal klasik sudah cukup untuk tugas dasar, tapi workflow developer modern menuntut kecepatan, konteks visual, dan interaktivitas. Berikut perbandingan singkat alasan migrasi:
+
+| Tool Lama | Keterbatasan | Pengganti Modern | Keuntungan |
+| --- | --- | --- | --- |
+| **`ls`** | Output polos, tanpa ikon, tanpa status Git, tree terpisah (`tree`) | **eza** | Warna, ikon, kolom Git, tree bawaan, grid layout |
+| **`find` + `grep`** | Sintaks rumit, tidak interaktif, lambat di repo besar | **fzf** + **ripgrep** | Fuzzy search real-time, preview, keyboard-driven |
+| **`man`** | Dokumentasi lengkap tapi panjang, sulit menemukan contoh praktis | **tlrc** (tldr) | Contoh perintah siap pakai, ringkas, fokus use case |
+| **History `Ctrl+R`** | Pencarian linear, tidak fuzzy | **fzf** + keybinding | Fuzzy match perintah lama, preview output |
+
+Tiga tool ini **tidak menghapus** kebutuhan `ls`, `grep`, atau `man` — mereka mempercepat 80% kasus sehari-hari. Saat butuh referensi lengkap, `man` tetap ada; saat butuh script non-interaktif, `find`/`grep` tetap relevan.
+
+### Filosofi workflow modern
+
+```
+Lihat folder (eza)  →  Cari/pilih (fzf)  →  Ingat sintaks (tlrc)
+       │                      │                      │
+   konteks visual        navigasi cepat         contoh praktis
+```
+
+---
+
+## Instalasi
+
+### Instal via Homebrew (macOS)
+
+Homebrew adalah cara termudah menginstal ketiga tool di Mac — formula resmi tersedia dan terus diperbarui.
+
+Kapan dipakai: setup mesin baru, onboarding developer, atau upgrade dari versi lama.
+
+```bash
+brew install fzf eza tlrc
+
+# Verifikasi instalasi
+fzf --version
+eza --version
+tlrc --version
+```
+
+- **`fzf`**: fuzzy finder — binary tunggal, tidak butuh dependensi ekstra.
+- **`eza`**: pengganti `ls` — dulu bernama `exa`, sekarang fork aktif bernama `eza`.
+- **`tlrc`**: klien Rust untuk halaman **tldr** — alternatif lain: `tealdeer` (`tldr`), `tldr` (Node.js).
+
+---
+
+### Setup fzf keybinding shell
+
+Setelah `brew install fzf`, jalankan script instalasi resmi agar keybinding bawaan aktif di zsh/bash.
+
+Kapan dipakai: sekali saat setup pertama — mengaktifkan Ctrl+R, Ctrl+T, dan Alt+C.
+
+```bash
+# Instal keybinding + completion (interaktif)
+$(brew --prefix)/opt/fzf/install
+
+# Non-interaktif (untuk dotfiles/script)
+$(brew --prefix)/opt/fzf/install --all
+```
+
+Script ini menambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+| Keybinding | Fungsi |
+| --- | --- |
+| **Ctrl+R** | Fuzzy search history perintah |
+| **Ctrl+T** | Fuzzy find file di direktori saat ini |
+| **Alt+C** | Fuzzy find direktori, lalu `cd` ke sana |
+
+<Callout type="info">
+Di terminal Mac, tombol **Alt** sering dipetakan ke **Option (⌥)**. Jika Alt+C tidak berfungsi, coba `Option+C` atau konfigurasi terminal emulator (iTerm2, Ghostty, Warp) agar Option dikirim sebagai Meta/Alt.
+</Callout>
+
+---
+
+### Instal di Linux
+
+Di distribusi Linux, paket tersedia lewat manager masing-masing — nama package bisa sedikit berbeda.
+
+```bash
+# Debian/Ubuntu
+sudo apt install fzf eza
+
+# tlrc — cek apt atau install dari release GitHub
+sudo apt install tlrc    # jika tersedia di repo
+# atau
+cargo install tlrc       # via Rust toolchain
+
+# Fedora
+sudo dnf install fzf eza
+
+# Arch Linux
+sudo pacman -S fzf eza tealdeer   # tealdeer = klien tldr alternatif
+```
+
+- **`eza`**: di beberapa distro masih bernama `exa` — fungsinya sama, migrasi ke `eza` disarankan karena `exa` tidak lagi aktif dikembangkan.
+- **`tlrc`**: bisa diganti `tealdeer` — keduanya membaca halaman tldr yang sama.
+
+---
+
+## fzf — Fuzzy Finder Interaktif
+
+**fzf** (fuzzy finder) adalah tool baris perintah untuk pencarian fuzzy interaktif. Anda mengetik sebagian kata kunci, fzf memfilter daftar secara real-time, lalu Anda memilih dengan keyboard — tanpa mouse, tanpa hafal path lengkap.
+
+### Konsep dasar fzf
+
+```bash
+# Pipe daftar ke fzf
+ls | fzf
+
+# fzf sebagai filter — output baris yang dipilih ke stdout
+cat file-list.txt | fzf
+
+# Multi-select (Tab untuk pilih banyak)
+fzf --multi
+```
+
+Alur kerja fzf:
+
+```
+Input (stdin / command)  →  Filter fuzzy  →  Preview (opsional)  →  Output ke stdout
+```
+
+- **Fuzzy matching**: ketik `git com` bisa menemukan `git commit -m "fix bug"`.
+- **Case-insensitive** secara default — bisa diubah dengan `--exact` atau `--case`.
+- **Output**: baris terpilih dikirim ke stdout — ideal untuk pipe ke perintah lain.
+
+---
+
+### Keybinding di dalam fzf
+
+Saat fzf terbuka (mode interaktif), keyboard shortcut berikut tersedia:
+
+| Tombol | Aksi |
+| --- | --- |
+| **↑ / ↓** atau **Ctrl+J / Ctrl+K** | Navigasi item atas/bawah |
+| **Enter** | Pilih item dan keluar |
+| **Tab** | Multi-select (toggle pilihan) |
+| **Shift+Tab** | Multi-select (arah berlawanan) |
+| **Ctrl+C** atau **Esc** | Batalkan, keluar tanpa output |
+| **Ctrl+G** | Scroll preview ke bawah (jika preview aktif) |
+| **Ctrl+U** | Hapus query input |
+| **Ctrl+W** | Hapus kata sebelum kursor |
+| **Ctrl+/ ** | Toggle sort order (relevance vs score) |
+| **Ctrl+R** | Toggle sort (di dalam widget history) |
+| **Alt+C** | Clear query (di beberapa konfigurasi) |
+
+Kapan dipakai: setiap sesi fzf interaktif — hafalkan minimal **Enter**, **Esc**, dan **Ctrl+J/K** untuk navigasi cepat.
+
+```bash
+# Contoh: pilih satu file
+find . -type f | fzf
+
+# Multi-select — pilih beberapa, output dipisah newline
+find . -type f | fzf --multi --bind 'tab:toggle+down'
+```
+
+- **`--multi`**: aktifkan pilihan ganda — berguna untuk operasi batch (hapus, pindah, git add).
+- **`--bind`**: custom keybinding — format `key:action` — sangat fleksibel untuk workflow personal.
+
+---
+
+### Keybinding shell bawaan (setelah `fzf/install`)
+
+| Keybinding | Perintah setara | Kapan dipakai |
+| --- | --- | --- |
+| **Ctrl+R** | Fuzzy search `history` | Cari perintah lama yang hampir terlupa |
+| **Ctrl+T** | Fuzzy find file, sisipkan ke baris perintah | Lengkapi argumen file tanpa mengetik path |
+| **Alt+C** | Fuzzy find folder + `cd` | Lompat ke direktori dalam proyek besar |
+
+```bash
+# Ctrl+T di zsh — setelah install, ketik di prompt lalu tekan Ctrl+T:
+# $ vim <Ctrl+T>  →  pilih file, path disisipkan
+
+# Alt+C — langsung pindah direktori:
+# $ <Alt+C>  →  pilih folder  →  cd ke folder tersebut
+```
+
+<Callout type="tip">
+**Ctrl+R** dengan fzf jauh lebih powerful daripada reverse search bawaan bash/zsh. Anda bisa mengetik bagian acak dari perintah lama — misalnya `docker prune` — tanpa harus menekan Ctrl+R berulang kali.
+</Callout>
+
+---
+
+### Opsi CLI fzf yang sering dipakai
+
+```bash
+fzf --height 40%                    # tinggi window (persentase terminal)
+fzf --layout reverse                # prompt di atas, hasil di bawah
+fzf --border                        # border di sekitar window
+fzf --preview 'cat {}'              # preview isi file
+fzf --preview-window right:50%      # preview di panel kanan 50%
+fzf --query 'initial'               # query awal
+fzf --exact                         # match exact, bukan fuzzy
+fzf --reverse                       # urutan hasil terbalik
+fzf --header 'Pilih file:'          # teks header
+fzf --prompt '🔍 '                  # custom prompt
+fzf --delimiter ':' --nth 2         # filter kolom ke-2 (mis. git branch)
+fzf --tiebreak=length               # tiebreaker saat score sama
+```
+
+Kapan dipakai: kustomisasi tampilan dan perilaku fzf di script, alias, dan fungsi shell.
+
+- **`--preview`**: `{}` diganti dengan item terpilih — bisa perintah shell apa pun.
+- **`--nth`**: filter hanya kolom tertentu — berguna untuk output bertab/kolom.
+- **`--height`**: tidak fullscreen — lebih nyaman di terminal kecil.
+
+---
+
+### Preview — Lihat isi sebelum memilih
+
+Preview adalah fitur killer fzf — tampilkan isi file, diff, atau output perintah di panel samping saat Anda menavigasi daftar.
+
+Kapan dipakai: memilih file dari ratusan kandidat, review commit Git, atau cek hasil ripgrep sebelum membuka editor.
+
+```bash
+# Preview isi file
+fzf --preview 'bat --color=always {}'
+
+# Preview dengan fallback jika bukan file
+fzf --preview '[[ -f {} ]] && bat --color=always {} || echo {}'
+
+# Preview tree direktori
+find . -type d | fzf --preview 'eza --tree --level=2 --color=always {}'
+
+# Preview gambar (kitty/wezterm — jika terminal mendukung)
+fzf --preview '([[ -f {} ]] && file --mime-type {} | grep image) && viu {} || bat {}'
+```
+
+Contoh preview untuk Git log:
+
+```bash
+git log --oneline --color=always | fzf --ansi \
+  --preview 'git show --color=always {1}' \
+  --delimiter ' ' \
+  --nth 2..
+```
+
+- **`{1}`**: field pertama dari baris terpilih (hash commit).
+- **`--ansi`**: pertahankan kode warna ANSI dari `git log --color=always`.
+- **`--delimiter` + `--nth`**: tentukan bagian baris yang difilter vs yang dipakai preview.
+
+---
+
+### Integrasi fzf dengan Git
+
+Git menghasilkan banyak output teks — branch, log, stash, diff — semuanya ideal untuk fzf.
+
+Kapan dipakai: navigasi repo, checkout branch, cherry-pick commit, apply stash — tanpa hafal nama/hash.
+
+```bash
+# Checkout branch interaktif
+git branch -a | fzf | xargs git checkout
+
+# Versi lebih aman — strip prefix remotes
+git branch -a --color=always | fzf --ansi | sed 's/remotes\/origin\///' | xargs git checkout
+
+# Pilih commit untuk cherry-pick
+git log --oneline | fzf | awk '{print $1}' | xargs git cherry-pick
+
+# Pilih stash untuk apply
+git stash list | fzf | cut -d: -f1 | xargs git stash apply
+
+# Pilih file untuk git add
+git status -s | fzf -m | awk '{print $2}' | xargs git add
+
+# Pilih file untuk git checkout (buang perubahan)
+git status -s | fzf -m | awk '{print $2}' | xargs git checkout --
+```
+
+Fungsi shell yang lebih robust (zsh):
+
+```bash
+# ~/.zshrc
+fzf-git-branch() {
+  git branch -a --color=always | fzf --ansi --height 50% | sed 's/remotes\/origin\///' | tr -d ' *'
+}
+
+fzf-git-checkout() {
+  local branch
+  branch=$(fzf-git-branch)
+  [[ -n "$branch" ]] && git checkout "$branch"
+}
+```
+
+- **`fzf -m`**: multi-select untuk `git add` beberapa file sekaligus.
+- **`--ansi`**: warna branch (current, remote) tetap tampil.
+- **`xargs`**: kirim pilihan ke perintah Git — hati-hati dengan spasi di nama file; gunakan `-0` + `find -print0` untuk edge case.
+
+---
+
+### Integrasi fzf dengan ripgrep (rg)
+
+**ripgrep** (`rg`) adalah pencari teks cepat — dikombinasikan fzf, Anda bisa browse hasil search secara interaktif dengan preview.
+
+Kapan dipakai: mencari string di codebase besar, jump ke file+baris tanpa manual buka editor.
+
+```bash
+# Cari teks, pilih hasil, buka di editor
+rg --line-number --no-heading --color=always '' |
+  fzf --ansi \
+    --delimiter : \
+    --preview 'bat --color=always --highlight-line {2} {1}' \
+    --preview-window 'right:60%' |
+  awk -F: '{print $1 ":" $2}' |
+  xargs -I{} sh -c 'nvim {}'
+
+# Versi sederhana — cari pattern tertentu
+rg -l 'TODO' | fzf --preview 'bat {}'
+```
+
+Script `fzf-rg` lengkap untuk `~/.zshrc`:
+
+```bash
+fzf-rg() {
+  local file line
+  read -r file line < <(
+    rg --color=always --line-number --no-heading "${1:-}" |
+    fzf --ansi --delimiter : --nth 3.. \
+      --preview 'bat --color=always --highlight-line {2} {1}' \
+      --preview-window 'right:60%'
+  )
+  [[ -n "$file" ]] && nvim "$file" +"$line"
+}
+```
+
+- **`rg -l`**: hanya tampilkan nama file (list) — cocok untuk pipe ke fzf pilih file.
+- **`bat --highlight-line`**: sorot baris yang match di preview.
+- **`--nth 3..`**: filter berdasarkan teks match, bukan path/nomor baris.
+
+<Callout type="info">
+Pasang **ripgrep** dan **bat** lewat Homebrew: `brew install ripgrep bat`. Keduanya melengkapi fzf — rg untuk search, bat untuk preview dengan syntax highlighting.
+</Callout>
+
+---
+
+### fzf untuk shell history (Ctrl+R)
+
+Setelah menjalankan `fzf/install`, **Ctrl+R** di zsh/bash membuka fuzzy search history — menggantikan reverse incremental search bawaan.
+
+Kapan dipakai: menemukan perintah panjang yang pernah dijalankan — deploy script, docker compose, curl dengan banyak flag.
+
+```bash
+# Cek apakah keybinding aktif — di zsh, setelah install:
+# Tekan Ctrl+R di prompt kosong
+
+# Variabel environment untuk kustomisasi
+export FZF_CTRL_R_OPTS="
+  --preview 'echo {}' \
+  --preview-window down:3:hidden \
+  --bind 'ctrl-y:execute-silent(echo -n {2..} | pbcopy)+abort' \
+  --header 'Enter: jalankan | Ctrl+Y: salin ke clipboard'
+"
+```
+
+- **`FZF_CTRL_R_OPTS`**: opsi fzf khusus untuk widget Ctrl+R.
+- **`ctrl-y:...pbcopy`**: salin perintah ke clipboard tanpa menjalankan — berguna untuk edit manual.
+- **`{2..}`**: ambil perintah tanpa nomor history di awal baris.
+
+Opsi serupa untuk widget lain:
+
+```bash
+export FZF_CTRL_T_OPTS="--preview 'bat --color=always {}' --bind 'ctrl-/:change-preview-window(down|hidden|)'"
+export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --color=always {}'"
+```
+
+---
+
+### fzf sebagai completion dinamis
+
+fzf bisa dipakai untuk completion path, host SSH, dan variabel environment.
+
+```bash
+# Kill process interaktif
+ps aux | fzf | awk '{print $2}' | xargs kill
+
+# SSH ke host dari ~/.ssh/config
+grep '^Host ' ~/.ssh/config | awk '{print $2}' | fzf | xargs -I{} ssh {}
+
+# Pilih variabel environment
+env | fzf | cut -d= -f1
+
+# Docker: pilih container
+docker ps --format '{{.ID}} {{.Names}}' | fzf | awk '{print $1}' | xargs docker logs -f
+```
+
+Kapan dipakai: operasi yang melibatkan daftar dinamis — process, container, host, env var — di mana nama/id sulit dihafal.
+
+---
+
+### Environment variables fzf
+
+```bash
+# Default opts untuk semua invokasi fzf
+export FZF_DEFAULT_OPTS="
+  --height 40%
+  --layout reverse
+  --border
+  --bind 'ctrl-a:select-all+accept'
+"
+
+# Command default untuk Ctrl+T (file finder)
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
+
+# Command saat query kosong
+export FZF_DEFAULT_COMMAND_FALLBACK='find . -type f'
+
+# Ctrl+R, Ctrl+T, Alt+C — lihat bagian sebelumnya
+export FZF_CTRL_R_OPTS='--sort'
+```
+
+- **`FZF_DEFAULT_COMMAND`**: ganti `find` dengan **fd** (finder cepat) — `brew install fd`.
+- **`FZF_DEFAULT_OPTS`**: DRY — opsi yang sama berlaku di semua pemanggilan fzf.
+
+<Callout type="warning">
+Jika `FZF_DEFAULT_COMMAND` memakai `fd`, pastikan `fd` terinstal. Tanpa `fd`, fzf fallback ke `find` bawaan — lebih lambat di repo besar.
+</Callout>
+
+---
+
+## eza — Pengganti Modern untuk ls
+
+**eza** (dulu **exa**) adalah pengganti `ls` dengan warna, ikon, kolom Git, dan tree view bawaan. Output lebih mudah dipindai — permission, ukuran, tanggal, dan status Git terlihat sekilas.
+
+### Perintah dasar eza
+
+```bash
+eza                          # list file (setara ls)
+eza -l                       # long format (detail)
+eza -la                      # long + hidden files
+eza -lah                     # long + hidden + ukuran human-readable
+eza -T                       # tree view
+eza -T -L 2                  # tree kedalaman 2 level
+eza --grid                   # grid layout (kolom)
+eza --long --grid            # long format dalam grid
+```
+
+Kapan dipakai: setiap kali Anda mengetik `ls` — eza bisa di-alias menggantikan `ls` sepenuhnya.
+
+| Flag | Setara ls | Keterangan |
+| --- | --- | --- |
+| **`-l` / `--long`** | `ls -l` | Permission, owner, size, tanggal |
+| **`-a` / `--all`** | `ls -a` | Tampilkan hidden files (`.` prefix) |
+| **`-A` / `--almost-all`** | `ls -A` | Hidden kecuali `.` dan `..` |
+| **`-R` / `--recurse`** | `ls -R` | Rekursif (non-tree) |
+| **`-T` / `--tree`** | `tree` | Tree view hierarkis |
+| **`-L` / `--level`** | `tree -L` | Kedalaman tree |
+| **`-h` / `--header`** | — | Baris header kolom |
+| **`-1` / `--oneline`** | `ls -1` | Satu file per baris |
+
+---
+
+### Long format (`-l`) — Detail file
+
+Long format menampilkan metadata lengkap setiap file — setara `ls -l` tapi dengan warna dan ikon.
+
+Kapan dipakai: cek permission, ukuran, tanggal modifikasi, symlink target.
+
+```bash
+eza -l                       # long format
+eza -la                      # termasuk hidden
+eza -l --no-user             # sembunyikan kolom user
+eza -l --no-permissions      # sembunyikan permission
+eza -l --time-style long-iso # format tanggal ISO
+eza -l --sort size           # urutkan berdasarkan ukuran
+eza -l --sort modified       # urutkan berdasarkan tanggal modifikasi
+eza -l --reverse             # urutan terbalik
+eza -l --group-directories-first  # folder di atas
+```
+
+- **`--sort`**: nilai umum — `name`, `size`, `modified`, `type`, `extension`.
+- **`--group-directories-first`**: direktori selalu di atas — mirip `ls --group-directories-first`.
+- **`--time-style`**: `default`, `iso`, `long-iso`, `full-iso`.
+
+---
+
+### Ikon (`--icons`)
+
+eza menampilkan ikon Nerd Font / emoji untuk tipe file — folder, source code, gambar, arsip, dll.
+
+Kapan dipakai: terminal sudah memakai Nerd Font (mis. MesloLGS NF, FiraCode Nerd Font, JetBrainsMono Nerd Font).
+
+```bash
+eza --icons                  # ikon default
+eza -la --icons              # long + hidden + ikon
+eza -T --icons               # tree + ikon
+eza --icons=automatic        # ikon hanya jika terminal mendukung
+eza --icons=never            # matikan ikon
+```
+
+<Callout type="tip">
+Instal Nerd Font lewat Homebrew: `brew install --cask font-jetbrains-mono-nerd-font`. Set font tersebut di terminal emulator (iTerm2 → Profiles → Text → Font).
+</Callout>
+
+---
+
+### Status Git (`--git`)
+
+Kolom Git menampilkan status file dalam repo — modified, staged, untracked — langsung di listing.
+
+Kapan dipakai: bekerja di repository Git, ingin overview cepat tanpa `git status`.
+
+```bash
+eza -la --git                # long + git status
+eza -la --git --icons        # kombinasi ikon + git
+eza -la --git-ignore         # hormati .gitignore (sembunyikan ignored)
+eza -la --git --git-repos    # tampilkan repo Git di subdirektori
+```
+
+Simbol status Git di eza:
+
+| Simbol | Arti |
+| --- | --- |
+| **M** | Modified (working tree) |
+| **N** | New / untracked |
+| **D** | Deleted |
+| **I** | Ignored |
+| **S** | Staged (index) |
+| **R** | Renamed |
+| **T** | Type change |
+
+- **`--git-ignore`**: file yang di-ignore `.gitignore` tidak ditampilkan — listing lebih bersih.
+- **`--git-repos`**: tandai subfolder yang juga repo Git (monorepo/nested repo).
+
+---
+
+### Grid vs Long layout
+
+eza mendukung dua mode tampilan utama — **long** (satu file per baris, detail) dan **grid** (multi-kolom, ringkas).
+
+Kapan dipakai: grid untuk folder dengan banyak file kecil; long untuk audit detail.
+
+```bash
+# Grid — ringkas, multi-kolom
+eza --grid
+eza -a --grid
+
+# Long — detail per baris
+eza -l
+
+# Long dalam grid (eksperimental — kolom long)
+eza --long --grid
+
+# Oneline — satu nama per baris (untuk pipe)
+eza -1
+eza -1 --icons
+```
+
+Perbandingan:
+
+| Mode | Kapan dipakai | Kelebihan |
+| --- | --- | --- |
+| **Grid** | Folder dengan banyak file | Muat lebih banyak di layar |
+| **Long** | Perlu metadata (size, date, perm) | Informasi lengkap |
+| **Oneline** | Pipe ke `fzf`, `wc -l`, script | Output machine-friendly |
+| **Tree** | Struktur proyek | Hierarki visual |
+
+---
+
+### Tree view (`-T`)
+
+Tree view menampilkan struktur direktori hierarkis — menggantikan perintah `tree` terpisah.
+
+Kapan dipakai: overview struktur proyek, dokumentasi folder, cari file di nested directory.
+
+```bash
+eza -T                       # tree dari direktori saat ini
+eza -T -L 2                  # kedalaman maksimal 2
+eza -T -L 3 --icons          # tree + ikon
+eza -T -la --git             # tree + detail + git status
+eza -T --git-ignore          # hormati .gitignore
+eza -T -I 'node_modules'     # ignore pattern (glob)
+eza -T -I 'node_modules|dist|.git'  # multiple ignore
+```
+
+- **`-L` / `--level`**: batasi kedalaman — penting di repo besar agar output tidak banjir.
+- **`-I` / `--ignore-glob`**: exclude pattern — mirip `tree -I`.
+- Kombinasi **`-T --icons --git`** adalah "power view" untuk repo development.
+
+---
+
+### Opsi tampilan dan filter eza
+
+```bash
+eza --color=always           # paksa warna (untuk pipe ke less)
+eza --color=never            # tanpa warna
+eza -l --total-size          # tampilkan total ukuran direktori
+eza -l -s size               # sort by size (shortcut)
+eza -l -s modified           # sort by modified date
+eza -l -D                    # hanya direktori
+eza -l -f                    # hanya file
+eza -l --only-dirs           # sama dengan -D
+eza -l -d                    # list direktori itu sendiri, bukan isinya
+eza -R -L 1                  # rekursif 1 level (non-tree)
+```
+
+Kapan dipakai: filter listing, sort custom, output untuk script.
+
+---
+
+### eza untuk symlink dan metadata
+
+```bash
+eza -l                       # symlink tampil path target
+eza -la --classify           # tambahkan indicator tipe (/ * @ |)
+eza -la -H                   # follow symlink (tampilkan isi target)
+eza -la --inode              # tampilkan inode number
+eza -la --blocksize          # ukuran block
+eza -la --extended           # extended attributes (macOS xattr)
+```
+
+- **`--classify`**: tambahkan karakter indikator — `/` direktori, `*` executable, `@` symlink.
+- **`-H`**: follow symlink — hati-hati di direktori dengan circular link.
+
+---
+
+### Alias eza menggantikan ls
+
+Pola umum di `~/.zshrc`:
+
+```bash
+alias ls='eza --icons'
+alias ll='eza -la --icons --git'
+alias la='eza -a --icons'
+alias lt='eza -T --icons -L 2'
+alias lta='eza -T --icons -L 3 -la --git'
+```
+
+Kapan dipakai: migrasi permanen dari `ls` ke `eza` — muscle memory `ls`/`ll`/`la` tetap berfungsi.
+
+<Callout type="info">
+Beberapa script sistem bergantung pada output format `ls` standar POSIX. Untuk script portable, tetap pakai command `command ls -la` (bypass alias) atau `/bin/ls`.
+</Callout>
+
+---
+
+## tlrc — Cheat Sheet Perintah (tldr Client)
+
+**tlrc** adalah klien Rust untuk halaman **tldr** (Too Long; Didn't Read) — dokumentasi perintah yang ringkas, berisi contoh praktis, tanpa penjelasan bertele-tele seperti `man`.
+
+### Konsep tldr vs man
+
+| Aspek | `man` | `tldr` (via tlrc) |
+| --- | --- | --- |
+| **Panjang** | Ratusan/ribuan baris | 5–15 contoh singkat |
+| **Fokus** | Referensi lengkap semua opsi | Use case umum sehari-hari |
+| **Contoh** | Ada, tapi tersebar | Contoh utama di setiap halaman |
+| **Bahasa** | Inggris (umumnya) | Multi-bahasa (termasuk Indonesia untuk beberapa halaman) |
+| **Update** | Bundled dengan OS/package | Komunitas — update via `tlrc update` |
+| **Cocok untuk** | Deep dive, edge case | "Gimana cara pakai ini?" |
+
+Kapan pakai `man`: butuh dokumentasi lengkap semua flag, behavior edge case, atau format file config.
+
+Kapan pakai `tlrc`: lupa sintaks, butuh contoh cepat, onboarding tool baru.
+
+---
+
+### Perintah dasar tlrc
+
+```bash
+tlrc tar                     # cheat sheet untuk tar
+tlrc docker                  # cheat sheet docker
+tlrc --list                  # daftar semua halaman tersedia
+tlrc --list | fzf            # cari halaman interaktif
+tlrc -p ls                   # tampilkan di pager (less)
+tlrc --update                # update cache halaman tldr
+tlrc --version               # versi tlrc
+```
+
+- **`tlrc <command>`**: tampilkan halaman tldr untuk perintah tersebut.
+- **`--list`**: semua halaman yang ter-cache — bisa di-pipe ke fzf.
+- **`--update`**: unduh halaman terbaru dari [tldr-pages](https://github.com/tldr-pages/tldr).
+
+---
+
+### Struktur halaman tldr
+
+Setiap halaman tldr mengikuti format konsisten:
+
+```
+nama-perintah
+=============
+
+Deskripsi satu baris.
+
+- Contoh 1:
+  perintah contoh
+
+- Contoh 2:
+  perintah contoh lain
+```
+
+Contoh output `tlrc tar` (disingkat):
+
+```bash
+$ tlrc tar
+
+  tar
+
+  Archiving utility.
+  More information: https://github.com/tldr-pages/tldr/blob/main/pages/common/tar.md.
+
+  - Create an archive:
+    tar -cvf target.tar file1 file2
+
+  - Extract an archive:
+    tar -xvf target.tar
+
+  - Create a gzipped archive:
+    tar -czvf target.tar.gz file1 file2
+```
+
+Kapan dipakai: struktur ini memudahkan scan cepat — langsung copy-paste contoh yang relevan.
+
+---
+
+### Opsi CLI tlrc
+
+```bash
+tlrc -l en tar               # paksa bahasa Inggris
+tlrc -l id tar               # bahasa Indonesia (jika halaman tersedia)
+tlrc -q tar                  # quiet — tanpa pesan error verbose
+tlrc --color always tar      # paksa warna
+tlrc --color never tar       # tanpa warna (untuk script)
+tlrc -p tar                  # output ke pager
+tlrc --render tldr tar       # format output: tldr, plain, raw
+```
+
+- **`-l` / `--language`**: kode bahasa — `en`, `id`, `fr`, dll. Cek repo tldr-pages untuk ketersediaan.
+- **`--render`**: `tldr` (default, berwarna), `plain` (teks polos), `raw` (markdown).
+
+---
+
+### Update cache tldr
+
+Halaman tldr disimpan lokal — perlu di-update agar mendapat contoh terbaru.
+
+Kapan dipakai: setup pertama, atau secara berkala (mingguan/bulanan).
+
+```bash
+tlrc --update                # unduh halaman terbaru
+tlrc --update --force        # paksa re-download semua
+
+# Lokasi cache (default)
+# Linux: ~/.cache/tlrc
+# macOS: ~/Library/Caches/tlrc
+```
+
+<Callout type="tip">
+Tambahkan `tlrc --update` ke cron atau script setup dotfiles — halaman tldr terus bertambah untuk tool baru (kubectl, docker compose, dll.).
+</Callout>
+
+---
+
+### tlrc vs klien tldr lain
+
+| Klien | Bahasa | Kecepatan | Catatan |
+| --- | --- | --- | --- |
+| **tlrc** | Rust | Sangat cepat | Rekomendasi untuk Mac/Linux modern |
+| **tealdeer** (`tldr`) | Rust | Sangat cepat | Populer di Arch Linux |
+| **tldr** (npm) | Node.js | Cukup | `npm install -g tldr` |
+| **tldr** (Python) | Python | Cukup | `pip install tldr` |
+
+Semua klien membaca halaman dari proyek yang sama: [tldr-pages/tldr](https://github.com/tldr-pages/tldr). Pilih satu klien — tidak perlu instal semua.
+
+---
+
+### Kustomisasi tlrc
+
+File konfigurasi tlrc (jika didukung versi Anda):
+
+```bash
+# ~/.config/tlrc/config.toml (contoh — cek dokumentasi versi)
+# display_mode = "pager"
+# language = "en"
+# color = "auto"
+```
+
+Environment variables umum:
+
+```bash
+export TLRC_LANG=en            # bahasa default
+export PAGER='less -R'         # pager untuk output panjang
+```
+
+---
+
+### Workflow tlrc + fzf — Cari cheat sheet interaktif
+
+Kombinasi powerful: daftar semua halaman tldr difilter dengan fzf.
+
+Kapan dipakai: Anda tahu perintahnya "sekitar" tapi tidak ingat nama exact.
+
+```bash
+# Cari halaman tldr
+tlrc --list | fzf | xargs tlrc
+
+# Dengan preview
+tlrc --list | fzf --preview 'tlrc {}' --preview-window right:60%
+
+# Fungsi shell
+tldr-fzf() {
+  local cmd
+  cmd=$(tlrc --list | fzf --preview 'tlrc {}' --preview-window right:60%)
+  [[ -n "$cmd" ]] && tlrc "$cmd"
+}
+```
+
+- **`--preview 'tlrc {}'`**: lihat isi cheat sheet sebelum memilih — tidak perlu buka halaman yang salah.
+
+---
+
+### Contoh halaman tldr yang sering dipakai
+
+```bash
+tlrc curl                    # HTTP request
+tlrc jq                      # JSON processing
+tlrc sed                       # stream editor
+tlrc awk                       # text processing
+tlrc ssh                       # remote shell
+tlrc scp                       # copy via SSH
+tlrc rsync                     # sync files
+tlrc find                      # find files
+tlrc xargs                     # build command from stdin
+tlrc chmod                     # change permissions
+tlrc chown                     # change owner
+tlrc systemctl                 # systemd (Linux)
+tlrc brew                      # Homebrew
+tlrc git                       # Git (ringkas — bukan pengganti panduan lengkap)
+tlrc docker                    # Docker
+tlrc kubectl                   # Kubernetes
+```
+
+Kapan dipakai: referensi cepat saat menulis script, debug, atau belajar tool baru.
+
+---
+
+## Tabel Perbandingan Ketiga Tool
+
+| Tool | Menggantikan | Input | Output | Interaktif | Best for |
+| --- | --- | --- | --- | --- | --- |
+| **fzf** | `find`+`grep` (sebagian), Ctrl+R | stdin / keybinding | baris terpilih | Ya | Pilih file, history, branch, hasil search |
+| **eza** | `ls`, `tree` (sebagian) | path argumen | listing berwarna | Tidak | Lihat isi folder, tree, status Git |
+| **tlrc** | `man` (sebagian) | nama perintah | contoh cheat sheet | Tidak (bisa + fzf) | Ingat sintaks, contoh cepat |
+
+### Kapan pakai yang mana?
+
+| Situasi | Tool | Contoh |
+| --- | --- | --- |
+| "Isi folder ini apa?" | **eza** | `eza -la --icons --git` |
+| "File mana yang mau dibuka?" | **fzf** | `Ctrl+T` atau `fd \| fzf` |
+| "Gimana cara compress folder?" | **tlrc** | `tlrc tar` |
+| "Perintah apa yang tadi saya jalankan?" | **fzf** | `Ctrl+R` |
+| "Struktur proyek seperti apa?" | **eza** | `eza -T -L 3 --icons` |
+| "Flag curl untuk POST JSON?" | **tlrc** | `tlrc curl` |
+| "Branch mana yang mau di-checkout?" | **fzf** | `git branch \| fzf` |
+| "Permission file ini?" | **eza** | `eza -l` |
+
+---
+
+## Workflow: Menggabungkan fzf, eza, dan tlrc
+
+Workflow sehari-hari developer — ketiga tool saling melengkapi dalam satu rantai kerja.
+
+### Workflow 1: Eksplorasi proyek baru
+
+```bash
+# 1. Lihat struktur folder
+eza -T -L 2 --icons --git-ignore
+
+# 2. Masuk ke subfolder interaktif
+cd "$(find . -type d | fzf)"
+
+# 3. Lihat isi folder detail
+eza -la --icons --git
+
+# 4. Lupa perintah build? Cek tldr
+tlrc npm
+```
+
+### Workflow 2: Cari dan edit file
+
+```bash
+# 1. Cari file by name
+fd -t f | fzf --preview 'bat --color=always {}' | xargs nvim
+
+# 2. Atau cari by content (ripgrep + fzf)
+fzf-rg 'TODO'
+
+# 3. Sebelum commit — lihat status visual
+eza -la --git
+```
+
+### Workflow 3: Operasi Git cepat
+
+```bash
+# 1. Lihat branch
+git branch -a --color=always | fzf --ansi | xargs git checkout
+
+# 2. Stage file interaktif
+git status -s | fzf -m | awk '{print $2}' | xargs git add
+
+# 3. Lupa cara amend commit?
+tlrc git
+```
+
+### Workflow 4: DevOps / server
+
+```bash
+# 1. SSH ke host
+grep '^Host ' ~/.ssh/config | awk '{print $2}' | fzf | xargs ssh
+
+# 2. Cek log container
+docker ps --format '{{.Names}}' | fzf | xargs docker logs -f --tail 100
+
+# 3. Lupa syntax systemd?
+tlrc systemctl
+```
+
+### Diagram workflow terpadu
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Terminal Session                          │
+├─────────────────────────────────────────────────────────────┤
+│  eza -T          →  Pahami struktur proyek                  │
+│  Ctrl+T (fzf)    →  Pilih file untuk edit                   │
+│  Ctrl+R (fzf)    →  Ulangi perintah build/test              │
+│  tlrc <cmd>      →  Ingat flag yang jarang dipakai           │
+│  eza -la --git   →  Cek status sebelum commit               │
+│  git log | fzf   →  Pilih commit untuk cherry-pick/review   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Integrasi Shell (zsh)
+
+Bagian ini mengumpulkan konfigurasi `~/.zshrc` untuk mengintegrasikan fzf, eza, dan tlrc ke workflow harian.
+
+### Setup lengkap ~/.zshrc
+
+```bash
+# ─── fzf ───────────────────────────────────────────────
+# Source keybinding (setelah brew install fzf + fzf/install)
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_DEFAULT_OPTS='--height 40% --layout reverse --border --ansi'
+export FZF_CTRL_T_OPTS='--preview "bat --color=always {}" --bind "ctrl-/:change-preview-window(down|hidden|)"'
+export FZF_ALT_C_OPTS='--preview "eza --tree --level=2 --color=always {}"'
+export FZF_CTRL_R_OPTS='--sort --bind "ctrl-y:execute-silent(echo -n {2..} | pbcopy)+abort"'
+
+# ─── eza (alias ls) ──────────────────────────────────
+alias ls='eza --icons'
+alias ll='eza -la --icons --git'
+alias la='eza -a --icons'
+alias lt='eza -T --icons -L 2'
+alias lta='eza -T --icons -L 3 -la --git'
+
+# ─── tlrc ────────────────────────────────────────────
+alias tldr='tlrc'
+alias cheats='tlrc --list | fzf --preview "tlrc {}" | xargs tlrc'
+
+# ─── Fungsi custom ───────────────────────────────────
+# Buka file dengan fzf + bat preview
+fzf-file() {
+  local file
+  file=$(fd --type f --hidden --follow --exclude .git | \
+    fzf --preview 'bat --color=always {}')
+  [[ -n "$file" ]] && ${EDITOR:-nvim} "$file"
+}
+
+# Cari string di codebase
+fzf-rg() {
+  local file line
+  IFS=: read -r file line < <(
+    rg --color=always --line-number --no-heading "${1:-}" |
+    fzf --ansi --delimiter : --nth 3.. \
+      --preview 'bat --color=always --highlight-line {2} {1}' \
+      --preview-window 'right:60%'
+  )
+  [[ -n "$file" ]] && ${EDITOR:-nvim} "$file" +"$line"
+}
+
+# Git checkout branch interaktif
+gco() {
+  local branch
+  branch=$(git branch -a --color=always | fzf --ansi | sed 's/remotes\/origin\///' | tr -d ' *')
+  [[ -n "$branch" ]] && git checkout "$branch"
+}
+
+# Kill process interaktif
+fkill() {
+  local pid
+  pid=$(ps -ef | sed 1d | fzf -m | awk '{print $2}')
+  [[ -n "$pid" ]] && echo "$pid" | xargs kill -${1:-9}
+}
+```
+
+Kapan dipakai: salin ke `~/.zshrc`, sesuaikan `$EDITOR`, reload dengan `source ~/.zshrc`.
+
+---
+
+### Plugin zsh alternatif
+
+Jika memakai framework zsh:
+
+| Framework | Plugin | Fungsi |
+| --- | --- | --- |
+| **Oh My Zsh** | `fzf`, `zsh-autosuggestions` | Integrasi fzf + suggestion |
+| **Zinit** | `junegunn/fzf` | Load fzf dengan Zinit |
+| **Antidote** | `ohmyzsh/fzf` | Bundle fzf keybinding |
+
+```bash
+# Oh My Zsh — tambahkan ke plugins=() di ~/.zshrc
+plugins=(git fzf zsh-autosuggestions zsh-syntax-highlighting)
+```
+
+- Plugin `fzf` di Oh My Zsh menyediakan fungsi tambahan: `fzf-history-widget`, `fzf-cd-widget`, `fzf-file-widget`.
+
+---
+
+### Completion zsh untuk eza
+
+eza tidak selalu menyediakan completion zsh bawaan — gunakan completion `ls` atau install manual:
+
+```bash
+# Homebrew — completion mungkin tersedia di:
+# $(brew --prefix)/share/zsh/site-functions/_eza
+
+# Tambahkan ke fpath sebelum compinit
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+---
+
+## Alias & Fungsi Berguna
+
+Kumpulan alias dan fungsi tambahan di luar setup dasar.
+
+### Alias fzf
+
+```bash
+alias fzf-cd='cd "$(find . -type d | fzf)"'
+alias fzf-history='history | fzf --tac'
+alias fzf-git-log='git log --oneline | fzf --preview "git show {1}"'
+alias fzf-docker='docker ps -a --format "{{.ID}} {{.Names}}" | fzf'
+alias fzf-kill='ps aux | fzf | awk "{print \$2}" | xargs kill'
+```
+
+### Alias eza
+
+```bash
+alias l='eza -lb --icons --git'
+alias ls='eza --icons'
+alias ll='eza -la --icons --git'
+alias llm='eza -la --icons --git --sort modified'
+alias lS='eza -la --icons --git --sort size'
+alias lt='eza -T --icons -L 2'
+alias lta='eza -T --icons -L 3 -la --git'
+alias l.='eza -la --icons --git | head -20'   # 20 file teratas
+```
+
+### Alias tlrc
+
+```bash
+alias tldr='tlrc'
+alias tldru='tlrc --update'
+alias tldrl='tlrc --list'
+alias ?='tlrc'                    # ? docker → tlrc docker (hati-hati dengan glob)
+```
+
+<Callout type="warning">
+Alias `?='tlrc'` bisa bentrok dengan history expansion zsh. Pastikan tidak konflik dengan shortcut lain sebelum mengaktifkan.
+</Callout>
+
+---
+
+### Fungsi kombinasi tiga tool
+
+```bash
+# Eksplorasi: tree → cd → list → tldr jika bingung
+explore() {
+  local dir
+  dir=$(find "${1:-.}" -type d | fzf --preview 'eza --tree --level=2 --color=always {}')
+  [[ -n "$dir" ]] && cd "$dir" && eza -la --icons --git
+}
+
+# Cari perintah tldr lalu tampilkan
+how() {
+  local cmd
+  cmd=$(tlrc --list | fzf --query "$1" --preview 'tlrc {}')
+  [[ -n "$cmd" ]] && tlrc "$cmd"
+}
+
+# Preview file di repo dengan eza + fzf + bat
+preview-repo() {
+  fd --type f --hidden --exclude .git |
+    fzf --preview 'eza -la --color=always $(dirname {}) 2>/dev/null; echo "---"; bat --color=always {}' \
+      --preview-window 'right:60%'
+}
+```
+
+Kapan dipakai: tambahkan ke dotfiles — fungsi ini menggabungkan kekuatan ketiga tool dalam satu perintah.
+
+---
+
+## Troubleshooting Umum
+
+### fzf — Keybinding tidak berfungsi
+
+```bash
+# Pastikan fzf.zsh ter-source
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# Re-run installer
+$(brew --prefix)/opt/fzf/install --all
+
+# Cek konflik keybinding di terminal emulator
+# iTerm2: Preferences → Keys → cek Ctrl+R, Ctrl+T, Option+C
+```
+
+### fzf — Preview error "command not found"
+
+```bash
+# Install dependency preview
+brew install bat fd ripgrep
+
+# Fallback preview tanpa bat
+export FZF_CTRL_T_OPTS='--preview "cat {}"'
+```
+
+### eza — Ikon tampil sebagai kotak/placeholder
+
+```bash
+# Instal Nerd Font
+brew install --cask font-jetbrains-mono-nerd-font
+
+# Set di terminal emulator, lalu restart terminal
+# Atau matikan ikon sementara:
+alias ls='eza'   # tanpa --icons
+```
+
+### eza — Warna tidak tampil
+
+```bash
+# Paksa warna
+eza --color=always
+export EZA_COLORS='da=1;34'   # customize colors (jika didukung)
+
+# Cek TERM
+echo $TERM   # harus xterm-256color atau similar
+```
+
+### tlrc — Halaman tidak ditemukan
+
+```bash
+# Update cache
+tlrc --update
+
+# Cek halaman tersedia
+tlrc --list | grep -i <command>
+
+# Fallback ke man
+man <command>
+```
+
+### tlrc — Halaman bahasa Indonesia tidak ada
+
+```bash
+# Cek ketersediaan
+tlrc -l id <command>
+
+# Fallback ke Inggris
+tlrc -l en <command>
+```
+
+---
+
+## Dependensi Pendukung (Opsional tapi Direkomendasikan)
+
+Tool berikut melengkapi fzf, eza, dan tlrc — bukan pengganti, tapi memperkuat workflow:
+
+| Tool | Fungsi | Instal |
+| --- | --- | --- |
+| **fd** | Finder file cepat (pengganti find) | `brew install fd` |
+| **bat** | `cat` dengan syntax highlighting | `brew install bat` |
+| **ripgrep** (`rg`) | Search teks cepat di codebase | `brew install ripgrep` |
+| **jq** | JSON processor | `brew install jq` |
+| **Nerd Font** | Font dengan ikon untuk eza | `brew install --cask font-jetbrains-mono-nerd-font` |
+
+```bash
+# Instal semua sekaligus
+brew install fd bat ripgrep jq fzf eza tlrc
+brew install --cask font-jetbrains-mono-nerd-font
+```
+
+---
+
+## Ringkasan Cepat
+
+| Tool | Perintah Utama | Keybinding / Alias |
+| --- | --- | --- |
+| **fzf** | `… \| fzf`, `fzf --preview`, `fzf -m` | Ctrl+R, Ctrl+T, Alt+C |
+| **eza** | `eza -la --icons --git`, `eza -T -L 2` | `alias ls='eza --icons'` |
+| **tlrc** | `tlrc <cmd>`, `tlrc --list`, `tlrc --update` | `alias tldr='tlrc'` |
+
+### Cheat sheet satu baris
+
+```bash
+# fzf
+history | fzf                  # cari history manual
+fd | fzf --preview 'bat {}'  # pilih file + preview
+git branch | fzf | xargs git checkout
+
+# eza
+eza -la --icons --git          # list detail + git status
+eza -T -L 3 --icons --git-ignore   # tree 3 level
+
+# tlrc
+tlrc docker                    # cheat sheet docker
+tlrc --list | fzf | xargs tlrc # cari interaktif
+tlrc --update                  # update halaman
+```
+
+### Instalasi cepat (copy-paste)
+
+```bash
+brew install fzf eza tlrc fd bat ripgrep
+$(brew --prefix)/opt/fzf/install --all
+brew install --cask font-jetbrains-mono-nerd-font
+tlrc --update
+```
+
+---
+
+## Penutup
+
+Tiga tool ini membentuk **fondasi terminal modern**: **eza** memberi konteks visual saat navigasi file, **fzf** mengubah pencarian menjadi interaktif dan keyboard-driven, dan **tlrc** menghilangkan hambatan "lupa sintaks" tanpa membuka browser.
+
+Mulai dari yang paling berdampak: pasang **fzf** dan jalankan `fzf/install` (Ctrl+R saja sudah mengubah produktivitas), alias **eza** menggantikan `ls`, dan pakai **tlrc** setiap kali mengetik `man` untuk hal yang sederhana. Setelah nyaman, tambahkan preview (`bat`), finder (`fd`), dan fungsi shell custom.
+
+Dokumentasi resmi: [fzf](https://github.com/junegunn/fzf), [eza](https://github.com/eza-community/eza), [tlrc](https://github.com/tldr-pages/tlrc), dan halaman komunitas [tldr-pages](https://github.com/tldr-pages/tldr).

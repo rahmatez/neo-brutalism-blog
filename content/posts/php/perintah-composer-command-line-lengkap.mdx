@@ -1,0 +1,1284 @@
+---
+title: "Perintah Composer Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Composer: install, update, require, remove, dump-autoload, init, create-project, validate, show, why, outdated, audit, scripts, composer.json, lock file, global require, troubleshooting, dan workflow Laravel/Symfony."
+date: "2025-06-24"
+category: php
+tags: ["composer", "php", "packagist", "cli", "tutorial"]
+featured: true
+---
+
+**Composer** adalah dependency manager resmi ekosistem PHP. Dengan perintah `composer` di terminal, Anda mengelola library dari [Packagist](https://packagist.org), mengatur autoload PSR-4, menjalankan script proyek, dan memastikan tim development memakai versi dependensi yang sama lewat `composer.lock`.
+
+<Callout type="tip">
+Pastikan Composer sudah terpasang. Cek dengan `composer --version`. Di Mac: `brew install composer`, atau instal global lewat [getcomposer.org/download](https://getcomposer.org/download/) (`php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"` lalu pindahkan `composer.phar` ke PATH).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti Composer — istilah ini muncul terus di dokumentasi, output terminal, dan workflow framework PHP:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Packagist** | Registry publik package PHP — sumber default Composer saat mencari library |
+| **composer.json** | Manifest proyek — daftar dependensi, autoload, script, dan metadata |
+| **composer.lock** | Snapshot versi exact dependensi — memastikan instal reproducible |
+| **vendor/** | Folder hasil instal — berisi semua package dan `autoload.php` |
+| **Autoload** | Mekanisme memuat class otomatis — PSR-4, PSR-0, classmap, files |
+| **require** | Dependensi wajib saat runtime — diinstal di production |
+| **require-dev** | Dependensi development — PHPUnit, PHPStan, faker, dll. |
+| **Semver** | Semantic Versioning — `^8.2`, `~2.1`, `1.0.*` menentukan range update |
+| **Platform** | Constraint versi PHP/ekstensi — `platform.php`, `ext-mbstring` |
+| **Script** | Perintah custom di `composer.json` — dijalankan via `composer run-script` |
+
+### Alur kerja Composer
+
+```
+composer.json  ──require/update──►  Packagist  ──unduh──►  vendor/
+       │                                                    │
+       └──────────── composer.lock (versi exact) ◄──────────┘
+                              │
+                              ▼
+                    vendor/autoload.php  ──►  aplikasi PHP
+```
+
+### Perintah informasi dasar
+
+```bash
+composer --version              # versi Composer
+composer help                   # daftar semua perintah
+composer help install           # bantuan detail satu perintah
+composer diagnose               # cek masalah konfigurasi & lingkungan
+composer about                  # info singkat Composer
+composer self-update            # perbarui Composer itu sendiri
+composer self-update --rollback # kembalikan ke versi sebelumnya
+```
+
+- **`composer --version`**: langkah pertama saat troubleshooting — pastikan Composer tidak terlalu usang.
+- **`composer diagnose`**: cek PHP version, SSL, proxy, dan koneksi Packagist.
+- **`composer help <command>`**: referensi lengkap tanpa buka browser.
+
+---
+
+## `composer install` — Instal Dependensi
+
+`composer install` membaca `composer.json` dan `composer.lock`, lalu mengunduh serta mengekstrak semua package ke folder `vendor/`.
+
+Kapan dipakai: pertama kali clone proyek, setelah pull yang mengubah `composer.lock`, deploy production, atau setup mesin development baru.
+
+```bash
+composer install                        # instal dari lock file
+composer install --no-dev               # tanpa require-dev (production)
+composer install --prefer-dist          # unduh zip, bukan clone git (default)
+composer install --prefer-source        # clone git — untuk debug package
+composer install --no-scripts           # skip script (post-install, dll.)
+composer install --no-autoloader        # skip generate autoload (langkah terpisah)
+composer install --no-progress          # output lebih ringkas (CI)
+composer install --optimize-autoloader    # classmap authoritative (production)
+composer install --classmap-authoritative  # tidak fallback ke PSR-4 (performa max)
+composer install --apcu-autoloader      # cache autoload di APCu (production)
+composer install --ignore-platform-reqs # abaikan constraint PHP/ekstensi
+composer install --dry-run              # simulasi tanpa mengubah disk
+composer install -vvv                   # verbose debug (3 level)
+```
+
+Flag penting:
+
+- **`--no-dev`**: wajib di production — tidak instal PHPUnit, PHPStan, dan dev tools lain.
+- **`--optimize-autoloader`**: generate classmap optimal — mempercepat autoload di production.
+- **`--no-scripts`**: mencegah eksekusi script pihak ketiga — berguna di environment ketat atau audit keamanan.
+- **`--ignore-platform-reqs`**: bypass cek PHP/ekstensi — hanya untuk troubleshooting, bukan production.
+- **`composer install` vs `composer update`**: `install` menghormati lock file; `update` bisa mengubah versi.
+
+<Callout type="info">
+Di CI/CD, selalu pakai `composer install` (bukan `update`) agar build reproducible. Jika `composer.lock` tidak ada, Composer akan membuatnya — commit lock file ke Git.
+</Callout>
+
+---
+
+## `composer update` — Perbarui Dependensi
+
+`composer update` memperbarui package ke versi terbaru **dalam range semver** di `composer.json`, lalu menulis ulang `composer.lock`.
+
+Kapan dipakai: rutinitas maintenance, patch security, upgrade minor, atau setelah mengubah constraint di `composer.json`.
+
+```bash
+composer update                         # update semua package
+composer update vendor/package          # update satu package saja
+composer update vendor/a vendor/b       # update beberapa package
+composer update --with-dependencies     # include dependensi transitif terkait
+composer update --with-all-dependencies # update seluruh pohon dependensi package
+composer update --prefer-stable         # pilih versi stable jika ada
+composer update --prefer-lowest         # pilih versi terendah dalam range (testing)
+composer update --no-dev                # update tanpa dev dependencies
+composer update --lock                  # regenerate lock tanpa update versi
+composer update --dry-run               # simulasi perubahan
+composer update --no-install            # hanya update lock, tanpa instal
+composer update -W                      # alias --with-all-dependencies
+```
+
+Perbedaan penting:
+
+| Perintah | Lock file | Versi |
+| --- | --- | --- |
+| **`composer install`** | Dibaca, tidak diubah | Exact dari lock |
+| **`composer update`** | Ditulis ulang | Terbaru dalam range semver |
+| **`composer update --lock`** | Ditulis ulang | Versi tidak berubah |
+
+- **`composer update vendor/package`**: lebih aman daripada update semua — scope perubahan terbatas.
+- **`--with-all-dependencies`**: berguna saat satu package butuh versi baru dependensi transitif.
+- **`--prefer-lowest`**: dipakai library author untuk test kompatibilitas versi minimum.
+- Setelah `update`, jalankan test suite sebelum commit lock file.
+
+<Callout type="warning">
+Jangan jalankan `composer update` di production server. Update di development, test, commit `composer.lock`, lalu deploy dengan `composer install --no-dev`.
+</Callout>
+
+---
+
+## `composer require` — Tambah Package
+
+`composer require` menambahkan package ke `composer.json`, mengunduh ke `vendor/`, dan memperbarui `composer.lock`.
+
+Kapan dipakai: butuh library baru, menambah dev tool, atau mengunci versi dependency transitif.
+
+```bash
+composer require monolog/monolog              # tambah ke require
+composer require symfony/console              # package dengan vendor/name
+composer require guzzlehttp/guzzle:^7.0       # dengan constraint semver
+composer require laravel/sanctum:^4.0         # versi major tertentu
+composer require --dev phpunit/phpunit        # tambah ke require-dev
+composer require --dev fakerphp/faker         # dev dependency
+composer require --dev phpstan/phpstan:^2.0
+composer require --dev or --dev phpunit/phpunit   # flag panjang
+composer require --no-update monolog/monolog  # tambah ke json tanpa instal
+composer require --no-scripts monolog/monolog # skip script saat instal
+composer require --prefer-stable monolog/monolog
+composer require --ignore-platform-req=ext-redis predis/predis   # abaikan satu ext
+composer require --with-all-dependencies laravel/framework      # update pohon
+```
+
+Constraint semver umum:
+
+| Syntax | Arti | Contoh |
+| --- | --- | --- |
+| **`^8.2`** | Compatible dengan 8.2.x, < 9.0 | PHP `^8.2` |
+| **`~2.1`** | >= 2.1.0, < 2.2.0 | Patch only |
+| **`1.0.*`** | Semua patch 1.0.x | `1.0.0` – `1.0.99` |
+| **`>=1.0 <2.0`** | Range eksplisit | Legacy projects |
+| **`*`** | Semua versi (hindari) | Tidak disarankan |
+
+- **`--dev`**: tool development — test, static analysis, fixture generator.
+- **`--no-update`**: edit `composer.json` saja — berguna saat menambah banyak package sebelum satu kali `composer update`.
+- **`vendor/package`**: format wajib — namespace vendor di Packagist + nama package.
+- Setelah `require`, autoload di-regenerate otomatis.
+
+---
+
+## `composer remove` — Hapus Package
+
+`composer remove` menghapus package dari `composer.json`, `vendor/`, dan memperbarui `composer.lock`.
+
+Kapan dipakai: library tidak dipakai lagi, mengganti package alternatif, atau membersihkan devDependency usang.
+
+```bash
+composer remove monolog/monolog             # hapus dari require
+composer remove --dev phpunit/phpunit       # hapus dari require-dev
+composer remove vendor/a vendor/b           # hapus beberapa sekaligus
+composer remove --no-update monolog/monolog   # hapus dari json tanpa instal
+composer remove --no-scripts monolog/monolog
+composer remove --dev fakerphp/faker phpunit/phpunit   # beberapa dev deps
+```
+
+- **`--dev`**: wajib jika package ada di `require-dev`, bukan `require`.
+- Composer juga menghapus dependensi yang tidak lagi dibutuhkan (jika tidak dipakai package lain).
+- Setelah `remove`, cek apakah ada `use` statement atau import yang masih mereferensikan package lama.
+- Jika package masih dibutuhkan secara transitif, Composer tidak menghapusnya dari `vendor/`.
+
+---
+
+## `composer dump-autoload` — Regenerate Autoload
+
+`composer dump-autoload` (alias `composer dumpautoload`) membangun ulang file autoload di `vendor/composer/` tanpa mengunduh package baru.
+
+Kapan dipakai: setelah menambah class/folder autoload manual, optimasi production, atau troubleshooting "class not found".
+
+```bash
+composer dump-autoload                    # regenerate autoload
+composer dump-autoload -o                 # optimize (classmap)
+composer dump-autoload -o --apcu          # optimize + APCu cache
+composer dump-autoload --classmap-authoritative   # tidak fallback PSR-4
+composer dump-autoload --no-dev           # exclude dev autoload rules
+composer dump-autoload --ignore-platform-reqs
+```
+
+- **`-o` / `--optimize`**: scan semua class ke classmap — autoload lebih cepat di production.
+- **`--classmap-authoritative`**: hanya classmap — error jelas jika class tidak terdaftar.
+- Jalankan setelah mengubah section `autoload` di `composer.json` tanpa `require`/`update`.
+- Di development, autoload PSR-4 tanpa optimize sudah cukup — regenerate cepat.
+
+---
+
+## `composer init` — Inisialisasi Proyek Baru
+
+`composer init` membuat `composer.json` baru secara interaktif atau dari opsi CLI.
+
+Kapan dipakai: memulai proyek PHP dari nol tanpa framework, membuat library/package baru, atau menambahkan Composer ke proyek legacy.
+
+```bash
+composer init                             # mode interaktif (wizard)
+composer init --name=vendor/my-package    # non-interaktif
+composer init --name=vendor/my-package --description="Deskripsi package"
+composer init --name=vendor/my-package --author="Nama <email@example.com>"
+composer init --name=vendor/my-package --type=library
+composer init --name=vendor/my-package --type=project
+composer init --name=vendor/my-package --require="php:^8.2"
+composer init --name=vendor/my-package --require-dev="phpunit/phpunit:^11.0"
+composer init --no-interaction \
+  --name=acme/blog \
+  --description="Blog package" \
+  --author="Rahmat <rahmat@example.com>" \
+  --type=library \
+  --require="php:^8.2" \
+  --require-dev="phpunit/phpunit:^11.0" \
+  --license=MIT
+```
+
+Wizard interaktif menanyakan:
+
+1. Nama package (`vendor/name`)
+2. Deskripsi
+3. Author
+4. Minimum stability (`stable`, `dev`, dll.)
+5. Dependensi awal
+6. Autoload PSR-4
+
+- **`--type=library`**: untuk package yang akan di-publish ke Packagist.
+- **`--type=project`**: untuk aplikasi (default umum).
+- Setelah `init`, jalankan `composer install` untuk membuat `vendor/` dan lock file.
+
+---
+
+## `composer create-project` — Buat Proyek dari Template
+
+`composer create-project` mengunduh package template (biasanya framework), menjalankan instalasi, dan menyiapkan proyek siap pakai.
+
+Kapan dipakai: bootstrap Laravel, Symfony, atau proyek dari skeleton package Packagist.
+
+```bash
+# Laravel
+composer create-project laravel/laravel my-app
+composer create-project laravel/laravel my-app "11.*"
+composer create-project laravel/laravel:^11.0 my-app
+
+# Symfony
+composer create-project symfony/skeleton my-symfony
+composer create-project symfony/website-skeleton my-site
+
+# Package umum
+composer create-project vendor/package target-dir
+composer create-project vendor/package target-dir 1.0.0    # versi spesifik
+composer create-project --prefer-dist vendor/package dir
+composer create-project --stability=dev vendor/package dir
+composer create-project --repository='{"type":"vcs","url":"https://github.com/user/repo"}' vendor/package dir
+composer create-project --no-install vendor/package dir   # unduh tanpa composer install
+composer create-project --no-scripts vendor/package dir
+```
+
+- **Argumen**: `package`, `directory` (opsional), `version` (opsional).
+- Laravel/Symfony menjalankan post-install script — setup `.env`, key, dll.
+- **`--no-install`**: berguna jika ingin review `composer.json` sebelum instal.
+- Proyek hasil `create-project` sudah punya `composer.json` dan `composer.lock`.
+
+<Callout type="tip">
+Untuk Laravel terbaru, alternatif modern: `laravel new my-app` (Laravel Installer). Di balik layar tetap memakai Composer — keduanya valid.
+</Callout>
+
+---
+
+## `composer validate` — Validasi composer.json
+
+`composer validate` memeriksa apakah `composer.json` valid secara sintaks dan mengikuti best practice Composer.
+
+Kapan dipakai: sebelum commit, sebelum publish ke Packagist, atau debug error parsing manifest.
+
+```bash
+composer validate                         # validasi dasar
+composer validate --strict                # cek ketat (field wajib, metadata)
+composer validate --no-check-publish    # skip cek kesiapan publish
+composer validate --no-check-lock       # skip cek sinkronisasi lock file
+composer validate --no-check-all        # hanya syntax JSON
+```
+
+Output umum:
+
+- **`./composer.json is valid`** — file OK.
+- **`./composer.json is valid, but with a few warnings`** — ada saran perbaikan.
+- Error: JSON invalid, field hilang, lock file tidak sinkron.
+
+- **`--strict`**: wajib untuk library open source — pastikan `name`, `description`, `license` terisi.
+- Validasi lock: memastikan `composer.lock` sesuai dengan hash `composer.json`.
+- Jalankan di CI: `composer validate --strict --no-check-lock` atau dengan lock tergantung workflow.
+
+---
+
+## `composer show` — Info Package
+
+`composer show` menampilkan detail package terinstal atau tersedia di registry.
+
+Kapan dipakai: cek versi terinstal, lihat dependensi package, audit metadata, atau eksplorasi sebelum `require`.
+
+```bash
+composer show                             # daftar semua package terinstal
+composer show monolog/monolog             # detail satu package
+composer show monolog/monolog --all       # semua versi tersedia
+composer show --installed                 # eksplisit: hanya terinstal
+composer show --platform                  # requirement platform (php, ext-*)
+composer show --tree                      # pohon dependensi
+composer show --tree monolog/monolog      # pohon untuk satu package
+composer show --latest                    # tandai versi outdated
+composer show --direct                    # hanya direct dependencies
+composer show --name-only                 # hanya nama package
+composer show -f json                     # output JSON
+composer show -f json monolog/monolog | jq .
+composer show --self                      # info proyek saat ini (root package)
+```
+
+Kolom output `composer show <package>`:
+
+| Field | Arti |
+| --- | --- |
+| **name** | Nama package `vendor/name` |
+| **versions** | Versi terinstal |
+| **type** | library, project, metapackage, dll. |
+| **requires** | Dependensi runtime |
+| **requires (dev)** | Dependensi development |
+| **autoload** | PSR-4, classmap, files |
+
+- **`--tree`**: visualisasi dependensi transitif — berguna debug conflict.
+- **`--platform`**: cek constraint PHP dan ekstensi di environment saat ini.
+- **`--self`**: metadata proyek root dari `composer.json`.
+
+---
+
+## `composer why` — Mengapa Package Terinstal
+
+`composer why` (alias `composer depends`) menjelaskan **siapa** yang membutuhkan package tertentu — direct atau transitif.
+
+Kapan dipakai: package muncul di `vendor/` tapi tidak Anda tambahkan langsung, debug dependency conflict, atau audit sebelum `remove`.
+
+```bash
+composer why monolog/monolog              # siapa yang require package ini
+composer why-not monolog/monolog:^3.0     # mengapa versi tertentu tidak bisa diinstal
+composer depends monolog/monolog          # alias why
+composer prohibits monolog/monolog        # siapa yang melarang versi
+composer why symfony/console --tree       # dengan pohon dependensi
+```
+
+Contoh output `composer why`:
+
+```
+laravel/framework  v11.0.0  requires  monolog/monolog (^3.0)
+```
+
+- **`why-not`**: sangat berguna saat `composer require` gagal — menunjukkan conflict chain.
+- **`prohibits`**: kebalikan — package mana yang mencegah versi tertentu.
+- Kombinasikan dengan `composer show --tree` untuk investigasi lengkap.
+
+---
+
+## `composer outdated` — Cek Versi Usang
+
+`composer outdated` menampilkan package yang versi terinstalnya sudah ketinggalan dibanding constraint dan versi terbaru di Packagist.
+
+Kapan dipakai: sebelum `composer update`, audit rutin, atau evaluasi debt teknis dependensi.
+
+```bash
+composer outdated                         # semua package outdated
+composer outdated --direct                # hanya direct dependencies
+composer outdated --strict                # hanya patch/minor dalam constraint
+composer outdated --minor-only            # hanya update minor tersedia
+composer outdated --patch-only            # hanya patch tersedia
+composer outdated --format=json           # output JSON
+composer outdated monolog/monolog         # satu package
+composer outdated --no-dev                # exclude require-dev
+```
+
+Kolom output:
+
+| Kolom | Arti |
+| --- | --- |
+| **Package** | Nama `vendor/name` |
+| **Current** | Versi terinstal saat ini |
+| **Latest** | Versi terbaru di Packagist |
+| **Latest Status** | semver relation (semver-safe atau major available) |
+
+- Jalankan `outdated` sebelum `update` untuk melihat dampak potensional.
+- **`--direct`**: fokus ke package yang Anda kontrol di `composer.json`.
+- **`--minor-only`**: filter update yang relatif aman — rutinitas maintenance.
+
+---
+
+## `composer audit` — Cek Kerentanan Keamanan
+
+`composer audit` memindai dependensi terhadap database advisory keamanan (CVE) yang dikelola komunitas PHP.
+
+Kapan dipakai: rutinitas security, sebelum deploy, di pipeline CI, atau setelah `composer update`.
+
+```bash
+composer audit                            # scan semua dependensi
+composer audit --format=json              # output JSON
+composer audit --locked                   # hanya dari composer.lock
+composer audit --abandoned=report         # laporkan package ditinggalkan
+composer audit --abandoned=ignore         # abaikan abandoned
+```
+
+<Callout type="warning">
+`composer audit` melengkapi, bukan menggantikan, review keamanan manual. Patch segera jika ada CVE critical/high — jalankan `composer update vendor/package` atau update constraint.
+</Callout>
+
+Integrasi CI:
+
+```bash
+# Gagal pipeline jika ada vulnerability
+composer audit --format=json | jq -e '.advisories | length == 0'
+```
+
+- Advisory bersumber dari [GitHub Advisory Database](https://github.com/advisories) dan partner.
+- **`--abandoned=report`**: package tanpa maintainer — pertimbangkan migrasi.
+- Kombinasikan dengan `composer outdated --direct` untuk maintenance holistik.
+
+---
+
+## Scripts — Jalankan Perintah Custom
+
+Composer mendukung script di `composer.json` — dijalankan manual atau otomatis pada event lifecycle.
+
+Kapan dipakai: menjalankan test, migrate database, clear cache, build assets, atau otomasi post-install.
+
+```bash
+composer run-script test                  # jalankan script "test"
+composer test                             # shortcut jika nama satu kata
+composer run-script post-install-cmd      # event script
+composer run-script --list                # daftar semua script
+composer run-script --timeout=0 test      # tanpa timeout (script panjang)
+composer run-script build -- --env=prod   # pass argumen ke script
+```
+
+Event script otomatis:
+
+| Event | Kapan dijalankan |
+| --- | --- |
+| **`pre-install-cmd`** | Sebelum `install` |
+| **`post-install-cmd`** | Setelah `install` selesai |
+| **`pre-update-cmd`** | Sebelum `update` |
+| **`post-update-cmd`** | Setelah `update` selesai |
+| **`pre-autoload-dump`** | Sebelum dump autoload |
+| **`post-autoload-dump`** | Setelah dump autoload |
+| **`pre-package-install`** | Sebelum satu package diinstal |
+| **`post-package-install`** | Setelah satu package diinstal |
+
+Contoh `composer.json` scripts:
+
+```json
+{
+  "scripts": {
+    "test": "phpunit",
+    "test-coverage": "phpunit --coverage-html coverage",
+    "analyse": "phpstan analyse",
+    "cs-fix": "php-cs-fixer fix",
+    "post-install-cmd": [
+      "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+    ],
+    "post-autoload-dump": [
+      "@php artisan package:discover --ansi"
+    ],
+    "post-update-cmd": [
+      "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+    ]
+  },
+  "scripts-descriptions": {
+    "test": "Jalankan PHPUnit test suite",
+    "analyse": "Static analysis dengan PHPStan"
+  }
+}
+```
+
+- **`@php`**: jalankan PHP binary — portable di semua OS.
+- **`@composer`**: nested composer command.
+- **`--no-scripts`**: flag global untuk skip semua script saat install/update.
+- Laravel memakai `post-autoload-dump` untuk package discovery — jangan hapus tanpa paham dampaknya.
+
+---
+
+## Struktur `composer.json`
+
+`composer.json` adalah manifest pusat proyek PHP. Memahami setiap section membantu mengelola dependensi dan autoload dengan benar.
+
+Kapan dipelajari: setup proyek baru, publish library, debug autoload, atau konfigurasi monorepo.
+
+```json
+{
+  "name": "acme/blog",
+  "description": "Blog application",
+  "type": "project",
+  "license": "MIT",
+  "keywords": ["blog", "php"],
+  "authors": [
+    {
+      "name": "Rahmat Eza",
+      "email": "rahmat@example.com"
+    }
+  ],
+  "minimum-stability": "stable",
+  "prefer-stable": true,
+  "require": {
+    "php": "^8.2",
+    "ext-mbstring": "*",
+    "ext-pdo": "*",
+    "monolog/monolog": "^3.0",
+    "vlucas/phpdotenv": "^5.6"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0",
+    "phpstan/phpstan": "^2.0",
+    "fakerphp/faker": "^1.23"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/",
+      "Acme\\Blog\\": "lib/"
+    },
+    "psr-0": {
+      "": "src/"
+    },
+    "classmap": [
+      "database/seeders"
+    ],
+    "files": [
+      "src/helpers.php"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "allow-plugins": {
+      "php-http/discovery": true
+    },
+    "platform": {
+      "php": "8.2.12"
+    }
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/acme/private-package"
+    }
+  ],
+  "extra": {
+    "laravel": {
+      "dont-discover": []
+    }
+  }
+}
+```
+
+Field penting:
+
+| Field | Arti |
+| --- | --- |
+| **name** | `vendor/package` — wajib untuk library di Packagist |
+| **type** | `project`, `library`, `metapackage`, `composer-plugin` |
+| **require** | Dependensi runtime + constraint PHP/ekstensi |
+| **require-dev** | Dependensi development |
+| **autoload** | PSR-4, classmap, files — cara class dimuat |
+| **config** | Perilaku Composer (optimize, platform, plugins) |
+| **repositories** | Sumber package tambahan (VCS, private registry) |
+| **extra** | Metadata untuk plugin/framework (Laravel, Symfony) |
+| **minimum-stability** | `stable`, `RC`, `beta`, `alpha`, `dev` |
+
+### Autoload PSR-4
+
+```json
+{
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/",
+      "Database\\Factories\\": "database/factories/",
+      "Database\\Seeders\\": "database/seeders/"
+    }
+  }
+}
+```
+
+- Namespace `App\` memetakan ke folder `app/`.
+- Class `App\Models\User` → file `app/Models/User.php`.
+- Setelah ubah autoload: `composer dump-autoload`.
+
+### Repositories custom
+
+```json
+{
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/acme/internal-sdk"
+    },
+    {
+      "type": "composer",
+      "url": "https://repo.packagist.com/acme/"
+    },
+    {
+      "type": "path",
+      "url": "../my-local-package",
+      "options": {
+        "symlink": true
+      }
+    }
+  ]
+}
+```
+
+- **`vcs`**: package dari Git (GitHub, GitLab, Bitbucket).
+- **`path`**: package lokal — berguna development monorepo.
+- **`composer`**: private Packagist atau Satis server.
+
+<Callout type="info">
+Field `config.platform.php` mengunci versi PHP virtual — berguna jika dev pakai PHP 8.3 tapi production 8.2. Composer resolve dependensi seolah PHP 8.2.
+</Callout>
+
+---
+
+## `composer.lock` — Lock File
+
+`composer.lock` menyimpan versi **exact** setiap package (termasuk transitif) pada saat terakhir di-resolve. File ini memastikan `composer install` menghasilkan `vendor/` identik di semua mesin.
+
+Kapan relevan: kolaborasi tim, CI/CD, deploy production, dan debug "works on my machine".
+
+```bash
+# Lock file dibuat/ diperbarui oleh:
+composer install          # jika lock belum ada
+composer update           # selalu memperbarui lock
+composer require            # memperbarui lock
+composer remove             # memperbarui lock
+
+# Cek sinkronisasi
+composer validate           # warning jika lock tidak sinkron dengan json
+composer update --lock      # regenerate lock tanpa ubah versi
+```
+
+Best practice:
+
+| Aturan | Alasan |
+| --- | --- |
+| **Commit `composer.lock`** | Reproducible build untuk aplikasi |
+| **Jangan edit manual** | Composer yang mengelola — edit = risiko corrupt |
+| **Lock di aplikasi, opsional di library** | Library fleksibel; aplikasi ketat |
+| **Resolve conflict di Git** | Setelah merge, jalankan `composer update --lock` atau `composer install` |
+
+Isi lock file (ringkas):
+
+```json
+{
+  "packages": [
+    {
+      "name": "monolog/monolog",
+      "version": "3.8.1",
+      "dist": { "type": "zip", "url": "..." },
+      "require": { "php": ">=8.1", "psr/log": "^2.0 || ^3.0" }
+    }
+  ],
+  "packages-dev": [],
+  "aliases": [],
+  "minimum-stability": "stable",
+  "stability-flags": [],
+  "prefer-stable": true,
+  "prefer-lowest": false,
+  "platform": { "php": "^8.2" },
+  "platform-dev": [],
+  "plugin-api-version": "2.6.0",
+  "content-hash": "abc123..."
+}
+```
+
+- **`content-hash`**: hash dari `composer.json` — validasi sinkronisasi.
+- Jika hash berubah tapi lock belum di-update: `composer validate` akan warning.
+- Di library (package), `composer.lock` biasanya di-`.gitignore` — consumer yang resolve versi.
+
+---
+
+## `composer global require` — Package Global
+
+`composer global require` menginstal package CLI ke folder global user (`~/.composer` atau `~/.config/composer`) — tersedia di PATH sebagai executable.
+
+Kapan dipakai: tool CLI seperti PHPUnit global, PHP CS Fixer, PHPStan, atau Laravel Installer (legacy).
+
+```bash
+composer global require phpunit/phpunit       # PHPUnit global
+composer global require friendsofphp/php-cs-fixer
+composer global require phpstan/phpstan
+composer global require laravel/installer
+composer global require symfony/cli
+
+# Kelola global
+composer global show                          # daftar package global
+composer global update                          # update semua global
+composer global update phpunit/phpunit        # update satu
+composer global remove phpunit/phpunit
+composer global config allow-plugins.symfony/flex true
+```
+
+Setup PATH (tambahkan ke `~/.zshrc`):
+
+```bash
+export PATH="$HOME/.composer/vendor/bin:$PATH"
+# atau di Linux/modern Composer:
+export PATH="$HOME/.config/composer/vendor/bin:$PATH"
+```
+
+<Callout type="warning">
+Hindari global require untuk dependency proyek — selalu `composer require --dev` di level proyek agar versi konsisten dengan tim dan CI. Global hanya untuk tool CLI yang independen.
+</Callout>
+
+- **`composer global config`**: konfigurasi terpisah dari proyek lokal.
+- Laravel modern: `laravel new` via `composer global require laravel/installer` atau `composer create-project`.
+- Cek bin tersedia: `which phpunit` setelah PATH dikonfigurasi.
+
+---
+
+## Konfigurasi Composer
+
+### `composer config` — Set Konfigurasi
+
+`composer config` membaca/menulis konfigurasi global atau lokal (`composer.json` config section).
+
+Kapan dipakai: setup auth private registry, proxy, cache, atau preferensi tim.
+
+```bash
+# Lihat config
+composer config --list
+composer config --global --list
+composer config repositories
+composer config --json
+
+# Set global
+composer config --global process-timeout 2000
+composer config --global github-oauth.github.com YOUR_TOKEN
+composer config --global http-basic.repo.packagist.com token TOKEN
+composer config --global preferred-install dist
+composer config --global cache-dir /tmp/composer-cache
+
+# Set lokal (menulis ke composer.json config section)
+composer config sort-packages true
+composer config optimize-autoloader true
+composer config allow-plugins.php-http/discovery true
+composer config platform.php 8.2.12
+
+# Hapus config
+composer config --unset platform.php
+composer config --global --unset github-oauth.github.com
+```
+
+File konfigurasi:
+
+| Level | Lokasi |
+| --- | --- |
+| **Global** | `~/.composer/config.json` atau `~/.config/composer/config.json` |
+| **Proyek** | `composer.json` → section `config` |
+| **Env** | `COMPOSER_*` environment variables |
+
+Auth untuk private package:
+
+```bash
+# GitHub token (rate limit & private repo)
+composer config --global github-oauth.github.com ghp_xxxxxxxxxxxx
+
+# HTTP basic (Satis, private Packagist)
+composer config --global http-basic.repo.example.com username password
+```
+
+---
+
+## Perintah Tambahan Berguna
+
+### `composer search` — Cari di Packagist
+
+`composer search` mencari package berdasarkan keyword di Packagist.
+
+Kapan dipakai: menemukan library alternatif, eksplorasi sebelum `require`.
+
+```bash
+composer search monolog
+composer search "http client"
+composer search --only-name log          # filter nama saja
+composer search --type=library csv
+composer search -f json monolog
+```
+
+---
+
+### `composer licenses` — Daftar Lisensi
+
+`composer licenses` menampilkan lisensi semua dependensi — penting untuk compliance.
+
+```bash
+composer licenses                         # tabel semua package + lisensi
+composer licenses --format=json
+composer licenses monolog/monolog
+```
+
+---
+
+### `composer clear-cache` — Bersihkan Cache
+
+```bash
+composer clear-cache                      # hapus seluruh cache
+composer clear-cache monolog/monolog      # cache satu package
+```
+
+Kapan dipakai: instal gagal aneh, package korup di cache, atau troubleshooting network.
+
+---
+
+### `composer archive` — Buat Archive
+
+```bash
+composer archive                          # buat zip/tar dari package saat ini
+composer archive --format=zip --dir=build
+composer archive vendor/package 1.0.0
+```
+
+Kapan dipakai: distribusi package manual, backup, atau publish ke registry privat.
+
+---
+
+### `composer bump` — Update Constraint di composer.json
+
+```bash
+composer bump                             # bump semua constraint ke versi terinstal
+composer bump monolog/monolog             # bump satu package
+composer bump --dev-only                  # hanya require-dev
+composer bump --no-dev-only               # hanya require
+```
+
+Kapan dipakai: setelah `composer update`, selaraskan constraint `^` di `composer.json` dengan versi aktual.
+
+---
+
+### `composer exec` — Jalankan Binary dari vendor
+
+```bash
+composer exec phpunit                       # jalankan vendor/bin/phpunit
+composer exec -- phpunit --filter UserTest
+```
+
+Alternatif: `./vendor/bin/phpunit` langsung.
+
+---
+
+### `composer check-platform-reqs` — Cek Requirement Platform
+
+```bash
+composer check-platform-reqs              # cek php & ext dari lock
+composer check-platform-reqs --no-dev
+```
+
+Kapan dipakai: sebelum deploy — pastikan server punya PHP dan ekstensi yang dibutuhkan.
+
+---
+
+## Workflow Laravel
+
+Laravel sangat bergantung pada Composer — dari bootstrap hingga package discovery.
+
+### Memulai proyek Laravel baru
+
+```bash
+composer create-project laravel/laravel my-blog
+cd my-blog
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan serve
+```
+
+### Clone proyek Laravel existing
+
+```bash
+git clone git@github.com:user/laravel-app.git
+cd laravel-app
+composer install                        # instal dari lock file
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+npm install && npm run dev              # asset frontend (terpisah)
+php artisan serve
+```
+
+### Menambah package Laravel
+
+```bash
+composer require laravel/sanctum
+php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider"
+php artisan migrate
+
+composer require --dev laravel/pint       # code style
+composer require --dev nunomaduro/larastan
+```
+
+### Perintah Composer + Artisan rutin
+
+```bash
+composer install --no-dev --optimize-autoloader   # production deploy
+composer dump-autoload -o
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+php artisan optimize
+
+# Development
+composer require laravel/breeze --dev
+php artisan breeze:install
+composer update --with-all-dependencies
+php artisan test
+```
+
+### Deploy production Laravel
+
+```bash
+# Di server / CI
+composer install --no-dev --optimize-autoloader --no-progress
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+php artisan event:cache
+php artisan optimize
+```
+
+<Callout type="info">
+Laravel 11+ memakai `composer.json` scripts `post-autoload-dump` untuk `package:discover`. Jangan jalankan `composer install --no-scripts` di production kecuali Anda tahu cara manual register service provider.
+</Callout>
+
+---
+
+## Workflow Symfony
+
+Symfony menggunakan Flex recipe dan struktur `composer.json` yang kaya `extra.symfony`.
+
+### Memulai proyek Symfony baru
+
+```bash
+# Skeleton minimal
+composer create-project symfony/skeleton my-symfony
+
+# Website lengkap (Twig, Doctrine, Security, dll.)
+composer create-project symfony/website-skeleton my-site
+
+cd my-symfony
+symfony server:start                    # butuh Symfony CLI (opsional)
+# atau
+php -S localhost:8000 -t public/
+```
+
+### Menambah Symfony component / bundle
+
+```bash
+composer require symfony/console
+composer require doctrine/orm
+composer require --dev symfony/maker-bundle
+composer require api-platform/core         # dengan recipe Flex
+```
+
+### Perintah rutin Symfony + Composer
+
+```bash
+composer install
+composer dump-autoload
+php bin/console cache:clear
+php bin/console doctrine:migrations:migrate
+
+# Production
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear --env=prod
+php bin/console cache:warmup --env=prod
+```
+
+### Symfony Flex & recipes
+
+```bash
+composer config --list extra.symfony
+composer recipes                          # lihat recipes terinstal (perlu symfony/flex)
+composer recipes:install symfony/console --force -v
+```
+
+- **Flex** mengotomasi konfigurasi saat `composer require` — edit file config otomatis.
+- **`symfony.lock`**: lock untuk recipes — commit bersama `composer.lock`.
+- **`extra.symfony.allow-contrib`**: izinkan recipe dari komunitas.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Memulai proyek baru
+
+```bash
+composer init --no-interaction \
+  --name=acme/my-app \
+  --require="php:^8.2" \
+  --require-dev="phpunit/phpunit:^11.0"
+composer install
+mkdir -p src tests
+# setup autoload PSR-4 di composer.json
+composer dump-autoload
+```
+
+### Clone proyek existing
+
+```bash
+git clone git@github.com:user/php-app.git
+cd php-app
+composer install
+composer validate
+php artisan serve          # Laravel
+# atau
+php -S localhost:8000 -t public/   # Symfony/plain PHP
+```
+
+### Menambah & menghapus dependency
+
+```bash
+composer require guzzlehttp/guzzle
+composer require --dev phpstan/phpstan
+composer remove monolog/monolog
+composer outdated --direct
+composer update vendor/package --with-dependencies
+```
+
+### Sebelum commit
+
+```bash
+composer validate --strict
+composer test              # atau: composer run-script test
+composer analyse           # PHPStan
+composer audit
+git add composer.json composer.lock
+git commit -m "chore: add guzzle, update lock file"
+```
+
+### CI/CD pipeline (contoh)
+
+```bash
+composer validate --strict
+composer install --no-progress --prefer-dist --no-interaction
+composer check-platform-reqs
+composer test
+composer audit --format=json
+```
+
+---
+
+## Alias Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# Composer shortcuts
+alias c='composer'
+alias ci='composer install'
+alias cid='composer install --no-dev'
+alias cu='composer update'
+alias cr='composer require'
+alias crd='composer require --dev'
+alias crr='composer remove'
+alias cda='composer dump-autoload -o'
+alias cv='composer validate'
+alias co='composer outdated --direct'
+alias ca='composer audit'
+alias cs='composer show --tree'
+alias cga='composer global require'
+
+# Laravel + Composer
+alias art='php artisan'
+alias migrate='php artisan migrate'
+alias serve='php artisan serve'
+
+# Symfony + Composer
+alias cons='php bin/console'
+```
+
+Atau script deteksi proyek:
+
+```bash
+# ~/.local/bin/ci-dev — instal sesuai konteks
+if [ -f composer.lock ]; then
+  composer install
+elif [ -f composer.json ]; then
+  composer update
+fi
+```
+
+---
+
+## Troubleshooting Umum
+
+### `Your requirements could not be resolved`
+
+```bash
+composer why-not vendor/package:^2.0    # lihat rantai conflict
+composer update --with-all-dependencies
+# Sementara (dev only):
+composer require vendor/package --ignore-platform-reqs
+```
+
+Penyebab umum: versi PHP tidak cocok, conflict dependensi transitif, atau constraint terlalu ketat.
+
+---
+
+### Lock file tidak sinkron setelah merge Git
+
+```bash
+git status                              # cek conflict di composer.lock
+# Resolve conflict manual ATAU:
+git checkout --theirs composer.lock     # atau --ours
+composer install
+# Atau regenerate:
+composer update --lock
+composer install
+```
+
+- **Jangan** commit `composer.lock` dengan conflict marker (`<<<<<<<`).
+- Setelah resolve: `composer validate` harus pass.
+
+---
+
+### Class not found / autoload gagal
+
+```bash
+composer dump-autoload -o
+composer dump-autoload --classmap-authoritative
+
+# Cek namespace di composer.json
+composer show --self
+# Pastikan require di bootstrap:
+# require __DIR__ . '/vendor/autoload.php';
+```
+
+- Typo namespace PSR-4 adalah penyebab paling umum.
+- Pastikan file path sesuai case-sensitive di Linux production.
+
+---
+
+### Memory limit exhausted
+
+```bash
+COMPOSER_MEMORY_LIMIT=-1 composer update
+php -d memory_limit=-1 /usr/local/bin/composer update
+composer config --global process-timeout 2000
+```
+
+- Proyek besar (Laravel + banyak package) butuh memori tinggi saat `update`.
+- CI: set `COMPOSER_MEMORY_LIMIT=-1` di environment.
+
+---
+
+### Permission denied / vendor tidak writable
+
+```bash
+# Jangan sudo composer install — ownership rusak
+sudo chown -R $USER:$USER vendor/
+sudo chown -R $USER:$USER composer.lock
+
+# Deploy: pastikan user web bisa baca vendor
+chmod -R a+rX vendor/
+```
+
+- **Jangan jalankan Composer sebagai root** — risiko keamanan dan permission chaos.
+
+---
+
+### SSL / network / Packagist timeout
+
+```bash
+composer diagnose
+composer config --global secure-http true
+composer config --global repos.packagist composer https://packagist.org
+
+# Proxy
+composer config --global http-proxy http://proxy.company:8080
+composer config --global https-proxy http://proxy.company:8080
+
+# Retry
+composer install --prefer-dist -vvv
+```
+
+---
+
+### Plugin blocked / allow-plugins
+
+```bash
+composer config allow-plugins.symfony/flex true
+composer config allow-plugins.php-http/discovery true
+composer install
+```
+
+Composer 2.2+ memblokir plugin secara default — harus diizinkan eksplisit.
+
+---
+
+### Versi PHP berbeda antara CLI dan web
+
+```bash
+php -v                                  # CLI version
+composer check-platform-reqs
+composer config platform.php 8.2.12     # lock virtual platform
+
+# Cek php-fpm (di server)
+php-fpm8.2 -v
+```
+
+- Laravel/Symfony di production: samakan versi PHP CLI (deploy script) dan FPM.
+
+---
+
+### Package abandoned
+
+```bash
+composer audit --abandoned=report
+composer outdated --direct
+# Cari alternatif di Packagist, migrate, lalu:
+composer remove abandoned/package
+composer require replacement/package
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Instal** | `install`, `update`, `create-project` |
+| **Kelola package** | `require`, `remove`, `bump` |
+| **Info** | `show`, `why`, `why-not`, `outdated`, `search` |
+| **Autoload** | `dump-autoload`, `validate` |
+| **Keamanan** | `audit`, `licenses` |
+| **Script** | `run-script`, event hooks di `composer.json` |
+| **Global** | `global require`, `global show`, `global update` |
+| **Config** | `config`, `diagnose`, `self-update` |
+| **Debug** | `check-platform-reqs`, `depends`, `prohibits` |
+| **Maintenance** | `clear-cache`, `archive`, `exec` |
+
+---
+
+## Penutup
+
+Enam perintah inti Composer: **`composer install`**, **`composer require`**, **`composer update`**, **`composer remove`**, **`composer dump-autoload`**, dan **`composer show`**. Dengan keenamnya, Anda sudah menutup workflow PHP sehari-hari — dari bootstrap proyek hingga maintenance dependensi.
+
+Langkah berikutnya: kuasai **`composer why`** dan **`composer outdated`** untuk debug conflict, **`composer audit`** untuk keamanan, pahami struktur **`composer.json`** dan **`composer.lock`**, serta integrasikan **`composer validate`** dan **`composer test`** ke pipeline CI. Composer punya banyak perintah — manfaatkan `composer help <command>` dan [dokumentasi resmi](https://getcomposer.org/doc/) sebagai referensi terbaru.

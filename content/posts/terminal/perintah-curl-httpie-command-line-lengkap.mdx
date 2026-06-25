@@ -1,0 +1,1264 @@
+---
+title: "Perintah curl & httpie Command Line Lengkap"
+description: "Panduan lengkap curl dan httpie untuk testing HTTP, debugging API, mengirim request REST, autentikasi, dan mem-parse respons JSON di terminal."
+date: "2025-06-24"
+category: terminal
+tags: ["curl", "httpie", "http", "api", "cli", "tutorial"]
+featured: true
+---
+
+**curl** dan **httpie** adalah dua alat command line paling populer untuk berinteraksi dengan HTTP API langsung dari terminal. Dengan keduanya, Anda bisa menguji endpoint REST, debug header, mengirim body JSON, menangani autentikasi, dan memverifikasi respons tanpa membuka Postman atau Insomnia.
+
+<Callout type="tip">
+`curl` sudah terpasang di macOS dan sebagian besar distribusi Linux. Cek dengan `curl --version`. Untuk **httpie**: `brew install httpie` (Mac) atau `pip install httpie`. Untuk parsing JSON: `brew install jq`.
+</Callout>
+
+## Konsep Dasar HTTP
+
+Sebelum masuk ke perintah, pahami komponen request dan response HTTP — istilah ini muncul terus saat debugging API:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **URL** | Alamat endpoint — skema (`http`/`https`), host, path, dan query string |
+| **Method** | Jenis operasi: `GET` (baca), `POST` (buat), `PUT`/`PATCH` (ubah), `DELETE` (hapus) |
+| **Header** | Metadata request/response — `Content-Type`, `Authorization`, `Accept`, dll. |
+| **Body** | Payload data — JSON, form-urlencoded, multipart, atau raw text |
+| **Status code** | Kode respons: `2xx` sukses, `4xx` error client, `5xx` error server |
+| **Query string** | Parameter di URL setelah `?` — mis. `?page=1&limit=10` |
+| **Cookie** | Data state yang dikirim/diterima antar request |
+| **TLS/SSL** | Enkripsi untuk `https` — sertifikat, CA bundle, verifikasi |
+
+### Alur request HTTP sederhana
+
+```
+Client (curl/httpie)  ──►  Request (method + URL + headers + body)
+                              │
+                              ▼
+                         Server API
+                              │
+                              ▼
+Client  ◄──  Response (status code + headers + body)
+```
+
+### Perintah informasi dasar
+
+```bash
+curl --version              # versi curl dan protokol yang didukung
+curl --help                 # daftar opsi
+man curl                    # manual lengkap
+
+http --version              # versi httpie
+http --help                 # bantuan singkat
+http --manual               # manual interaktif
+```
+
+- **`curl --version`**: pastikan curl tidak terlalu usang — versi lama mungkin tidak mendukung HTTP/2 atau TLS terbaru.
+- **`http --help`**: httpie punya sintaks yang lebih intuitif — bantuan ini cukup untuk mayoritas kasus.
+
+---
+
+## Instalasi & Persiapan
+
+### curl — Sudah Ada di Sistem
+
+`curl` (Client URL) adalah utilitas transfer data yang mendukung HTTP, HTTPS, FTP, dan puluhan protokol lain. Di Mac, curl sudah tersedia lewat sistem; di Linux biasanya terinstal atau bisa di-install via package manager.
+
+Kapan dipakai: hampir semua skenario HTTP — dari quick test sampai scripting otomatis di CI/CD.
+
+```bash
+# Mac — biasanya sudah ada
+curl --version
+
+# Update via Homebrew (opsional, versi lebih baru)
+brew install curl
+
+# Linux (Debian/Ubuntu)
+sudo apt update && sudo apt install curl
+
+# Test koneksi dasar
+curl https://httpbin.org/get
+```
+
+- **Versi sistem vs Homebrew**: di Mac, `which curl` bisa menunjuk ke `/usr/bin/curl` (lama) atau `/opt/homebrew/bin/curl` (baru). Pastikan PATH Anda konsisten.
+- **httpbin.org**: layanan publik untuk testing HTTP — aman untuk latihan, jangan kirim data sensitif.
+
+---
+
+### httpie — Alternatif Modern
+
+**httpie** dirancang khusus untuk HTTP API dengan sintaks yang lebih manusiawi, output berwarna, dan JSON pretty-print otomatis. Nama binary-nya `http` (alias `https` untuk HTTPS).
+
+Kapan dipakai: eksplorasi API interaktif, debugging cepat, atau saat Anda ingin output yang mudah dibaca tanpa pipe ke `jq`.
+
+```bash
+# Mac
+brew install httpie
+
+# pip (semua platform)
+pip install httpie
+# atau
+pipx install httpie
+
+# Test
+http GET https://httpbin.org/get
+```
+
+- **`http` vs `https`**: `https` otomatis memakai skema HTTPS — setara `http https://...`.
+- **Output berwarna**: httpie memformat header dan body JSON secara otomatis — sangat membantu saat debugging.
+
+---
+
+## curl — HTTP Methods
+
+### GET — Ambil Data
+
+`GET` adalah method paling umum untuk membaca data dari server tanpa mengubah state. Secara default, `curl <url>` mengirim request GET.
+
+Kapan dipakai: mengambil daftar resource, detail entitas, health check endpoint, atau mengunduh konten publik.
+
+```bash
+# GET sederhana
+curl https://httpbin.org/get
+
+# GET dengan query string
+curl "https://httpbin.org/get?name=rahmat&role=developer"
+
+# GET dengan header Accept
+curl -H "Accept: application/json" https://httpbin.org/get
+
+# Simpan respons ke file
+curl -o response.json https://httpbin.org/get
+
+# Ikuti redirect otomatis
+curl -L https://httpbin.org/redirect/2
+
+# Silent — hanya tampilkan body
+curl -s https://httpbin.org/get
+
+# Verbose — tampilkan detail koneksi
+curl -v https://httpbin.org/get
+```
+
+- **Query string**: bungkus URL dengan tanda kutip agar `&` tidak diinterpretasi shell sebagai background process.
+- **`-o`**: simpan body ke file — berguna untuk download atau logging.
+- **`-L`**: ikuti redirect (`301`, `302`, `307`) — penting saat URL pendek mengarah ke URL final.
+- **`-s`**: mode silent — sembunyikan progress bar; kombinasikan dengan `-w` untuk custom output.
+- **`-v`**: verbose — tampilkan header request/response dan detail TLS — wajib saat debugging.
+
+---
+
+### POST — Kirim Data Baru
+
+`POST` mengirim data ke server untuk membuat resource baru atau menjalankan aksi. Di curl, gunakan `-d` (data) atau `--data-raw` untuk body.
+
+Kapan dipakai: membuat user baru, submit form, login, upload metadata, atau memanggil endpoint aksi.
+
+```bash
+# POST form-urlencoded (default Content-Type)
+curl -X POST -d "username=rahmat&password=secret" https://httpbin.org/post
+
+# POST JSON
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Rahmat", "email": "rahmat@example.com"}' \
+  https://httpbin.org/post
+
+# POST dari file
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d @payload.json \
+  https://httpbin.org/post
+
+# POST tanpa body (trigger aksi)
+curl -X POST https://httpbin.org/post
+
+# POST dengan redirect
+curl -X POST -L -d "key=value" https://httpbin.org/post
+```
+
+- **`-X POST`**: eksplisit set method — curl kadang infer dari `-d`, tapi lebih aman tulis eksplisit.
+- **`-d`**: kirim body sebagai `application/x-www-form-urlencoded` kecuali Anda set `Content-Type` lain.
+- **`@file`**: baca body dari file — praktis untuk payload JSON besar.
+- **Single quotes untuk JSON**: di shell, bungkus JSON dengan `'...'` agar karakter `$` dan `!` tidak di-expand.
+
+---
+
+### PUT — Ganti Resource Penuh
+
+`PUT` mengganti seluruh resource di URL target. Server mengharapkan representasi lengkap — field yang tidak dikirim bisa di-reset.
+
+Kapan dipakai: update profil user lengkap, replace dokumen, atau sinkronisasi state penuh.
+
+```bash
+# PUT JSON — replace seluruh resource
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{"id": 1, "name": "Rahmat Eza", "role": "admin", "active": true}' \
+  https://httpbin.org/put
+
+# PUT dari file
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d @user-full.json \
+  https://api.example.com/users/1
+```
+
+- **Perbedaan dengan PATCH**: PUT mengganti seluruh objek; PATCH hanya mengubah field tertentu.
+- **Idempoten**: memanggil PUT berkali-kali dengan data sama menghasilkan state yang sama.
+
+---
+
+### PATCH — Update Sebagian
+
+`PATCH` mengirim perubahan parsial — hanya field yang perlu diupdate. Banyak REST API modern memakai PATCH untuk operasi edit.
+
+Kapan dipakai: ubah satu field (mis. email), toggle status, atau partial update tanpa kirim seluruh objek.
+
+```bash
+# PATCH — update sebagian
+curl -X PATCH \
+  -H "Content-Type: application/json" \
+  -d '{"email": "baru@example.com"}' \
+  https://httpbin.org/patch
+
+# PATCH dengan If-Match (optimistic locking)
+curl -X PATCH \
+  -H "Content-Type: application/json" \
+  -H "If-Match: \"etag-abc123\"" \
+  -d '{"status": "archived"}' \
+  https://api.example.com/documents/42
+```
+
+- **`If-Match`**: header untuk concurrency control — server menolak jika resource sudah berubah.
+- **Cek dokumentasi API**: tidak semua server mendukung PATCH — beberapa hanya PUT atau POST.
+
+---
+
+### DELETE — Hapus Resource
+
+`DELETE` meminta server menghapus resource di URL yang ditentukan. Respons umum: `204 No Content` atau `200 OK` dengan body konfirmasi.
+
+Kapan dipakai: hapus user, hapus file, revoke token, atau bersihkan data test.
+
+```bash
+# DELETE sederhana
+curl -X DELETE https://httpbin.org/delete
+
+# DELETE dengan auth
+curl -X DELETE \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  https://api.example.com/users/99
+
+# DELETE dengan body (jarang, tapi beberapa API mendukung)
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "duplicate"}' \
+  https://api.example.com/items/5
+```
+
+- **Hati-hati di production**: DELETE biasanya irreversible — test dulu di staging.
+- **Body di DELETE**: tidak standar HTTP, tapi beberapa API (bulk delete) memakainya.
+
+---
+
+## curl — Header & Body
+
+### Header (`-H`) — Metadata Request
+
+Header membawa informasi tambahan: tipe konten, autentikasi, bahasa, custom tracking, dll. Gunakan `-H` untuk set header, `-I` untuk HEAD request (hanya header respons).
+
+Kapan dipakai: set `Content-Type`, kirim token auth, negosiasi `Accept`, atau kirim header custom yang diminta API.
+
+```bash
+# Satu header
+curl -H "Accept: application/json" https://httpbin.org/get
+
+# Beberapa header
+curl -H "Accept: application/json" \
+     -H "X-Request-ID: abc-123" \
+     -H "User-Agent: MyApp/1.0" \
+     https://httpbin.org/get
+
+# HEAD request — hanya header respons, tanpa body
+curl -I https://httpbin.org/get
+
+# Lihat header respons saja (dengan body)
+curl -D headers.txt https://httpbin.org/get
+
+# Hapus header default (mis. Expect: 100-continue)
+curl -H "Expect:" https://httpbin.org/post -d "data=test"
+```
+
+- **`-H "Expect:"`**: trik untuk menghapus header default curl — berguna saat server tidak handle `100-continue`.
+- **`-I`**: setara `HEAD` request — cek apakah resource ada tanpa download body.
+- **`-D`**: simpan header respons ke file — berguna untuk audit atau debugging.
+
+---
+
+### Body (`-d`, `--data-binary`) — Payload Request
+
+Opsi `-d` mengirim data di body request. Untuk file biner atau payload yang tidak boleh diubah, gunakan `--data-binary`.
+
+Kapan dipakai: kirim form, JSON, XML, atau raw bytes ke endpoint.
+
+```bash
+# Form-urlencoded
+curl -d "field1=value1&field2=value2" https://httpbin.org/post
+
+# JSON inline
+curl -d '{"key": "value"}' \
+  -H "Content-Type: application/json" \
+  https://httpbin.org/post
+
+# Data dari file
+curl -d @data.json -H "Content-Type: application/json" https://httpbin.org/post
+
+# Binary — tidak ubah newline
+curl --data-binary @image.png \
+  -H "Content-Type: image/png" \
+  https://httpbin.org/post
+
+# URL-encode otomatis
+curl --data-urlencode "message=hello world & more" https://httpbin.org/post
+```
+
+- **`--data-binary`**: kirim persis seperti di file — penting untuk upload biner.
+- **`--data-urlencode`**: encode nilai secara otomatis — aman untuk karakter spesial.
+- **Tanpa `-X POST`**: curl otomatis pakai POST jika ada `-d`.
+
+---
+
+### JSON — Format Paling Umum di REST API
+
+Mayoritas API modern memakai JSON. Pastikan header `Content-Type: application/json` dan body valid JSON.
+
+Kapan dipakai: hampir semua operasi CRUD di API REST, GraphQL (via POST), atau webhook payload.
+
+```bash
+# POST JSON sederhana
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "title": "Artikel Baru",
+    "body": "Konten artikel...",
+    "tags": ["api", "curl"]
+  }' \
+  https://httpbin.org/post
+
+# Nested JSON
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"user": {"name": "Rahmat", "settings": {"theme": "dark"}}}' \
+  https://httpbin.org/post
+
+# JSON dari jq (generate dinamis)
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n '{timestamp: now, env: "staging"}')" \
+  https://httpbin.org/post
+
+# Pretty-print respons dengan jq
+curl -s https://httpbin.org/get | jq .
+```
+
+- **`Accept: application/json`**: minta server mengembalikan JSON — beberapa API mengembalikan XML default tanpa header ini.
+- **Validasi JSON**: gunakan `jq .` untuk memastikan JSON valid sebelum kirim.
+- **Heredoc untuk JSON panjang**: lihat contoh di bagian workflow.
+
+---
+
+## curl — Autentikasi
+
+### Basic Auth — Username & Password
+
+Basic Authentication mengirim kredensial di header `Authorization` yang di-encode Base64. Format: `username:password`.
+
+Kapan dipakai: API internal, legacy system, atau development server dengan auth sederhana.
+
+```bash
+# Cara 1: flag -u
+curl -u username:password https://httpbin.org/basic-auth/username/password
+
+# Cara 2: prompt password (lebih aman — tidak di history)
+curl -u username https://httpbin.org/basic-auth/username/password
+
+# Cara 3: header manual
+curl -H "Authorization: Basic $(echo -n 'user:pass' | base64)" \
+  https://httpbin.org/basic-auth/user/pass
+```
+
+- **`-u user:pass`**: praktis tapi password masuk shell history — hindari di production.
+- **HTTPS wajib**: Basic Auth tanpa TLS = kredensial terbaca di jaringan.
+- **httpbin `/basic-auth/`**: endpoint test — ganti path sesuai kredensial di URL.
+
+---
+
+### Bearer Token — JWT & API Key
+
+Bearer token adalah standar modern untuk API — JWT, OAuth access token, atau static API key dikirim di header `Authorization: Bearer <token>`.
+
+Kapan dipakai: hampir semua API SaaS, microservice internal, dan OAuth2-protected endpoint.
+
+```bash
+# Bearer token
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  https://api.example.com/v1/me
+
+# API key di header custom
+curl -H "X-API-Key: sk_live_abc123xyz" \
+  https://api.example.com/data
+
+# API key di query string (kurang aman)
+curl "https://api.example.com/data?api_key=sk_live_abc123xyz"
+
+# Token dari environment variable (aman untuk scripting)
+curl -H "Authorization: Bearer $API_TOKEN" \
+  https://api.example.com/protected
+```
+
+- **Environment variable**: simpan token di `$API_TOKEN` — jangan hardcode di skrip yang di-commit.
+- **Header custom**: beberapa API pakai `X-Api-Key` atau `Api-Key` — cek dokumentasi provider.
+- **Query string**: token bisa bocor lewat log server dan browser history — hindari jika memungkinkan.
+
+---
+
+## curl — Cookie & Session
+
+### Cookie — Kirim & Simpan
+
+Cookie menyimpan state session antar request. curl bisa menyimpan cookie ke file (`-c`) dan memuatnya kembali (`-b`).
+
+Kapan dipakai: login berbasis session, CSRF token flow, atau replikasi request browser.
+
+```bash
+# Simpan cookie dari respons
+curl -c cookies.txt -X POST \
+  -d "username=admin&password=secret" \
+  https://example.com/login
+
+# Kirim cookie di request berikutnya
+curl -b cookies.txt https://example.com/dashboard
+
+# Simpan dan kirim sekaligus (update jar)
+curl -b cookies.txt -c cookies.txt https://example.com/api/data
+
+# Kirim cookie manual
+curl -b "session_id=abc123; csrf_token=xyz789" https://example.com/api
+
+# Lihat cookie yang di-set (verbose)
+curl -v -c cookies.txt https://httpbin.org/cookies/set?freeform=test
+```
+
+- **`-c`**: cookie jar — simpan `Set-Cookie` dari server ke file.
+- **`-b`**: baca cookie dari file atau string — kirim ke server.
+- **Kombinasi `-b -c`**: maintain session — cookie di-update setiap request.
+
+---
+
+## curl — Redirect, Output & Debugging
+
+### Follow Redirect (`-L`)
+
+Server bisa merespons `301`, `302`, `307`, atau `308` dengan header `Location` ke URL baru. Tanpa `-L`, curl tidak mengikuti redirect secara otomatis.
+
+Kapan dipakai: URL pendek, OAuth callback chain, CDN redirect, atau endpoint yang pindah permanen.
+
+```bash
+# Ikuti redirect
+curl -L https://httpbin.org/redirect/3
+
+# Ikuti redirect + simpan final URL
+curl -L -w "%{url_effective}\n" -o /dev/null -s https://httpbin.org/redirect/2
+
+# Batasi jumlah redirect
+curl -L --max-redirs 5 https://httpbin.org/redirect/10
+
+# POST + redirect (hati-hati — method bisa berubah)
+curl -L -X POST -d "data=test" https://httpbin.org/post
+```
+
+- **`--max-redirs`**: cegah redirect loop tak terbatas.
+- **Method change**: beberapa server ubah POST jadi GET setelah `302` — perilaku ini bisa membingungkan.
+
+---
+
+### Simpan Output (`-o`, `-O`)
+
+Simpan body respons ke file — untuk download asset, log respons API, atau backup data.
+
+Kapan dipakai: download file, simpan respons besar, atau arsip hasil request di CI.
+
+```bash
+# Simpan ke nama file custom
+curl -o output.json https://httpbin.org/json
+
+# Simpan dengan nama dari URL (basename)
+curl -O https://example.com/files/report.pdf
+
+# Simpan ke folder tertentu
+curl -o ~/Downloads/data.csv https://example.com/export.csv
+
+# Append ke file
+curl -o log.txt -w "\n---\n" https://httpbin.org/get >> combined.log
+```
+
+- **`-o`**: tentukan nama file output secara eksplisit.
+- **`-O`**: gunakan nama file dari path URL — praktis untuk download langsung.
+
+---
+
+### Verbose (`-v`) & Trace
+
+Mode verbose menampilkan seluruh dialog HTTP: request header, response header, TLS handshake, dan timing.
+
+Kapan dipakai: debug koneksi gagal, cek header yang dikirim/diterima, investigasi SSL, atau audit request.
+
+```bash
+# Verbose penuh
+curl -v https://httpbin.org/get
+
+# Verbose ke file
+curl -v https://httpbin.org/get 2> debug.log
+
+# Trace lebih detail (hex dump)
+curl --trace-ascii trace.txt https://httpbin.org/get
+
+# Hanya tampilkan status code
+curl -s -o /dev/null -w "%{http_code}\n" https://httpbin.org/status/404
+
+# Tampilkan timing
+curl -s -o /dev/null -w "DNS: %{time_namelookup}s\nConnect: %{time_connect}s\nTTFB: %{time_starttransfer}s\nTotal: %{time_total}s\n" \
+  https://httpbin.org/delay/1
+```
+
+- **Stderr vs stdout**: verbose output ke stderr — body tetap di stdout, mudah di-pipe.
+- **`-w` (write-out)**: custom format setelah request — ideal untuk health check script.
+- **`%{http_code}`**: ambil status code saja — berguna di shell script.
+
+---
+
+### Silent (`-s`) & Progress
+
+Mode silent menyembunyikan progress bar dan error message ringan — cocok untuk scripting dengan output bersih.
+
+Kapan dipakai: skrip otomatis, pipe ke `jq`, atau cron job yang hanya peduli body/status.
+
+```bash
+# Silent
+curl -s https://httpbin.org/get
+
+# Silent + show error
+curl -sS https://httpbin.org/status/500
+
+# Silent + fail on HTTP error
+curl -sS -f https://httpbin.org/status/404
+
+# Progress bar untuk download besar
+curl -# -O https://example.com/large-file.zip
+
+# Tanpa progress (default untuk non-TTY)
+curl -s -o file.zip https://example.com/large-file.zip
+```
+
+- **`-sS`**: silent tapi tetap tampilkan error — kombinasi terbaik untuk scripting.
+- **`-f` (--fail)**: return exit code non-zero untuk HTTP `4xx`/`5xx` — penting di CI.
+- **`-#`**: progress bar sederhana — nyaman untuk download manual.
+
+---
+
+### Timeout — Batasi Waktu Tunggu
+
+Timeout mencegah curl menggantung selamanya saat server lambat atau tidak respons.
+
+Kapan dipakai: health check, request ke service eksternal, atau skrip dengan SLA waktu respons.
+
+```bash
+# Timeout total (seluruh operasi)
+curl --max-time 10 https://httpbin.org/delay/5
+
+# Timeout koneksi
+curl --connect-timeout 5 https://httpbin.org/delay/0
+
+# Kombinasi
+curl --connect-timeout 3 --max-time 15 https://api.example.com/slow
+
+# Retry otomatis
+curl --retry 3 --retry-delay 2 --retry-connrefused \
+  https://api.example.com/flaky
+```
+
+- **`--max-time`**: batas total — termasuk transfer data.
+- **`--connect-timeout`**: batas hanya fase koneksi TCP/TLS.
+- **`--retry`**: coba ulang saat gagal — berguna untuk network tidak stabil.
+
+---
+
+## curl — Proxy & SSL
+
+### Proxy — Lewat Server Perantara
+
+Proxy mengarahkan traffic HTTP/HTTPS lewat server intermediate — umum di corporate network atau untuk debugging dengan mitmproxy.
+
+Kapan dipakai: akses API dari jaringan kantor, debug traffic, atau route request lewat VPN/proxy.
+
+```bash
+# HTTP proxy
+curl -x http://proxy.company.com:8080 https://api.example.com/data
+
+# Proxy dengan auth
+curl -x http://user:pass@proxy.company.com:8080 https://api.example.com/data
+
+# SOCKS5 proxy
+curl --socks5 localhost:1080 https://api.example.com/data
+
+# Bypass proxy untuk host tertentu
+curl --noproxy "localhost,127.0.0.1" https://internal.corp/api
+
+# Environment variable (alternatif)
+export https_proxy=http://proxy.company.com:8080
+curl https://api.example.com/data
+```
+
+- **`-x` / `--proxy`**: set proxy URL secara eksplisit.
+- **`https_proxy` env**: curl otomatis baca — praktis untuk session terminal.
+- **SOCKS5**: untuk tunnel VPN/Tor — `--socks5-hostname` resolve DNS lewat proxy.
+
+---
+
+### SSL/TLS — Sertifikat & Verifikasi
+
+Opsi SSL mengontrol verifikasi sertifikat, CA bundle, dan client certificate — penting untuk HTTPS dan environment development.
+
+Kapan dipakai: dev dengan self-signed cert, mTLS, atau troubleshoot error sertifikat.
+
+```bash
+# Skip verifikasi SSL (HANYA development!)
+curl -k https://localhost:8443/api
+
+# Tentukan CA bundle
+curl --cacert /path/to/ca-bundle.crt https://internal.corp/api
+
+# Client certificate (mTLS)
+curl --cert client.crt --key client.key https://api.secure.com/data
+
+# Paket cert + key dalam satu file PKCS#12
+curl --cert-type P12 --cert client.p12:password https://api.secure.com/data
+
+# Force TLS version
+curl --tlsv1.2 https://legacy-api.example.com/data
+
+# Tampilkan info sertifikat
+curl -vI https://example.com 2>&1 | grep -i "subject\|issuer\|expire"
+```
+
+- **`-k` / `--insecure`**: skip verifikasi — **jangan** dipakai di production; hanya untuk local dev.
+- **`--cacert`**: tambahkan CA internal perusahaan yang tidak ada di sistem.
+- **mTLS**: client cert — umum di API B2B dan zero-trust architecture.
+
+---
+
+## curl — Download File
+
+### Unduh File & Resume
+
+curl bisa mengunduh file tunggal, multiple URL, dan melanjutkan download terputus.
+
+Kapan dipakai: unduh release binary, asset build, dataset, atau mirror file statis.
+
+```bash
+# Download dengan nama otomatis
+curl -O https://example.com/files/app-v2.0.tar.gz
+
+# Download ke nama custom
+curl -o app.tar.gz https://example.com/files/app-v2.0.tar.gz
+
+# Resume download terputus
+curl -C - -O https://example.com/large-file.iso
+
+# Download multiple file
+curl -O https://example.com/file1.zip -O https://example.com/file2.zip
+
+# Download dengan rate limit (hemat bandwidth)
+curl --limit-rate 500K -O https://example.com/large-file.zip
+
+# Download via FTP
+curl -u ftpuser:ftppass -O ftp://ftp.example.com/pub/readme.txt
+
+# Mirror sederhana (butuh curl advanced)
+curl -r 0-1048575 -o part1.bin https://example.com/big.bin
+```
+
+- **`-C -`**: auto resume — curl deteksi file partial dan lanjutkan.
+- **`--limit-rate`**: batas kecepatan — berguna di jaringan shared.
+- **Range request (`-r`)**: download sebagian byte — untuk parallel download.
+
+---
+
+## httpie — Sintaks Modern
+
+### `http` & `https` — Request Dasar
+
+Di httpie, method ditulis eksplisit sebagai argumen pertama, lalu URL, lalu parameter body sebagai `key=value`. Output otomatis di-format dan di-warnai.
+
+Kapan dipakai: eksplorasi API baru, demo ke tim, atau debugging tanpa mengingat flag curl.
+
+```bash
+# GET
+http GET https://httpbin.org/get
+
+# GET dengan query string
+http GET https://httpbin.org/get name==rahmat role==developer
+
+# POST JSON (otomatis)
+http POST https://httpbin.org/post name=Rahmat email=rahmat@example.com
+
+# POST JSON nested
+http POST https://httpbin.org/post user:='{"name": "Rahmat", "age": 30}'
+
+# PUT
+http PUT https://httpbin.org/put id:=1 name=Rahmat active:=true
+
+# PATCH
+http PATCH https://httpbin.org/patch email=baru@example.com
+
+# DELETE
+http DELETE https://httpbin.org/delete
+
+# HEAD
+http HEAD https://httpbin.org/get
+
+# OPTIONS
+http OPTIONS https://httpbin.org/get
+```
+
+- **`==`**: query parameter (URL) — `name==value` → `?name=value`.
+- **`= `**: form field atau string data.
+- **`:=`**: raw JSON field — `active:=true` kirim boolean, bukan string.
+- **`:=`**: embed JSON object — untuk nested structure.
+
+---
+
+### Header di httpie
+
+Header ditulis dengan format `Header-Name:value` sebelum URL atau setelah method.
+
+Kapan dipakai: set `Accept`, custom header, atau override default httpie.
+
+```bash
+# Custom header
+http GET https://httpbin.org/get Accept:application/json User-Agent:MyApp/1.0
+
+# Header dengan spasi (pakai quotes)
+http GET https://httpbin.org/get "X-Custom-Header:hello world"
+
+# Tanpa header tertentu
+http GET https://httpbin.org/get --print=HhBb
+
+# Lihat request yang dikirim (debug)
+http --verbose GET https://httpbin.org/get
+
+# Hanya tampilkan body
+http --body GET https://httpbin.org/get
+
+# Hanya tampilkan header respons
+http --headers GET https://httpbin.org/get
+```
+
+- **`--print=HhBb`**: kontrol output — `H` request header, `h` response header, `B` request body, `b` response body.
+- **`--verbose`**: tampilkan detail koneksi seperti `curl -v`.
+- **Case header**: httpie normalisasi ke Title-Case otomatis.
+
+---
+
+### Autentikasi di httpie
+
+httpie menyederhanakan auth dengan flag dedicated — lebih bersih daripada manual header.
+
+Kapan dipakai: login ke API protected, test endpoint dengan token, atau session auth.
+
+```bash
+# Basic auth
+http -a username:password GET https://httpbin.org/basic-auth/username/password
+
+# Basic auth — prompt password
+http -a username GET https://httpbin.org/basic-auth/username/password
+
+# Bearer token
+http GET https://api.example.com/me "Authorization: Bearer $API_TOKEN"
+
+# Auth plugin shorthand (jika tersedia)
+http --auth-type=bearer --auth=$API_TOKEN GET https://api.example.com/me
+
+# Digest auth
+http --auth-type=digest -a user:pass GET https://httpbin.org/digest-auth/auth/user/pass
+```
+
+- **`-a`**: credentials untuk Basic/Digest — format `user:pass`.
+- **Bearer**: bisa via header langsung atau plugin — cek `http --help` untuk opsi terbaru.
+- **Environment variable**: sama seperti curl — jangan commit token ke repo.
+
+---
+
+### Form & File Upload
+
+httpie membedakan form field, multipart upload, dan JSON dengan sintaks yang jelas.
+
+Kapan dipakai: upload file, submit HTML form, atau API multipart.
+
+```bash
+# Form-urlencoded
+http --form POST https://httpbin.org/post username=rahmat password=secret
+
+# Multipart (file upload)
+http --form POST https://httpbin.org/post name=Rahmat file@~/Documents/photo.jpg
+
+# Multiple files
+http --form POST https://httpbin.org/post doc1@file1.pdf doc2@file2.pdf
+
+# JSON (default untuk non-form)
+http POST https://httpbin.org/post title="Judul" count:=42 tags:='["a","b"]'
+
+# Raw body dari file
+http POST https://httpbin.org/post < payload.json
+```
+
+- **`--form` / `-f`**: paksa `multipart/form-data` atau `application/x-www-form-urlencoded`.
+- **`file@path`**: syntax upload file — `@` menandakan file, bukan string.
+- **Tanpa `--form`**: httpie infer JSON jika value numeric/boolean.
+
+---
+
+### Session — Persist Cookie & Header
+
+Session httpie menyimpan cookie dan header default antar request dalam satu "session" bernama — mirip tab browser.
+
+Kapan dipakai: flow login → akses protected endpoint, atau serangkaian request yang share auth.
+
+```bash
+# Buat session saat login
+http --session=./session.json POST https://example.com/login username=admin password=secret
+
+# Pakai session — cookie & header otomatis
+http --session=./session.json GET https://example.com/api/profile
+
+# Session read-only (tidak update file)
+http --session-read-only=./session.json GET https://example.com/api/data
+
+# Session dengan header default
+http --session=./dev-session.json GET https://api.example.com/health \
+  "Authorization: Bearer $DEV_TOKEN"
+
+# Hapus session — cukup delete file
+rm ./session.json
+```
+
+- **`--session=file`**: baca dan tulis session — cookie di-update otomatis.
+- **`--session-read-only`**: kirim cookie tanpa modifikasi file — aman untuk CI.
+- **Header di session**: header yang dikirim saat create session disimpan untuk request berikutnya.
+
+---
+
+## Parsing JSON dengan jq
+
+**jq** adalah processor JSON di command line — sempurna dipasangkan dengan curl atau httpie untuk extract field dari respons besar.
+
+Kapan dipakai: ambil satu field, filter array, transform data, atau validasi struktur JSON.
+
+```bash
+# Pretty-print
+curl -s https://httpbin.org/get | jq .
+
+# Ambil field tertentu
+curl -s https://httpbin.org/get | jq '.headers.Host'
+
+# Filter array
+curl -s https://api.github.com/repos/oven-sh/bun/issues | jq '.[].title'
+
+# Select dengan kondisi
+curl -s https://api.example.com/users | jq '.[] | select(.active == true) | .email'
+
+# Extract multiple field
+curl -s https://httpbin.org/get | jq '{host: .headers.Host, url: .url}'
+
+# Raw output (tanpa quotes — untuk scripting)
+curl -s https://httpbin.org/get | jq -r '.origin'
+
+# Combine dengan httpie
+http --body GET https://httpbin.org/get | jq '.headers'
+
+# Validasi JSON valid
+curl -s https://httpbin.org/get | jq empty && echo "Valid JSON"
+```
+
+- **`.field`**: akses property — chain dengan `.headers.Host`.
+- **`-r`**: raw output — string tanpa kutip, berguna untuk export ke variabel.
+- **`jq empty`**: parse tanpa output — exit code 0 jika valid, error jika tidak.
+- **Pipe**: pola umum `curl -s ... | jq ...` — simpan `-s` agar output bersih.
+
+---
+
+## curl vs httpie — Perbandingan
+
+| Aspek | curl | httpie |
+| --- | --- | --- |
+| **Instalasi** | Pre-installed di Mac/Linux | Perlu install terpisah |
+| **Sintaks** | Flag-based (`-H`, `-d`, `-X`) | Method + URL + `key=value` |
+| **JSON** | Manual set `Content-Type`, escape shell | Otomatis detect & format |
+| **Output** | Raw — perlu pipe ke `jq` | Pretty-print & warna otomatis |
+| **Protokol** | HTTP, FTP, SMTP, dan 20+ protokol | Fokus HTTP/HTTPS |
+| **Scripting/CI** | Standar universal, exit code kaya | Lebih readable, kurang ubiquitous |
+| **Download file** | Sangat capable (`-O`, resume) | Bisa, tapi curl lebih kuat |
+| **SSL/mTLS** | Opsi lengkap | Dasar — cukup untuk kebanyakan API |
+| **Session/cookie** | `-b`/`-c` manual | `--session` built-in |
+| **Learning curve** | Lebih curam | Lebih landai untuk pemula |
+| **Dokumentasi** | Decades, sangat luas | Modern, fokus API |
+
+**Rekomendasi praktis:**
+
+- Pakai **httpie** untuk eksplorasi interaktif dan debugging API sehari-hari.
+- Pakai **curl** untuk scripting, CI/CD, download file, protokol non-HTTP, dan environment minimal (container Alpine, dll.).
+- Kombinasikan keduanya dengan **jq** saat perlu extract data dari respons JSON.
+
+---
+
+## Workflow Testing API
+
+### Alur Kerja Sehari-hari
+
+Workflow terstruktur mempercepat debugging dan mengurangi trial-and-error acak.
+
+Kapan dipakai: mulai integrasi API baru, debug bug production, atau verifikasi endpoint sebelum deploy.
+
+```bash
+# 1. Health check — pastikan server hidup
+curl -s -o /dev/null -w "%{http_code}" https://api.example.com/health
+# Harapan: 200
+
+# 2. GET resource — lihat struktur respons
+http GET https://api.example.com/v1/users/1
+
+# 3. Parse field penting
+http --body GET https://api.example.com/v1/users/1 | jq '{id, name, email}'
+
+# 4. POST create — test data baru
+http POST https://api.example.com/v1/users \
+  name="Test User" email="test@example.com" role:=member
+
+# 5. PATCH update — verifikasi perubahan
+http PATCH https://api.example.com/v1/users/42 status:=inactive
+
+# 6. DELETE cleanup — hapus data test
+http DELETE https://api.example.com/v1/users/42 \
+  "Authorization: Bearer $API_TOKEN"
+```
+
+Langkah sistematis:
+
+1. **Health check** — pastikan service reachable.
+2. **GET** — pahami struktur respons dan schema.
+3. **Auth** — test endpoint protected dengan token valid/invalid.
+4. **CRUD** — POST → GET → PATCH → DELETE dengan data test.
+5. **Edge case** — invalid input, missing field, unauthorized.
+6. **Cleanup** — hapus data test agar tidak polusi database.
+
+---
+
+### Payload JSON Panjang dengan Heredoc
+
+Untuk JSON kompleks, heredoc lebih aman daripada inline string di terminal.
+
+Kapan dipakai: payload nested, banyak field, atau skrip yang di-version control.
+
+```bash
+# curl + heredoc
+curl -X POST https://httpbin.org/post \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -d @- <<'EOF'
+{
+  "order": {
+    "customer_id": 1001,
+    "items": [
+      {"sku": "ABC", "qty": 2, "price": 15000},
+      {"sku": "XYZ", "qty": 1, "price": 45000}
+    ],
+    "shipping": {
+      "method": "express",
+      "address": "Jl. Contoh No. 1, Jakarta"
+    }
+  }
+}
+EOF
+
+# Simpan ke file untuk reuse
+cat > order-payload.json <<'EOF'
+{"customer_id": 1001, "items": [{"sku": "ABC", "qty": 2}]}
+EOF
+curl -X POST -H "Content-Type: application/json" -d @order-payload.json \
+  https://api.example.com/orders
+```
+
+- **`<<'EOF'`**: single-quote mencegah variable expansion — JSON literal aman.
+- **`-d @-`**: baca body dari stdin — pasangan heredoc.
+- **File terpisah**: payload di Git untuk regression test API.
+
+---
+
+### Skrip Health Check untuk CI
+
+Pola curl yang robust untuk pipeline CI — fail fast dengan exit code yang benar.
+
+Kapan dipakai: deploy verification, monitoring sederhana, atau pre-flight check sebelum integration test.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+API_URL="${API_URL:-https://api.example.com}"
+TOKEN="${API_TOKEN:?API_TOKEN required}"
+
+# Health
+status=$(curl -sS -o /dev/null -w "%{http_code}" "${API_URL}/health")
+[[ "$status" == "200" ]] || { echo "Health check failed: $status"; exit 1; }
+
+# Auth endpoint
+curl -sS -f -H "Authorization: Bearer ${TOKEN}" "${API_URL}/v1/me" | jq -e '.id' > /dev/null
+
+echo "All checks passed"
+```
+
+- **`set -euo pipefail`**: exit on error, undefined variable, pipe failure.
+- **`curl -f`**: gagal pada HTTP 4xx/5xx.
+- **`jq -e`**: exit non-zero jika field tidak ada atau null.
+
+---
+
+### Environment & Konfigurasi
+
+Kelola base URL dan token per environment agar tidak salah target.
+
+Kapan dipakai: switch antara local, staging, dan production tanpa ubah command panjang.
+
+```bash
+# .env.local (jangan commit!)
+export API_BASE_URL=http://localhost:3000/api
+export API_TOKEN=dev_token_abc
+
+# Load dan test
+source .env.local
+http GET "$API_BASE_URL/users" "Authorization: Bearer $API_TOKEN"
+
+# Atau dengan alias di ~/.zshrc
+alias api-local='http --session=~/.httpie-sessions/local.json'
+alias api-staging='http --session=~/.httpie-sessions/staging.json'
+```
+
+- **Pisahkan per environment**: file session berbeda untuk local/staging/prod.
+- **Jangan commit token**: tambahkan `.env*` ke `.gitignore`.
+
+---
+
+## Troubleshooting Umum
+
+### Connection refused / timeout
+
+```bash
+# Cek apakah host/port terbuka
+curl -v --connect-timeout 5 http://localhost:3000/api
+
+# Cek DNS
+curl -v https://api.example.com 2>&1 | grep "Trying"
+
+# Test tanpa HTTPS dulu
+curl -v http://localhost:8080/health
+```
+
+- **Connection refused**: service tidak jalan atau port salah.
+- **Timeout**: firewall, service lambat, atau host tidak reachable.
+
+---
+
+### SSL certificate problem
+
+```bash
+# Lihat detail error
+curl -v https://problematic-api.example.com 2>&1 | grep -i ssl
+
+# Dev only — skip verify
+curl -k https://localhost:8443/api
+
+# Tambah CA internal
+curl --cacert ~/certs/company-ca.crt https://internal.corp/api
+```
+
+- **`SSL certificate problem`**: self-signed, expired, atau CA tidak dikenali.
+- **`-k`**: workaround dev — fix sertifikat di production.
+
+---
+
+### HTTP 401 / 403 Unauthorized
+
+```bash
+# Verifikasi header auth terkirim
+curl -v -H "Authorization: Bearer $API_TOKEN" https://api.example.com/me 2>&1 | grep Authorization
+
+# Test Basic auth
+curl -v -u user:pass https://httpbin.org/basic-auth/user/pass
+
+# Cek token belum expired (JWT)
+echo "$API_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .exp
+```
+
+- **401**: tidak auth atau kredensial invalid.
+- **403**: sudah auth tapi tidak punya permission.
+- **Cek verbose**: pastikan header `Authorization` benar-benar terkirim.
+
+---
+
+### HTTP 400 Bad Request
+
+```bash
+# Lihat body error dari server
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"invalid": true}' https://api.example.com/users | jq .
+
+# Validasi JSON sebelum kirim
+jq . payload.json  # pastikan valid
+curl -X POST -H "Content-Type: application/json" -d @payload.json \
+  https://api.example.com/users
+```
+
+- **400**: body invalid, field required missing, atau schema salah.
+- **Baca respons error**: kebanyakan API mengembalikan detail field yang gagal.
+
+---
+
+### HTTP 429 Too Many Requests
+
+```bash
+# Lihat header rate limit
+curl -sI https://api.example.com/data | grep -i rate
+
+# Retry dengan delay
+curl --retry 5 --retry-delay 10 --retry-connrefused \
+  -H "Authorization: Bearer $API_TOKEN" \
+  https://api.example.com/data
+```
+
+- **429**: rate limit — baca header `Retry-After` atau `X-RateLimit-Reset`.
+- **Backoff**: tambahkan delay di skrip loop.
+
+---
+
+### JSON escape & shell quoting
+
+```bash
+# SALAH — shell expand $variable
+curl -d "{\"name\": $name}" https://httpbin.org/post
+
+# BENAR — single quotes
+curl -d '{"name": "Rahmat"}' https://httpbin.org/post
+
+# BENAR — heredoc
+curl -d @- https://httpbin.org/post <<'EOF'
+{"name": "Rahmat"}
+EOF
+
+# BENAR — httpie (hindari masalah quoting)
+http POST https://httpbin.org/post name=Rahmat
+```
+
+- **Single quotes**: literal string di bash — JSON paling aman.
+- **httpie**: menghindari banyak masalah shell quoting untuk JSON.
+
+---
+
+### Redirect loop atau unexpected method
+
+```bash
+# Batasi redirect
+curl -L --max-redirs 3 -v https://example.com/redirect-test
+
+# Lihat chain redirect
+curl -sI -L https://example.com | grep -i location
+```
+
+- **Loop**: server misconfig — `--max-redirs` batasi damage.
+- **POST → GET**: beberapa framework ubah method setelah 302.
+
+---
+
+## Tips Produktivitas
+
+### Alias Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# curl shortcuts
+alias curljson='curl -sS -H "Accept: application/json" -H "Content-Type: application/json"'
+alias curlauth='curl -sS -H "Authorization: Bearer $API_TOKEN"'
+alias curlhealth='curl -sS -o /dev/null -w "%{http_code}\n"'
+
+# httpie shortcuts
+alias hget='http --body GET'
+alias hpost='http POST'
+alias hauth='http --session=~/.httpie-sessions/default.json'
+
+# Combo
+alias api-get='curl -sS -H "Authorization: Bearer $API_TOKEN"'
+alias api-jq='jq -r'
+```
+
+---
+
+### httpie Config Global
+
+File `~/.config/httpie/config.json` untuk default header dan options:
+
+```json
+{
+  "default_options": [
+    "--session=~/.httpie-sessions/default.json"
+  ]
+}
+```
+
+---
+
+<Callout type="warning">
+Jangan pernah commit file yang berisi API token, password, atau cookie session ke Git. Gunakan environment variable, file `.env` di `.gitignore`, atau secret manager di CI.
+</Callout>
+
+<Callout type="info">
+Untuk dokumentasi API interaktif, banyak tim memakai OpenAPI (Swagger). Anda bisa generate curl command langsung dari Swagger UI — cocok sebagai starting point sebelum refine di terminal.
+</Callout>
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | curl | httpie |
+| --- | --- | --- |
+| **GET** | `curl URL` | `http GET URL` |
+| **POST JSON** | `curl -X POST -H "Content-Type: application/json" -d '{}'` | `http POST URL key:=value` |
+| **Header** | `-H "Key: value"` | `Key:value` sebelum URL |
+| **Auth Basic** | `-u user:pass` | `-a user:pass` |
+| **Auth Bearer** | `-H "Authorization: Bearer TOKEN"` | `"Authorization: Bearer TOKEN"` |
+| **Cookie** | `-b` / `-c` | `--session=file.json` |
+| **Redirect** | `-L` | Otomatis |
+| **Verbose** | `-v` | `--verbose` |
+| **Silent** | `-s` / `-sS` | `--body` / `--print` |
+| **Timeout** | `--max-time N` | `--timeout=N` |
+| **Download** | `-O` / `-o file` | `-d` / redirect output |
+| **SSL skip** | `-k` (dev only) | `--verify=no` (dev only) |
+| **Parse JSON** | pipe ke `jq` | built-in + `jq` |
+
+---
+
+## Penutup
+
+Dua alat inti untuk HTTP di terminal: **`curl`** untuk universalitas dan scripting, **`httpie`** untuk keterbacaan dan eksplorasi API. Tambahkan **`jq`** untuk mem-parse respons JSON — trio ini menutup kebutuhan testing dan debugging API tanpa GUI.
+
+Mulai dari `curl -v` atau `http --verbose` saat stuck — header dan status code hampir selalu menjawab "kenapa request gagal". Latih workflow CRUD lengkap di [httpbin.org](https://httpbin.org) sebelum sentuh API production. Referensi lengkap: [curl.se/docs](https://curl.se/docs/) dan [httpie.io/docs](https://httpie.io/docs/cli).

@@ -1,0 +1,1423 @@
+---
+title: "Perintah Apache CLI Command Line Lengkap"
+description: "Panduan lengkap perintah CLI Apache httpd dan apachectl: start/stop, syntax check, virtual host, mod_rewrite, SSL, reverse proxy, log, dan troubleshooting."
+date: "2025-06-24"
+category: terminal
+tags: ["apache", "httpd", "web-server", "cli", "tutorial"]
+featured: true
+---
+
+**Apache HTTP Server** (sering disingkat **httpd**) adalah web server open source paling populer di dunia. Di terminal, Anda mengelolanya lewat perintah `apachectl` (Mac/BSD) atau `httpd`/`apache2` (Linux) — mulai dari mengecek konfigurasi, menjalankan virtual host, hingga mengaktifkan modul SSL dan reverse proxy.
+
+<Callout type="tip">
+Cek apakah Apache sudah terpasang: `apachectl -v` (Mac) atau `httpd -v` / `apache2 -v` (Linux). Di Mac, Apache bawaan sudah ada — aktifkan lewat `sudo apachectl start`. Di Ubuntu/Debian: `sudo apt install apache2`. Di RHEL/Fedora: `sudo dnf install httpd`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami komponen inti Apache — istilah ini muncul terus di `httpd.conf`, log, dan dokumentasi resmi:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **httpd** | Daemon (proses) Apache HTTP Server yang melayani request HTTP/HTTPS |
+| **apachectl** | Script wrapper untuk mengontrol httpd — start, stop, restart, test config |
+| **httpd.conf** | File konfigurasi utama — port, modul, direktori, include file lain |
+| **VirtualHost** | Satu instance Apache melayani banyak domain/port dari satu server |
+| **Module (mod_*)** | Ekstensi fungsionalitas — `mod_ssl`, `mod_rewrite`, `mod_proxy`, dll. |
+| **DocumentRoot** | Folder root tempat file web (HTML, PHP, static) disajikan |
+| **.htaccess** | File konfigurasi per-direktori (override) tanpa restart server |
+| **MPM** | Multi-Processing Module — cara Apache menangani koneksi (`prefork`, `worker`, `event`) |
+| **Access log** | Catatan setiap request HTTP yang masuk |
+| **Error log** | Catatan error, warning, dan debug dari server |
+
+### Arsitektur request Apache
+
+```
+Client (browser)
+      │
+      ▼
+  Port 80/443 ──► httpd (Apache)
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+    VirtualHost   mod_rewrite   mod_proxy
+    (domain A)    (.htaccess)   (reverse proxy)
+          │
+          ▼
+    DocumentRoot / aplikasi backend
+```
+
+### Lokasi file penting — Mac vs Linux
+
+| Item | Mac (built-in) | Ubuntu/Debian | RHEL/Fedora/CentOS |
+| --- | --- | --- | --- |
+| **Binary httpd** | `/usr/sbin/httpd` | `/usr/sbin/apache2` | `/usr/sbin/httpd` |
+| **Wrapper CLI** | `apachectl` | `apache2ctl` / `apachectl` | `apachectl` |
+| **Config utama** | `/etc/apache2/httpd.conf` | `/etc/apache2/apache2.conf` | `/etc/httpd/conf/httpd.conf` |
+| **Virtual host** | `/etc/apache2/extra/httpd-vhosts.conf` | `/etc/apache2/sites-available/` | `/etc/httpd/conf.d/` |
+| **Modul** | `/etc/apache2/other/*.conf` | `/etc/apache2/mods-available/` | `/etc/httpd/conf.modules.d/` |
+| **DocumentRoot default** | `/Library/WebServer/Documents` | `/var/www/html` | `/var/www/html` |
+| **Access log** | `/private/var/log/apache2/access_log` | `/var/log/apache2/access.log` | `/var/log/httpd/access_log` |
+| **Error log** | `/private/var/log/apache2/error_log` | `/var/log/apache2/error.log` | `/var/log/httpd/error_log` |
+| **PID file** | `/private/var/run/httpd.pid` | `/var/run/apache2/apache2.pid` | `/var/run/httpd/httpd.pid` |
+
+### Perintah informasi dasar
+
+Perintah ini berguna untuk memastikan Apache terpasang, melihat versi, dan membuka dokumentasi bantuan.
+
+```bash
+# Mac
+apachectl -v                    # versi Apache
+apachectl -V                    # compile settings & paths
+apachectl -h                    # bantuan singkat
+httpd -l                        # modul yang dikompilasi statis (built-in)
+
+# Linux (Debian/Ubuntu)
+apache2 -v
+apache2 -V
+apache2ctl -h
+apache2 -l
+
+# Linux (RHEL/Fedora)
+httpd -v
+httpd -V
+httpd -l
+```
+
+- **`apachectl -v` / `httpd -v`**: tampilkan versi — langkah pertama saat troubleshooting kompatibilitas modul.
+- **`apachectl -V` / `httpd -V`**: tampilkan direktori `SERVER_CONFIG_FILE`, `HTTPD_ROOT`, MPM yang aktif — sangat berguna saat bingung lokasi config.
+- **`httpd -l`**: daftar modul yang dikompilasi langsung ke binary — modul ini selalu tersedia tanpa `LoadModule`.
+
+---
+
+## `apachectl` & `httpd` — Kontrol Server
+
+### `apachectl start` — Jalankan Apache
+
+`apachectl start` (Mac) atau `systemctl start httpd`/`apache2` (Linux) menjalankan daemon httpd jika belum berjalan.
+
+Kapan dipakai: setelah instalasi pertama, setelah reboot server, atau setelah `stop` untuk maintenance.
+
+```bash
+# Mac
+sudo apachectl start
+
+# Linux — Debian/Ubuntu
+sudo systemctl start apache2
+sudo apache2ctl start              # alternatif langsung
+
+# Linux — RHEL/Fedora
+sudo systemctl start httpd
+sudo apachectl start
+
+# Cek status
+sudo apachectl status              # Mac
+sudo systemctl status apache2      # Debian/Ubuntu
+sudo systemctl status httpd        # RHEL/Fedora
+```
+
+- **`sudo`**: Apache bind ke port 80/443 — butuh hak root untuk start/stop.
+- **`systemctl`**: cara modern di Linux dengan systemd — auto-start saat boot via `enable`.
+- Setelah start, buka `http://localhost` di browser untuk verifikasi.
+
+---
+
+### `apachectl stop` — Hentikan Apache
+
+`apachectl stop` menghentikan semua proses httpd secara paksa setelah request aktif selesai (atau timeout).
+
+Kapan dipakai: sebelum mengubah port, upgrade major, atau maintenance server yang butuh Apache benar-benar mati.
+
+```bash
+# Mac
+sudo apachectl stop
+
+# Linux
+sudo systemctl stop apache2        # Debian/Ubuntu
+sudo systemctl stop httpd          # RHEL/Fedora
+
+# Alternatif via apachectl
+sudo apachectl stop
+```
+
+- **`stop`**: kirim sinyal shutdown — koneksi aktif ditutup, tidak menerima request baru.
+- Pastikan tidak ada proses httpd tersisa: `pgrep -l httpd` atau `pgrep -l apache2`.
+- Di production, pertimbangkan `graceful` daripada `stop` agar tidak memutus user secara tiba-tiba.
+
+---
+
+### `apachectl restart` — Restart Penuh
+
+`apachectl restart` menghentikan lalu menjalankan ulang httpd — semua koneksi aktif terputus.
+
+Kapan dipakai: setelah mengubah konfigurasi yang tidak didukung `graceful`, atau saat Apache hang dan perlu hard reset.
+
+```bash
+sudo apachectl restart             # Mac & banyak distro Linux
+
+# Linux via systemd
+sudo systemctl restart apache2
+sudo systemctl restart httpd
+```
+
+- **`restart`**: stop + start — lebih agresif dari `graceful`.
+- Selalu jalankan `apachectl configtest` atau `httpd -t` **sebelum** restart agar tidak gagal start.
+- Jika restart gagal, cek `error_log` — biasanya ada baris `Syntax error on line ...`.
+
+---
+
+### `apachectl graceful` — Reload Tanpa Putus Koneksi
+
+`apachectl graceful` (atau `apachectl -k graceful`) memuat ulang konfigurasi tanpa mematikan worker yang sedang melayani request.
+
+Kapan dipakai: setelah edit `httpd.conf`, virtual host, atau modul — cara terbaik di production.
+
+```bash
+sudo apachectl graceful            # Mac
+sudo apachectl -k graceful
+
+# Linux
+sudo apache2ctl graceful
+sudo systemctl reload apache2        # setara graceful di systemd
+sudo systemctl reload httpd
+```
+
+- **`graceful`**: proses lama selesaikan request yang sedang berjalan, proses baru pakai config terbaru.
+- **`reload`** (systemd): setara graceful — lebih idiomatis di Linux modern.
+- Tidak semua perubahan bisa di-graceful — perubahan MPM atau port bind tetap butuh full restart.
+
+---
+
+### Opsi `-k` — Kontrol Proses
+
+Flag `-k` pada `apachectl`/`httpd` mengirim sinyal kontrol ke daemon yang sudah berjalan.
+
+Kapan dipakai: scripting deployment, otomasi CI/CD, atau saat `systemctl` tidak tersedia.
+
+```bash
+sudo apachectl -k start
+sudo apachectl -k stop
+sudo apachectl -k restart
+sudo apachectl -k graceful
+sudo apachectl -k graceful-stop      # stop setelah request selesai (lebih halus dari stop)
+```
+
+| Opsi `-k` | Efek |
+| --- | --- |
+| **`start`** | Jalankan httpd |
+| **`stop`** | Hentikan httpd |
+| **`restart`** | Stop lalu start ulang |
+| **`graceful`** | Reload config, proses lama selesaikan request |
+| **`graceful-stop`** | Stop setelah semua request aktif selesai |
+
+- **`-k graceful-stop`**: berguna saat maintenance terjadwal — tidak memutus koneksi secara instan.
+- Di Mac, `apachectl` adalah wrapper ke `httpd -k` — keduanya setara.
+
+---
+
+### `httpd -t` / `apachectl configtest` — Cek Sintaks Konfigurasi
+
+Perintah ini memvalidasi file konfigurasi **tanpa** menjalankan atau me-restart server — wajib sebelum setiap deploy config.
+
+Kapan dipakai: setelah edit `httpd.conf`, virtual host, SSL, atau modul — setiap kali, tanpa kecuali.
+
+```bash
+# Mac
+sudo apachectl configtest
+sudo httpd -t
+
+# Linux
+sudo apache2ctl configtest
+sudo apache2 -t
+sudo httpd -t                      # RHEL/Fedora
+
+# Verbose — tampilkan file yang di-include
+sudo httpd -t -D DUMP_INCLUDES
+```
+
+Output sukses:
+
+```
+Syntax OK
+```
+
+Output gagal:
+
+```
+AH00526: Syntax error on line 42 of /etc/apache2/extra/httpd-vhosts.conf:
+Invalid command 'SSLEngine', perhaps misspelled or defined by a module not included
+```
+
+- **`Syntax OK`**: config valid secara sintaks — bukan berarti aplikasi pasti jalan (bisa salah DocumentRoot, permission, dll.).
+- **Error modul**: pesan `defined by a module not included` berarti modul belum di-`LoadModule` — aktifkan dulu.
+- **`-D DUMP_INCLUDES`**: debug hierarki `Include` — berguna saat config tersebar banyak file.
+
+---
+
+### `httpd -S` — Dump Virtual Host
+
+`httpd -S` menampilkan semua VirtualHost yang terdaftar, port, dan file config sumbernya — seperti peta domain di server.
+
+Kapan dipakai: debug "kenapa domain X tidak jalan", cek konflik port, atau audit konfigurasi multi-site.
+
+```bash
+sudo httpd -S                      # Mac & RHEL
+sudo apache2 -S                    # Debian/Ubuntu
+sudo apachectl -S                  # wrapper yang sama
+```
+
+Contoh output:
+
+```
+VirtualHost configuration:
+*:80                   is a NameVirtualHost
+         default server localhost (/etc/apache2/extra/httpd-vhosts.conf:25)
+         port 80 namevhost localhost (/etc/apache2/extra/httpd-vhosts.conf:25)
+         port 80 namevhost app.local (/etc/apache2/extra/httpd-vhosts.conf:35)
+*:443                  app.local (/etc/apache2/extra/httpd-ssl.conf:42)
+```
+
+- **`*:80`**: VirtualHost wildcard — menerima semua IP di port 80.
+- **`default server`**: VirtualHost pertama yang cocok jika `ServerName` tidak match.
+- **`namevhost`**: host berbasis nama (Name-based Virtual Hosting) — paling umum.
+- Cocokkan output ini dengan `curl -H "Host: app.local" http://localhost` untuk test lokal.
+
+---
+
+### `httpd -M` — Daftar Modul Aktif
+
+`httpd -M` menampilkan semua modul yang sedang dimuat — `static` (built-in) atau `shared` (`.so`).
+
+Kapan dipakai: verifikasi `mod_rewrite`, `mod_ssl`, atau `mod_proxy` sudah aktif sebelum menulis config yang bergantung padanya.
+
+```bash
+sudo httpd -M
+sudo apache2 -M
+
+# Filter modul tertentu
+sudo httpd -M | grep rewrite
+sudo httpd -M | grep ssl
+sudo httpd -M | grep proxy
+```
+
+Contoh output:
+
+```
+Loaded Modules:
+ core_module (static)
+ so_module (static)
+ ...
+ rewrite_module (shared)
+ ssl_module (shared)
+ proxy_module (shared)
+```
+
+- **`(static)`**: dikompilasi ke binary — tidak bisa di-disable tanpa rebuild.
+- **`(shared)`**: dimuat dari file `.so` via `LoadModule` — bisa diaktifkan/nonaktifkan.
+- Jika modul tidak muncul, aktifkan lewat config (Mac) atau `a2enmod` (Debian/Ubuntu).
+
+---
+
+### `httpd -t -D DUMP_RUN_CFG` — Debug Konfigurasi Runtime
+
+Menampilkan ringkasan konfigurasi efektif saat server dijalankan — User, Group, MPM, port.
+
+Kapan dipakai: troubleshooting permission, memastikan MPM yang benar, atau audit setting production.
+
+```bash
+sudo httpd -t -D DUMP_RUN_CFG
+sudo apache2 -t -D DUMP_RUN_CFG
+```
+
+- Berguna untuk memastikan Apache berjalan sebagai user `www-data` (Linux) atau `_www` (Mac).
+- Tampilkan juga `Define` directives dan batasan resource.
+
+---
+
+## Struktur `httpd.conf`
+
+### Anatomi file konfigurasi utama
+
+File `httpd.conf` adalah pusat konfigurasi Apache. Memahami strukturnya membuat debug virtual host dan modul jauh lebih cepat.
+
+Kapan dipakai: saat setup server baru, migrasi config, atau mencari tahu di mana menambahkan directive.
+
+```apache
+# ── 1. Direktif global ──────────────────────────────
+ServerRoot "/etc/apache2"
+Listen 80
+ServerAdmin webmaster@localhost
+ServerName localhost:80
+
+# ── 2. Load modul ───────────────────────────────────
+LoadModule rewrite_module libexec/apache2/mod_rewrite.so
+LoadModule ssl_module libexec/apache2/mod_ssl.so
+
+# ── 3. Konfigurasi utama ────────────────────────────
+<Directory />
+    Require all denied
+</Directory>
+
+DocumentRoot "/Library/WebServer/Documents"
+<Directory "/Library/WebServer/Documents">
+    Options Indexes FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# ── 4. Include file lain ────────────────────────────
+Include /private/etc/apache2/extra/httpd-vhosts.conf
+Include /private/etc/apache2/extra/httpd-ssl.conf
+
+# ── 5. Log ──────────────────────────────────────────
+ErrorLog "/private/var/log/apache2/error_log"
+CustomLog "/private/var/log/apache2/access_log" common
+```
+
+| Bagian | Fungsi |
+| --- | --- |
+| **`ServerRoot`** | Base path untuk file config dan modul relatif |
+| **`Listen`** | Port (dan opsional IP) yang didengarkan Apache |
+| **`LoadModule`** | Muat modul shared (`.so`) |
+| **`<Directory>`** | Aturan akses per folder — permission, override, options |
+| **`DocumentRoot`** | Root default untuk file web |
+| **`Include`** | Tarik config dari file terpisah — modularisasi |
+| **`ErrorLog` / `CustomLog`** | Lokasi dan format log |
+
+- **`Require all denied`** di `<Directory />`: default deny — keamanan dasar, buka akses eksplisit per folder.
+- **`AllowOverride`**: jika `None`, file `.htaccess` diabaikan — set `All` atau spesifik (`FileInfo`) untuk mod_rewrite di `.htaccess`.
+- **`Include`**: di Mac banyak config ada di `/etc/apache2/extra/` — uncomment baris yang dibutuhkan.
+
+---
+
+### `Listen` & `ServerName` — Port dan Identitas Server
+
+`Listen` menentukan port yang didengarkan; `ServerName` memberi identitas hostname pada VirtualHost default.
+
+Kapan dipakai: setup port custom (8080), HTTPS di 443, atau fix warning `Could not reliably determine the server's fully qualified domain name`.
+
+```apache
+Listen 80
+Listen 443
+Listen 8080
+
+ServerName www.example.com:80
+```
+
+```bash
+# Cek port yang didengarkan Apache
+sudo lsof -i :80 -sTCP:LISTEN
+sudo lsof -i :443 -sTCP:LISTEN
+sudo ss -tlnp | grep httpd          # Linux
+```
+
+- **`Listen 443`**: butuh `mod_ssl` dan sertifikat — lihat bagian SSL.
+- Warning **ServerName**: tidak fatal, tapi sebaiknya set `ServerName` eksplisit di config atau virtual host.
+- Konflik port: jika nginx atau aplikasi lain pakai port 80, Apache gagal start — cek dengan `lsof`.
+
+---
+
+### Blok `<Directory>` — Kontrol Akses Folder
+
+Blok `<Directory>` mengatur siapa boleh akses folder, opsi indexing, dan apakah `.htaccess` diizinkan.
+
+Kapan dipakai: mengamankan folder di luar DocumentRoot, mengaktifkan `.htaccess`, atau melarang listing direktori.
+
+```apache
+<Directory "/var/www/html">
+    Options -Indexes +FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+
+<Directory "/var/www/html/private">
+    Require ip 10.0.0.0/8
+    Require ip 192.168.1.0/24
+</Directory>
+```
+
+| Directive | Arti |
+| --- | --- |
+| **`Options -Indexes`** | Matikan directory listing — user tidak bisa lihat isi folder tanpa index |
+| **`Options +FollowSymLinks`** | Ikuti symbolic link — sering dibutuhkan mod_rewrite |
+| **`AllowOverride All`** | Izinkan `.htaccess` override semua directive yang didukung |
+| **`Require all granted`** | Izinkan akses dari semua (Apache 2.4+) |
+| **`Require ip`** | Batasi akses berdasarkan IP |
+
+- Apache 2.4 memakai **`Require`** — jangan pakai `Order allow,deny` (sintaks 2.2, deprecated).
+- **`AllowOverride None`**: `.htaccess` tidak diproses — sedikit lebih cepat, config harus di `httpd.conf`.
+
+---
+
+## Virtual Host
+
+### Konsep Name-Based Virtual Host
+
+Satu server fisik bisa melayani banyak domain (`blog.local`, `api.local`) lewat **Name-based Virtual Host** — Apache memilih host berdasarkan header `Host` dari request.
+
+Kapan dipakai: development lokal multi-proyek, shared hosting, atau satu VPS untuk beberapa aplikasi.
+
+```apache
+# /etc/apache2/extra/httpd-vhosts.conf (Mac)
+# atau /etc/apache2/sites-available/app.conf (Linux)
+
+<VirtualHost *:80>
+    ServerName app.local
+    ServerAlias www.app.local
+    DocumentRoot "/var/www/app/public"
+
+    <Directory "/var/www/app/public">
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog "/var/log/apache2/app-error.log"
+    CustomLog "/var/log/apache2/app-access.log" combined
+</VirtualHost>
+
+<VirtualHost *:80>
+    ServerName api.local
+    DocumentRoot "/var/www/api/public"
+
+    <Directory "/var/www/api/public">
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+- **`*:80`**: dengarkan semua interface di port 80 — bisa diganti `127.0.0.1:80` untuk bind lokal saja.
+- **`ServerAlias`**: domain alternatif yang diarahkan ke VirtualHost yang sama.
+- **VirtualHost pertama** di port yang sama menjadi **default** — urutan penting.
+- Untuk test lokal, tambahkan ke `/etc/hosts`: `127.0.0.1 app.local api.local`.
+
+---
+
+### Aktifkan Virtual Host — Mac vs Linux
+
+Setelah menulis config virtual host, langkah aktivasi berbeda antar platform.
+
+Kapan dipakai: setiap kali menambah site baru di server development atau production.
+
+```bash
+# ── Mac ──────────────────────────────────────────
+# 1. Uncomment di httpd.conf:
+#    Include /private/etc/apache2/extra/httpd-vhosts.conf
+# 2. Edit httpd-vhosts.conf
+sudo apachectl configtest
+sudo apachectl graceful
+
+# ── Debian/Ubuntu ────────────────────────────────
+sudo nano /etc/apache2/sites-available/app.conf
+sudo a2ensite app.conf              # enable site (symlink ke sites-enabled)
+sudo a2dissite 000-default.conf     # disable default (opsional)
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+
+# ── RHEL/Fedora ──────────────────────────────────
+sudo nano /etc/httpd/conf.d/app.conf
+sudo httpd -t
+sudo systemctl reload httpd
+```
+
+| Perintah Linux (Debian) | Fungsi |
+| --- | --- |
+| **`a2ensite`** | Aktifkan site — symlink `sites-available` → `sites-enabled` |
+| **`a2dissite`** | Nonaktifkan site |
+| **`a2enmod`** | Aktifkan modul |
+| **`a2dismod`** | Nonaktifkan modul |
+
+- Di Mac tidak ada `a2ensite` — uncomment `Include` manual di `httpd.conf`.
+- **`000-default.conf`**: site default Debian — sering perlu di-disable agar VirtualHost custom jadi default.
+
+---
+
+### Virtual Host HTTPS (port 443)
+
+Virtual host SSL membutuhkan `mod_ssl`, sertifikat, dan blok `<VirtualHost *:443>` terpisah.
+
+Kapan dipakai: production HTTPS, development lokal dengan sertifikat self-signed, atau Let's Encrypt.
+
+```apache
+<VirtualHost *:443>
+    ServerName app.local
+    DocumentRoot "/var/www/app/public"
+
+    SSLEngine on
+    SSLCertificateFile "/etc/ssl/certs/app.local.crt"
+    SSLCertificateKeyFile "/etc/ssl/private/app.local.key"
+    # SSLCertificateChainFile "/etc/ssl/certs/chain.pem"  # jika perlu
+
+    <Directory "/var/www/app/public">
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog "/var/log/apache2/app-ssl-error.log"
+    CustomLog "/var/log/apache2/app-ssl-access.log" combined
+</VirtualHost>
+```
+
+```bash
+# Redirect HTTP → HTTPS
+# Di VirtualHost *:80:
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+```
+
+- **`SSLEngine on`**: wajib di setiap VirtualHost HTTPS.
+- **`SSLCertificateFile`** / **`SSLCertificateKeyFile`**: path ke cert dan private key.
+- Pisahkan log SSL dan non-SSL agar analisis error lebih mudah.
+
+---
+
+## Mengelola Modul
+
+### `a2enmod` / `a2dismod` — Debian/Ubuntu
+
+Di Debian/Ubuntu, modul Apache dikelola lewat helper `a2enmod` dan `a2dismod` — setara `a2ensite` untuk modul.
+
+Kapan dipakai: mengaktifkan `mod_rewrite`, `mod_ssl`, `mod_proxy`, atau modul PHP tanpa edit manual symlink.
+
+```bash
+# Aktifkan modul
+sudo a2enmod rewrite
+sudo a2enmod ssl
+sudo a2enmod headers
+sudo a2enmod proxy
+sudo a2enmod proxy_http
+sudo a2enmod proxy_wstunnel     # WebSocket proxy
+
+# Nonaktifkan modul
+sudo a2dismod status              # matikan server-status jika tidak dipakai
+
+# Cek modul yang aktif
+ls /etc/apache2/mods-enabled/
+apache2ctl -M
+```
+
+- Setelah `a2enmod`, Apache perlu **reload**: `sudo systemctl reload apache2`.
+- Beberapa modul punya dependensi — `a2enmod` biasanya memperingatkan jika modul lain dibutuhkan.
+- **`proxy_http`**: dibutuhkan untuk reverse proxy ke backend HTTP — `proxy` saja tidak cukup.
+
+---
+
+### Setara `a2enmod` di Mac — Edit `httpd.conf` Manual
+
+Mac tidak menyediakan `a2enmod`. Modul diaktifkan dengan **uncomment** baris `LoadModule` di `httpd.conf` atau menambahkan `Include` di folder `other/`.
+
+Kapan dipakai: mengaktifkan mod_rewrite, ssl, atau proxy di Apache bawaan macOS.
+
+```bash
+# Buka config utama
+sudo nano /etc/apache2/httpd.conf
+```
+
+Cari dan uncomment baris seperti:
+
+```apache
+LoadModule rewrite_module libexec/apache2/mod_rewrite.so
+LoadModule ssl_module libexec/apache2/mod_ssl.so
+LoadModule proxy_module libexec/apache2/mod_proxy.so
+LoadModule proxy_http_module libexec/apache2/mod_proxy_http.so
+LoadModule headers_module libexec/apache2/mod_headers.so
+```
+
+Untuk SSL, uncomment juga:
+
+```apache
+Include /private/etc/apache2/extra/httpd-ssl.conf
+```
+
+```bash
+sudo apachectl configtest
+sudo apachectl graceful
+sudo httpd -M | grep rewrite       # verifikasi modul aktif
+```
+
+- Path modul Mac: `/usr/libexec/apache2/mod_*.so` — direferensikan sebagai `libexec/apache2/mod_*.so` relatif ke `ServerRoot`.
+- Folder **`/etc/apache2/other/`**: tempat config modul tambahan — file `.conf` di sini otomatis di-include jika dikonfigurasi.
+- Setelah macOS update, cek ulang `httpd.conf` — kadang config custom tertimpa (backup dulu).
+
+---
+
+### `LoadModule` Manual — RHEL/Fedora
+
+Di RHEL/Fedora, modul dikonfigurasi di `/etc/httpd/conf.modules.d/` — satu file per modul atau grup modul.
+
+Kapan dipakai: mengaktifkan modul yang belum di-load di instalasi default.
+
+```bash
+# Lihat file modul
+ls /etc/httpd/conf.modules.d/
+
+# Contoh: /etc/httpd/conf.modules.d/00-ssl.conf
+LoadModule ssl_module modules/mod_ssl.so
+```
+
+```bash
+sudo httpd -t
+sudo systemctl reload httpd
+```
+
+- Nama file `00-*.conf` menentukan urutan load — modul dasar dimuat lebih dulu.
+- Jangan duplikasi `LoadModule` — akan error `module is already loaded`.
+
+---
+
+## `mod_rewrite` & `.htaccess`
+
+### `mod_rewrite` — URL Rewriting
+
+`mod_rewrite` mengubah URL yang diminta client sebelum Apache mencari file — fondasi URL cantik, redirect, dan routing framework PHP.
+
+Kapan dipakai: pretty URL (`/about` bukan `/about.php`), redirect domain, force HTTPS, atau front controller pattern.
+
+```apache
+# Di VirtualHost atau <Directory>
+RewriteEngine On
+
+# Redirect www → non-www
+RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+
+# Front controller (Laravel, Symfony, dll.)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+
+# Redirect path lama
+RewriteRule ^old-page$ /new-page [L,R=301]
+```
+
+| Flag | Arti |
+| --- | --- |
+| **`[L]`** | Last — hentikan pemrosesan rule berikutnya |
+| **`[R=301]`** | Redirect permanen ke URL baru |
+| **`[R=302]`** | Redirect sementara |
+| **`[NC]`** | No case — case insensitive |
+| **`[L,QSA]`** | Last + Query String Append — pertahankan `?param=value` |
+
+- **`RewriteEngine On`**: wajib sekali per context (VirtualHost, Directory, atau `.htaccess`).
+- **`!-f` / `!-d`**: jangan rewrite jika file atau direktori fisik ada — pola front controller standar.
+- Aktifkan `mod_rewrite` dulu — `a2enmod rewrite` (Linux) atau uncomment `LoadModule` (Mac).
+
+---
+
+### `.htaccess` — Konfigurasi Per-Direktori
+
+File `.htaccess` memungkinkan override konfigurasi di level folder tanpa edit `httpd.conf` dan tanpa restart server.
+
+Kapan dipakai: shared hosting tanpa akses root, proyek dengan deploy terpisah per folder, atau rule rewrite spesifik satu aplikasi.
+
+```apache
+# /var/www/app/public/.htaccess
+RewriteEngine On
+RewriteBase /
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+
+# Blok akses file sensitif
+<FilesMatch "\.(env|git|htaccess)$">
+    Require all denied
+</FilesMatch>
+
+# Cache static assets
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+</IfModule>
+```
+
+Agar `.htaccess` berfungsi, parent `<Directory>` harus mengizinkan override:
+
+```apache
+<Directory "/var/www/app/public">
+    AllowOverride All
+    Require all granted
+</Directory>
+```
+
+- **`.htaccess` dibaca tiap request** — sedikit overhead; di server dedicated, prefer config di VirtualHost.
+- **`AllowOverride None`**: `.htaccess` diabaikan sepenuhnya — sering default di Mac.
+- File `.htaccess` harus readable oleh user Apache (`_www` di Mac, `www-data` di Linux).
+- Letakkan `.htaccess` di folder yang URL-nya diakses — biasanya `public/` bukan root proyek.
+
+---
+
+### Debug `mod_rewrite`
+
+Saat rewrite tidak bekerja, Apache menyediakan log level tinggi untuk melacak rule yang cocok.
+
+Kapan dipakai: URL return 404 padahal rule sudah ditulis, atau redirect loop.
+
+```apache
+# Sementara di VirtualHost — jangan di production lama
+LogLevel alert rewrite:trace6
+```
+
+```bash
+# Pantau error log
+sudo tail -f /var/log/apache2/error.log
+# Mac:
+sudo tail -f /private/var/log/apache2/error_log
+```
+
+- **`rewrite:trace6`**: sangat verbose — matikan setelah debug selesai.
+- Cek **`AllowOverride`** — penyebab paling umum `.htaccess` tidak diproses.
+- Test dengan `curl -I http://app.local/old-page` untuk lihat header redirect tanpa buka browser.
+
+---
+
+## Reverse Proxy
+
+### `mod_proxy` — Proxy ke Backend
+
+`mod_proxy` meneruskan request dari Apache ke server backend (Node.js, Python, Go, dll.) — Apache jadi reverse proxy di depan aplikasi.
+
+Kapan dipakai: deploy app Node di port 3000 dengan domain di port 80/443, load balancing sederhana, atau terminate SSL di Apache.
+
+```bash
+# Aktifkan modul (Debian/Ubuntu)
+sudo a2enmod proxy
+sudo a2enmod proxy_http
+sudo a2enmod headers
+sudo systemctl reload apache2
+```
+
+```apache
+<VirtualHost *:80>
+    ServerName api.local
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:3000/
+    ProxyPassReverse / http://127.0.0.1:3000/
+
+    # Header untuk app di belakang proxy
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Forwarded-For "%{REMOTE_ADDR}s"
+</VirtualHost>
+```
+
+- **`ProxyPass`**: forward path `/` ke backend — trailing slash penting untuk path mapping.
+- **`ProxyPassReverse`**: rewrite header `Location` di response redirect dari backend.
+- **`ProxyPreserveHost On`**: teruskan header `Host` asli ke backend — banyak framework butuh ini.
+- Backend harus sudah jalan di `127.0.0.1:3000` sebelum Apache diproxy.
+
+---
+
+### Reverse Proxy HTTPS + WebSocket
+
+Kombinasi SSL termination di Apache dengan proxy WebSocket ke backend (Socket.io, dll.).
+
+Kapan dipakai: real-time app di belakang HTTPS, atau microservice dengan WS.
+
+```apache
+<VirtualHost *:443>
+    ServerName app.local
+
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/app.local.crt
+    SSLCertificateKeyFile /etc/ssl/private/app.local.key
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:3000/
+    ProxyPassReverse / http://127.0.0.1:3000/
+
+    # WebSocket
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule /(.*) ws://127.0.0.1:3000/$1 [P,L]
+    RewriteCond %{HTTP:Upgrade} !=websocket [NC]
+    RewriteRule /(.*) http://127.0.0.1:3000/$1 [P,L]
+
+    ProxyPass /ws ws://127.0.0.1:3000/ws
+    ProxyPassReverse /ws ws://127.0.0.1:3000/ws
+</VirtualHost>
+```
+
+```bash
+sudo a2enmod proxy_wstunnel    # Debian — untuk WebSocket
+```
+
+- Flag **`[P]`** pada RewriteRule: proxy rule — butuh `mod_proxy`.
+- **`proxy_wstunnel`**: modul khusus tunnel WebSocket.
+- Set header **`X-Forwarded-Proto "https"`** agar backend tahu request asli via HTTPS.
+
+---
+
+### Load Balancing Sederhana
+
+Apache bisa mendistribusikan request ke beberapa backend dengan `mod_proxy_balancer`.
+
+Kapan dipakai: dua instance app untuk redundansi, atau rolling deploy tanpa downtime penuh.
+
+```apache
+<Proxy balancer://mycluster>
+    BalancerMember http://127.0.0.1:3001
+    BalancerMember http://127.0.0.1:3002
+</Proxy>
+
+ProxyPass / balancer://mycluster/
+ProxyPassReverse / balancer://mycluster/
+```
+
+```bash
+sudo a2enmod proxy_balancer
+sudo a2enmod lbmethod_byrequests
+```
+
+- **`BalancerMember`**: daftar backend — bisa tambah `loadfactor`, `status=+H` (hot standby).
+- **`lbmethod_byrequests`**: distribusi round-robin berdasarkan jumlah request.
+- Untuk production skala besar, pertimbangkan HAProxy atau nginx — Apache cukup untuk kasus sederhana.
+
+---
+
+## SSL dengan `mod_ssl`
+
+### Setup SSL Dasar
+
+`mod_ssl` menambahkan dukungan HTTPS — enkripsi TLS antara client dan server.
+
+Kapan dipakai: production wajib HTTPS, development lokal dengan self-signed cert, atau compliance keamanan.
+
+```bash
+# Debian/Ubuntu
+sudo a2enmod ssl
+sudo systemctl reload apache2
+
+# Mac — uncomment di httpd.conf:
+# LoadModule ssl_module ...
+# Include .../httpd-ssl.conf
+```
+
+```apache
+Listen 443
+
+<VirtualHost *:443>
+    ServerName www.example.com
+
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/www.example.com.crt
+    SSLCertificateKeyFile /etc/ssl/private/www.example.com.key
+    SSLCertificateChainFile /etc/ssl/certs/www.example.com-chain.crt
+
+    # TLS modern (Apache 2.4.30+)
+    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite HIGH:!aNULL:!MD5
+    SSLHonorCipherOrder on
+</VirtualHost>
+```
+
+- **`SSLCertificateChainFile`**: intermediate certificate dari CA — penting agar browser tidak warning.
+- Matikan **SSLv3, TLS 1.0, TLS 1.1** — tidak aman untuk production modern.
+- Private key harus permission ketat: `chmod 600`, owner root.
+
+---
+
+### Sertifikat Self-Signed (Development)
+
+Buat sertifikat sendiri untuk test lokal tanpa Let's Encrypt.
+
+Kapan dipakai: development di `*.local`, lab, atau staging internal tanpa domain publik.
+
+```bash
+# Generate private key + cert (365 hari)
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/app.local.key \
+  -out /etc/ssl/certs/app.local.crt \
+  -subj "/CN=app.local/O=Dev/C=ID"
+
+# Set permission
+sudo chmod 600 /etc/ssl/private/app.local.key
+```
+
+```bash
+sudo apachectl configtest
+sudo apachectl graceful
+curl -k https://app.local          # -k abaikan warning self-signed
+```
+
+- Browser akan warning **"Not Secure"** — normal untuk self-signed.
+- Untuk Mac Keychain: import cert agar browser percaya — dobel-klik `.crt` → Always Trust.
+- Production: pakai **Let's Encrypt** via `certbot` — gratis dan dipercaya browser.
+
+---
+
+### Let's Encrypt dengan `certbot`
+
+Otomatisasi sertifikat SSL gratis dan renewal untuk domain publik.
+
+Kapan dipakai: production VPS/cloud dengan domain yang mengarah ke server Anda.
+
+```bash
+# Debian/Ubuntu
+sudo apt install certbot python3-certbot-apache
+sudo certbot --apache -d example.com -d www.example.com
+
+# Renewal otomatis (cron/systemd timer)
+sudo certbot renew --dry-run
+```
+
+- **`certbot --apache`**: otomatis edit VirtualHost dan aktifkan SSL.
+- Cert valid 90 hari — `certbot renew` harus dijadwalkan (biasanya sudah via systemd timer).
+- Pastikan port **80 terbuka** — Let's Encrypt butuh HTTP challenge (kecuali pakai DNS challenge).
+
+---
+
+## Log & Monitoring
+
+### Access Log & Error Log
+
+Apache mencatat setiap request (access log) dan masalah server (error log) — dua file paling sering dibuka saat debug.
+
+Kapan dipakai: investigasi 404/500, analisis traffic, audit keamanan, atau verifikasi request sampai ke server.
+
+```apache
+# Format log
+ErrorLog "/var/log/apache2/error.log"
+LogLevel warn
+
+CustomLog "/var/log/apache2/access.log" combined
+
+# Log per VirtualHost (disarankan)
+ErrorLog "/var/log/apache2/app-error.log"
+CustomLog "/var/log/apache2/app-access.log" combined
+```
+
+```bash
+# Pantau real-time
+sudo tail -f /var/log/apache2/access.log
+sudo tail -f /var/log/apache2/error.log
+
+# Mac
+sudo tail -f /private/var/log/apache2/access_log
+sudo tail -f /private/var/log/apache2/error_log
+
+# Filter error 500
+grep " 500 " /var/log/apache2/access.log
+grep -i error /var/log/apache2/error.log | tail -20
+```
+
+| Format | Isi |
+| --- | --- |
+| **`common`** | IP, ident, user, date, request, status, bytes |
+| **`combined`** | common + Referer + User-Agent — paling umum |
+| **`LogLevel warn`** | Catat warning ke atas — `debug` untuk troubleshooting |
+
+- **`combined`**: format default yang kompatibel dengan kebanyakan log analyzer (GoAccess, AWStats).
+- Rotate log otomatis via `logrotate` — file `/etc/logrotate.d/apache2`.
+- Pisahkan log per site agar analisis dan retention policy bisa per aplikasi.
+
+---
+
+### `LogLevel` — Kontrol Verbositas
+
+Atur seberapa detail error log mencatat — dari `emerg` (paling sedikit) hingga `trace8` (paling verbose).
+
+Kapan dipakai: debug modul tertentu (`rewrite:trace3`, `ssl:debug`), atau kurangi noise di production.
+
+```apache
+# Global
+LogLevel warn
+
+# Debug modul spesifik
+LogLevel info ssl:debug
+LogLevel alert rewrite:trace3
+
+# Per VirtualHost
+<VirtualHost *:80>
+    LogLevel debug
+    ...
+</VirtualHost>
+```
+
+- Jangan biarkan **`debug`** di production lama — log membesar cepat dan berisi data sensitif.
+- Setelah fix, kembalikan ke **`warn`** atau **`error`**.
+
+---
+
+### `mod_status` — Server Status Page
+
+Halaman web real-time yang menampilkan worker, request aktif, dan statistik server.
+
+Kapan dipakai: monitoring cepat tanpa tool eksternal, cek apakah Apache kelebihan beban.
+
+```bash
+sudo a2enmod status
+```
+
+```apache
+# Di config
+<Location /server-status>
+    SetHandler server-status
+    Require ip 127.0.0.1
+    # Require ip 10.0.0.0/8
+</Location>
+
+ExtendedStatus On
+```
+
+```bash
+curl http://localhost/server-status
+# Browser: http://localhost/server-status
+```
+
+- **`Require ip`**: batasi akses — jangan expose ke publik tanpa autentikasi.
+- **`ExtendedStatus On`**: detail per request — sedikit overhead, matikan jika tidak perlu.
+
+---
+
+## PHP & Integrasi Aplikasi
+
+### `mod_php` vs PHP-FPM
+
+Apache bisa menjalankan PHP via modul `mod_php` (embedded) atau proxy ke **PHP-FPM** — FPM lebih umum di setup modern.
+
+Kapan dipakai: deploy aplikasi PHP (WordPress, Laravel) di Apache.
+
+```bash
+# Debian/Ubuntu — PHP-FPM (disarankan)
+sudo apt install php-fpm libapache2-mod-fcgid
+sudo a2enmod proxy_fcgi setenvif
+sudo a2enconf php8.2-fpm
+sudo systemctl reload apache2
+```
+
+```apache
+<FilesMatch \.php$>
+    SetHandler "proxy:unix:/run/php/php8.2-fpm.sock|fcgi://localhost"
+</FilesMatch>
+```
+
+- **PHP-FPM**: proses PHP terpisah dari Apache — lebih stabil dan skalabel.
+- **`mod_php`**: lebih sederhana tapi kurang fleksibel — hindari untuk production baru.
+- Pastikan versi socket (`php8.2-fpm.sock`) sesuai versi PHP terinstal.
+
+---
+
+## Apache vs Nginx — Perbandingan Singkat
+
+Keduanya web server populer — pilihan tergantung use case, bukan "mana yang lebih baik" mutlak.
+
+| Aspek | Apache | Nginx |
+| --- | --- | --- |
+| **Arsitektur** | Process/thread per connection (MPM) | Event-driven, async — sangat efisien static file |
+| **Config** | `.htaccess` per folder tanpa restart | Tidak ada `.htaccess` — semua di config, butuh reload |
+| **Modul** | Sangat banyak (`mod_*`), matang decades | Lebih sedikit, fokus reverse proxy & static |
+| **Rewrite** | `mod_rewrite` — sangat fleksibel | `try_files` + `rewrite` — sintaks berbeda |
+| **PHP** | `mod_php` / PHP-FPM via proxy | Hampir selalu PHP-FPM via fastcgi_pass |
+| **Shared hosting** | Dominan (cPanel, .htaccess) | Kurang umum di shared hosting tradisional |
+| **Reverse proxy** | `mod_proxy` — capable | Native, sering dipilih sebagai edge proxy |
+| **Resource** | Lebih berat per connection (prefork) | Lebih ringan untuk traffic tinggi static |
+| **Dokumentasi** | Sangat lengkap, banyak tutorial legacy | Banyak untuk performa & microservices |
+
+Kapan pilih **Apache**:
+
+- Butuh **`.htaccess`** — shared hosting atau tim deploy tanpa akses root.
+- Stack **LAMP** legacy, WordPress di cPanel, atau modul Apache spesifik (`mod_security`, `mod_ldap`).
+- Sudah familiar dengan **`mod_rewrite`** dan ekosistem `.htaccess`.
+
+Kapan pilih **Nginx**:
+
+- **Reverse proxy** utama di depan banyak service — terminate SSL, load balance.
+- Serving **static file** volume tinggi dengan resource minimal.
+- Stack modern container/Kubernetes — nginx image kecil dan cepat.
+
+Keduanya bisa **saling melengkapi**: nginx di depan sebagai edge proxy, Apache di belakang untuk app yang butuh `.htaccess`.
+
+---
+
+## Workflow Developer Sehari-hari
+
+### Setup Apache lokal di Mac
+
+Workflow umum developer Mac yang memakai Apache bawaan untuk proyek PHP atau static site.
+
+```bash
+# 1. Start Apache
+sudo apachectl start
+
+# 2. Cek jalan
+curl -I http://localhost
+
+# 3. Edit config virtual host
+sudo nano /etc/apache2/extra/httpd-vhosts.conf
+
+# 4. Pastikan Include aktif di httpd.conf
+grep vhosts /etc/apache2/httpd.conf
+
+# 5. Tambah hosts lokal
+echo "127.0.0.1 myapp.local" | sudo tee -a /etc/hosts
+
+# 6. Test & reload
+sudo apachectl configtest
+sudo apachectl graceful
+
+# 7. Buka browser
+open http://myapp.local
+```
+
+- DocumentRoot default Mac: `/Library/WebServer/Documents` — file `index.html` di sini untuk test cepat.
+- User Apache di Mac: **`_www`** — pastikan folder proyek readable: `chmod -R o+rX /path/to/project`.
+- Jika port 80 bentrok dengan aplikasi lain, pakai `Listen 8080` dan akses `http://myapp.local:8080`.
+
+---
+
+### Deploy config baru ke server Linux
+
+Alur aman mengubah konfigurasi Apache di VPS production tanpa downtime tidak perlu.
+
+```bash
+# 1. Backup config
+sudo cp /etc/apache2/sites-available/app.conf /etc/apache2/sites-available/app.conf.bak
+
+# 2. Edit config
+sudo nano /etc/apache2/sites-available/app.conf
+
+# 3. Test sintaks — WAJIB
+sudo apache2ctl configtest
+
+# 4. Lihat virtual host terdaftar
+sudo apache2ctl -S
+
+# 5. Reload graceful (bukan restart)
+sudo systemctl reload apache2
+
+# 6. Verifikasi
+curl -I https://example.com
+sudo tail -20 /var/log/apache2/error.log
+```
+
+- Selalu **`configtest`** sebelum reload — config rusak bisa bikin Apache gagal start.
+- Simpan backup dengan timestamp: `app.conf.$(date +%Y%m%d)`.
+- Untuk perubahan berisiko tinggi, test dulu di staging dengan config identik.
+
+---
+
+### Debug "403 Forbidden"
+
+Alur sistematis saat browser menampilkan 403 — salah permission paling sering.
+
+```bash
+# 1. Cek error log
+sudo tail -30 /var/log/apache2/error.log
+
+# 2. Cek permission folder — Apache harus bisa traverse (x) ke DocumentRoot
+namei -l /var/www/app/public/index.php
+
+# 3. Cek ownership
+ls -la /var/www/app/public/
+
+# 4. Pastikan Require all granted
+grep -A5 "Directory" /etc/apache2/sites-available/app.conf
+
+# 5. SELinux (RHEL) — jika aktif
+sudo setsebool -P httpd_can_network_connect 1
+sudo chcon -R -t httpd_sys_content_t /var/www/app/
+```
+
+- **`namei -l`**: trace permission setiap komponen path — cari folder tanpa bit execute.
+- Error log **`client denied by server configuration`**: masalah `Require` atau `<Directory>`.
+- Di Ubuntu, folder di `/home/user/` sering tidak accessible — pindah ke `/var/www/`.
+
+---
+
+### Debug "502 Bad Gateway" (Reverse Proxy)
+
+Saat Apache proxy ke backend dan backend tidak merespons.
+
+```bash
+# 1. Cek backend jalan
+curl http://127.0.0.1:3000/
+ss -tlnp | grep 3000
+
+# 2. Cek error log Apache
+sudo grep -i proxy /var/log/apache2/error.log
+
+# 3. Verifikasi modul proxy aktif
+apache2ctl -M | grep proxy
+
+# 4. Test ProxyPass URL — trailing slash harus konsisten
+# ProxyPass / http://127.0.0.1:3000/   ← benar
+# ProxyPass / http://127.0.0.1:3000     ← bisa salah path
+```
+
+- **`Connection refused`**: backend mati atau listen di IP/port berbeda.
+- **`AH01114: HTTP: failed to make connection`**: modul `proxy_http` belum aktif.
+- Firewall lokal (`ufw`) bisa blokir loopback — jarang, tapi cek jika backend di host lain.
+
+---
+
+## Troubleshooting Umum
+
+### Apache tidak mau start
+
+```bash
+# Cek sintaks config
+sudo apachectl configtest
+
+# Cek port sudah dipakai
+sudo lsof -i :80
+sudo lsof -i :443
+
+# Cek log error
+sudo tail -50 /var/log/apache2/error.log
+
+# Jalankan foreground untuk lihat error langsung
+sudo httpd -X                    # debug mode — Ctrl+C untuk stop
+sudo apache2ctl -e debug -X
+```
+
+- **`Address already in use`**: port 80/443 dipakai nginx, Skype, atau app lain — hentikan atau ganti `Listen`.
+- **`Syntax error on line N`**: buka file di baris tersebut — sering typo directive atau modul belum load.
+- **`httpd -X`**: jalankan satu proses di foreground — error langsung ke terminal.
+
+---
+
+### "AH00558: Could not reliably determine the server's fully qualified domain name"
+
+Warning umum — Apache tidak tahu `ServerName` global.
+
+```apache
+# Tambahkan di httpd.conf (luar VirtualHost)
+ServerName localhost:80
+```
+
+- Warning ini **tidak menghentikan** Apache — tapi sebaiknya diperbaiki agar log dan redirect benar.
+- Set `ServerName` ke domain production di server live.
+
+---
+
+### Permission denied pada log atau pid
+
+```bash
+# Cek user Apache
+grep -i "^User\|^Group" /etc/apache2/apache2.conf
+
+# Fix permission log folder
+sudo chown -R www-data:www-data /var/log/apache2/
+sudo chmod 755 /var/log/apache2/
+
+# Mac: user _www
+grep -i "^User" /etc/apache2/httpd.conf
+```
+
+- Jangan jalankan Apache sebagai root di production — hanya start sebagai root, worker turun ke `www-data`/`_www`.
+- PID file di `/var/run/` harus writable oleh user yang menjalankan start (root).
+
+---
+
+### `.htaccess` tidak berlaku
+
+```bash
+# 1. Cek AllowOverride
+grep -r AllowOverride /etc/apache2/
+
+# 2. Cek mod_rewrite aktif
+apache2ctl -M | grep rewrite
+
+# 3. Cek AllowOverride di httpd.conf Mac (sering None)
+grep AllowOverride /etc/apache2/httpd.conf
+
+# 4. Test dengan rule sederhana di .htaccess
+# Redirect 404 ke test
+RewriteEngine On
+RewriteRule ^test-rewrite$ /index.html [L]
+```
+
+- Mac default: **`AllowOverride None`** di DocumentRoot — ubah ke `All` untuk development.
+- Nama file harus persis **`.htaccess`** — bukan `htaccess.txt`.
+- **`AccessFileName`**: default `.htaccess` — jika diubah di config, sesuaikan nama file.
+
+---
+
+### SELinux memblokir Apache (RHEL/CentOS)
+
+```bash
+# Cek denial
+sudo ausearch -m avc -ts recent
+sudo grep apache /var/log/audit/audit.log
+
+# Izinkan Apache network connect (reverse proxy)
+sudo setsebool -P httpd_can_network_connect 1
+
+# Label context untuk DocumentRoot
+sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/app(/.*)?"
+sudo restorecon -Rv /var/www/app/
+```
+
+- **`httpd_can_network_connect`**: wajib jika Apache proxy ke backend di port lain.
+- **`restorecon`**: terapkan label SELinux setelah pindah file ke DocumentRoot.
+
+---
+
+## Alias & Script Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc` untuk percepat workflow Apache:
+
+```bash
+# Mac
+alias apache-start='sudo apachectl start'
+alias apache-stop='sudo apachectl stop'
+alias apache-reload='sudo apachectl configtest && sudo apachectl graceful'
+alias apache-logs='sudo tail -f /private/var/log/apache2/error_log'
+alias apache-vhost='sudo apachectl -S'
+alias apache-modules='sudo httpd -M'
+
+# Linux
+alias apache-start='sudo systemctl start apache2'
+alias apache-stop='sudo systemctl stop apache2'
+alias apache-reload='sudo apache2ctl configtest && sudo systemctl reload apache2'
+alias apache-logs='sudo tail -f /var/log/apache2/error.log'
+alias apache-vhost='sudo apache2ctl -S'
+alias apache-modules='sudo apache2ctl -M'
+```
+
+Fungsi helper test config sebelum reload:
+
+```bash
+apache-safe-reload() {
+  if sudo apachectl configtest 2>&1 | grep -q "Syntax OK"; then
+    sudo apachectl graceful
+    echo "✓ Apache reloaded"
+  else
+    echo "✗ Config error — reload dibatalkan"
+    return 1
+  fi
+}
+```
+
+- **`apache-safe-reload`**: cegah reload dengan config rusak — pola wajib di production.
+- Sesuaikan path log jika pakai RHEL (`/var/log/httpd/`).
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah / Konsep Utama |
+| --- | --- |
+| **Kontrol server** | `apachectl start`, `stop`, `restart`, `graceful`, `-k` |
+| **Validasi** | `apachectl configtest`, `httpd -t` |
+| **Inspeksi** | `httpd -S` (vhost), `httpd -M` (modul), `httpd -V` (paths) |
+| **Config** | `httpd.conf`, `Include`, `<Directory>`, `<VirtualHost>` |
+| **Modul Linux** | `a2enmod`, `a2dismod`, `a2ensite`, `a2dissite` |
+| **Modul Mac** | Uncomment `LoadModule` di `httpd.conf` |
+| **Rewrite** | `mod_rewrite`, `RewriteRule`, `.htaccess`, `AllowOverride` |
+| **Proxy** | `mod_proxy`, `ProxyPass`, `ProxyPassReverse` |
+| **SSL** | `mod_ssl`, `SSLEngine`, certbot, self-signed |
+| **Log** | `ErrorLog`, `CustomLog`, `tail -f`, `LogLevel` |
+| **Debug** | `configtest`, `-S`, `-M`, `error_log`, `httpd -X` |
+
+---
+
+## Penutup
+
+Enam perintah inti Apache CLI: **`apachectl configtest`**, **`apachectl graceful`**, **`httpd -S`**, **`httpd -M`**, **`apachectl start`**, dan **`tail -f` pada error log**. Dengan keenamnya, Anda sudah bisa mengelola virtual host, mengaktifkan modul, dan debug masalah umum tanpa GUI.
+
+Langkah berikutnya: kuasai **`mod_rewrite`** untuk routing aplikasi, **`mod_proxy`** untuk reverse proxy ke backend modern, dan **`mod_ssl`** + **certbot** untuk HTTPS production. Apache punya konfigurasi yang luas — manfaatkan `httpd -t` sebelum setiap perubahan dan [dokumentasi resmi Apache HTTP Server](https://httpd.apache.org/docs/) sebagai referensi terbaru.

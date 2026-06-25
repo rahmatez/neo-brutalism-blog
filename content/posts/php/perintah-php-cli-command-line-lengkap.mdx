@@ -1,0 +1,1283 @@
+---
+title: "Perintah PHP CLI Command Line Lengkap"
+description: "Panduan lengkap perintah PHP CLI: versi & info, eval, jalankan file, lint, built-in server, override php.ini, Composer, PHPUnit, Xdebug, PECL/PEAR, troubleshooting, dan workflow Laravel/Symfony."
+date: "2025-06-24"
+category: php
+tags: ["php", "cli", "composer", "tutorial"]
+featured: true
+---
+
+**PHP CLI** (Command Line Interface) adalah cara menjalankan PHP di terminal — tanpa web server Apache atau Nginx. Dari sini Anda bisa mengecek versi, menjalankan script, melakukan lint, menyalakan development server bawaan, mengelola dependensi lewat **Composer**, menjalankan test **PHPUnit**, dan mengonfigurasi ekstensi seperti **Xdebug**.
+
+<Callout type="tip">
+Pastikan PHP sudah terpasang. Cek dengan `php -v`. Di Mac: `brew install php` (Homebrew), atau pakai **Laravel Herd**, **Valet**, atau **Docker**. Composer diinstal terpisah: `brew install composer` atau ikuti [getcomposer.org](https://getcomposer.org/download/).
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke perintah, pahami terminologi inti ekosistem PHP di terminal — istilah ini muncul terus di dokumentasi, output `php -i`, dan workflow framework:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **CLI (SAPI)** | Server API untuk command line — berbeda dari `apache2handler` atau `fpm-fcgi` di web |
+| **php.ini** | File konfigurasi utama PHP — memory limit, error reporting, ekstensi |
+| **SAPI** | Server Application Programming Interface — cara PHP dijalankan (cli, fpm, apache, dll.) |
+| **Extension** | Modul tambahan (mysqli, redis, xdebug) — diaktifkan di `php.ini` atau `-d` |
+| **Composer** | Package manager PHP — mengelola dependensi lewat `composer.json` |
+| **Autoload** | Mekanisme memuat class otomatis — PSR-4 via Composer `vendor/autoload.php` |
+| **vendor/** | Folder dependensi Composer — jangan edit manual |
+| **Built-in server** | Web server sederhana bawaan PHP (`php -S`) — hanya untuk development |
+| **Lint (`php -l`)** | Cek syntax tanpa mengeksekusi — cepat untuk CI dan pre-commit |
+| **PECL / PEAR** | Registry & installer ekstensi/package PHP (legacy) — PECL untuk ekstensi C |
+
+### Dua SAPI: CLI vs Web
+
+```
+Terminal (CLI)              Browser (Web)
+     │                            │
+     ▼                            ▼
+php script.php              nginx/apache → php-fpm
+php -r "..."                index.php via HTTP
+php -S localhost:8000       request/response cycle
+```
+
+Konfigurasi `php.ini` bisa **berbeda** antara CLI dan FPM — selalu cek `php --ini` di konteks yang relevan.
+
+### Perintah informasi dasar
+
+```bash
+php --version               # versi PHP (alias: php -v)
+php --help                  # daftar opsi CLI
+php --ini                   # lokasi file php.ini yang dipakai
+php -m                      # daftar ekstensi ter-load
+php -i                      # phpinfo() lengkap di terminal
+php -r "echo PHP_VERSION;"  # eksekusi satu baris PHP
+```
+
+- **`php -v`**: langkah pertama saat troubleshooting — pastikan versi sesuai proyek (8.2, 8.3, dll.).
+- **`php --ini`**: menunjukkan file konfigurasi aktif — penting saat setting tidak berlaku.
+- **`php -m`**: cek ekstensi yang sudah dimuat — mysqli, pdo, xdebug, dll.
+
+---
+
+## Informasi Versi & Lingkungan
+
+### `php -v` — Cek Versi PHP
+
+`php -v` menampilkan versi PHP yang terinstal, tanggal build, dan informasi Zend engine.
+
+Kapan dipakai: setup mesin baru, verifikasi versi sebelum deploy, atau debug mismatch antara CLI dan web server.
+
+```bash
+php -v
+php --version               # sama dengan -v
+
+# Output contoh:
+# PHP 8.3.12 (cli) (built: Oct  8 2024 ...)
+# Copyright (c) The PHP Group
+# Zend Engine v4.3.12, Copyright (c) Zend Technologies
+#     with Xdebug v3.3.2, Copyright (c) 2002-2024, by Derick Rethans
+```
+
+- **`(cli)`**: menandakan ini binary untuk command line, bukan FPM.
+- Baris **Xdebug**: muncul jika ekstensi debug ter-load — berguna untuk development.
+- Bandingkan dengan web: buat `phpinfo()` di browser atau `php-fpm -v` jika pakai FPM.
+
+---
+
+### `php -i` — phpinfo di Terminal
+
+`php -i` mencetak seluruh konfigurasi PHP — setara `phpinfo()` di browser, tapi di stdout terminal.
+
+Kapan dipakai: audit konfigurasi, cek `memory_limit`, `upload_max_filesize`, path ekstensi, atau variabel environment.
+
+```bash
+php -i                          # output lengkap (panjang)
+php -i | grep memory_limit      # filter nilai tertentu
+php -i | grep "Loaded Configuration"
+php -i | grep extension_dir
+php -i | grep xdebug
+php -i | less                   # scroll di terminal
+```
+
+Nilai yang sering dicek:
+
+| Directive | Arti |
+| --- | --- |
+| **memory_limit** | Batas memori per script |
+| **max_execution_time** | Timeout eksekusi (0 = unlimited di CLI) |
+| **error_reporting** | Level error yang dilaporkan |
+| **display_errors** | Tampilkan error di output (On di dev, Off di prod) |
+| **opcache.enable** | Cache bytecode — biasanya Off di CLI |
+| **extension_dir** | Folder file `.so` / `.dll` ekstensi |
+
+- **Pipe ke `grep`**: cara tercepat menemukan satu directive tanpa scroll ribuan baris.
+- **CLI vs FPM**: jalankan `php -i` di terminal **dan** cek phpinfo web — keduanya bisa memakai `php.ini` berbeda.
+
+---
+
+### `php -m` — Daftar Ekstensi Ter-load
+
+`php -m` menampilkan semua ekstensi PHP yang aktif saat ini.
+
+Kapan dipakai: verifikasi ekstensi sudah terpasang (pdo_mysql, intl, redis, xdebug) sebelum menjalankan aplikasi.
+
+```bash
+php -m                          # daftar alfabetis
+php -m | grep -i mysql          # cari ekstensi database
+php -m | grep -i xdebug
+php -m | wc -l                  # hitung jumlah ekstensi
+
+# Ekstensi Zend (built-in) vs PHP (terpisah)
+php -m | head -5
+# [PHP Modules]
+# ...
+# [Zend Modules]
+# ...
+```
+
+- **`[PHP Modules]`**: ekstensi standar dan yang di-load dari `extension=`.
+- Jika ekstensi hilang: cek `php --ini`, pastikan baris `extension=nama` tidak di-comment.
+- Setelah install via PECL/Homebrew: restart tidak perlu di CLI — cukup jalankan ulang perintah.
+
+---
+
+### `php --ini` — Lokasi File Konfigurasi
+
+`php --ini` menunjukkan file `php.ini` yang dibaca, folder scan tambahan, dan file `.ini` tambahan.
+
+Kapan dipakai: setting tidak berlaku, atau ingin tahu file mana yang harus diedit.
+
+```bash
+php --ini
+
+# Output contoh:
+# Configuration File (php.ini) Path: /opt/homebrew/etc/php/8.3
+# Loaded Configuration File:         /opt/homebrew/etc/php/8.3/php.ini
+# Scan for additional .ini files in: /opt/homebrew/etc/php/8.3/conf.d
+# Additional .ini files parsed:      .../ext-opcache.ini, .../ext-xdebug.ini
+```
+
+- **Loaded Configuration File**: file utama — edit di sini untuk setting global CLI.
+- **conf.d/**: snippet per ekstensi — Homebrew/macOS sering pakai pola ini.
+- **Additional .ini files**: override terpisah — mudah enable/disable ekstensi tanpa edit `php.ini` utama.
+
+---
+
+## Menjalankan Kode PHP
+
+### `php -r` — Eval / One-liner
+
+`php -r` mengeksekusi string PHP langsung di terminal tanpa membuat file `.php`.
+
+Kapan dipakai: quick test, generate hash/token, cek fungsi tersedia, atau script satu baris di CI.
+
+```bash
+php -r "echo 'Hello, PHP CLI!';"
+php -r "echo PHP_VERSION . PHP_EOL;"
+php -r "echo json_encode(['ok' => true], JSON_PRETTY_PRINT);"
+php -r "echo password_hash('secret', PASSWORD_BCRYPT);"
+php -r "var_dump(extension_loaded('pdo_mysql'));"
+
+# Dengan variabel — perhatikan escaping quote di shell
+php -r '$x = 10; echo $x * 2;'
+php -r "echo file_get_contents('https://api.github.com');"
+
+# Multi-statement (pisah dengan ;)
+php -r "require 'vendor/autoload.php'; echo App\Models\User::count();"
+```
+
+Tips escaping:
+
+- Di **bash/zsh**, gunakan **single quote** di luar jika kode PHP pakai double quote: `php -r 'echo "hi";'`
+- Hindari `$` di double quote shell — bash akan interpolate: pakai single quote atau escape `\$`
+- Untuk kode panjang, lebih baik buat file `.php` daripada `-r`
+
+- **Tidak ada tag `<?php`**: `-r` langsung menerima kode PHP, tanpa pembuka.
+- **`require` autoload**: berguna untuk quick test class dari proyek Composer.
+
+---
+
+### `php -f` / `php file.php` — Jalankan File Script
+
+`php` diikuti path file mengeksekusi script PHP — mode paling umum untuk menjalankan aplikasi CLI, migration, atau utility script.
+
+Kapan dipakai: menjalankan artisan command alternatif, script deploy, worker queue, atau file PHP standalone.
+
+```bash
+php script.php                  # jalankan file (default)
+php -f script.php               # eksplisit dengan flag -f
+php public/index.php            # front controller manual
+php artisan migrate             # Laravel (artisan adalah file PHP)
+php bin/console cache:clear     # Symfony
+
+# Kirim argumen ke script
+php script.php arg1 arg2
+php -f greet.php -- Rahmat      # -- memisahkan opsi PHP dari argumen script
+
+# Dengan working directory tertentu
+cd /path/to/project && php artisan serve
+php /absolute/path/to/script.php
+```
+
+Mengakses argumen di script:
+
+```php
+<?php
+// script.php
+print_r($argv);       // array argumen (termasuk nama script)
+print_r($argc);       // jumlah argumen
+
+// $argv[0] = nama script
+// $argv[1] = argumen pertama
+```
+
+- **`$argv` / `$argc`**: hanya tersedia di CLI, tidak di request web.
+- **`--`**: memisahkan opsi PHP (`-d`, `-f`) dari argumen yang ditujukan ke script.
+- **Shebang**: di Unix, tambahkan `#!/usr/bin/env php` di baris pertama agar `./script.php` executable.
+
+---
+
+### `php -l` — Lint / Cek Syntax
+
+`php -l` memeriksa syntax file PHP tanpa mengeksekusinya — parser saja, tidak menjalankan logic.
+
+Kapan dipakai: pre-commit hook, CI pipeline, atau validasi cepat sebelum deploy.
+
+```bash
+php -l file.php                 # lint satu file
+php -l src/Controller/UserController.php
+
+# Lint banyak file (bash)
+find . -name "*.php" -not -path "./vendor/*" | xargs -n1 php -l
+
+# Lint folder, gagal pada error pertama
+find src -name "*.php" -print0 | xargs -0 -n1 php -l
+
+# Hanya tampilkan yang error
+find . -name "*.php" -not -path "./vendor/*" -exec php -l {} \; 2>&1 | grep -v "No syntax errors"
+```
+
+Output sukses:
+
+```
+No syntax errors detected in file.php
+```
+
+Output error:
+
+```
+PHP Parse error:  syntax error, unexpected token "}" in file.php on line 42
+Errors parsing file.php
+```
+
+- **Tidak mendeteksi error runtime**: lint hanya syntax — logical error, missing class, tetap perlu test.
+- **Exclude vendor/**: jangan lint `vendor/` — itu kode pihak ketiga, bukan milik Anda.
+- **CI**: `find ... | xargs php -l` adalah pola standar di GitHub Actions / GitLab CI.
+
+---
+
+## Built-in Development Server
+
+### `php -S` — Web Server Bawaan PHP
+
+`php -S` menyalakan HTTP server sederhana untuk development — satu proses, tanpa konfigurasi Apache/Nginx.
+
+Kapan dipakai: proyek PHP tanpa framework, testing cepat, atau fallback saat Valet/Herd tidak tersedia.
+
+```bash
+php -S localhost:8000                           # serve dari folder saat ini
+php -S localhost:8000 -t public                 # document root = public/
+php -S 0.0.0.0:8080 -t public                   # akses dari jaringan lokal
+php -S localhost:8000 router.php                # custom router script
+
+# Dengan hostname
+php -S myapp.test:8000 -t public
+```
+
+Contoh `router.php` untuk front controller:
+
+```php
+<?php
+// router.php — arahkan semua request ke index.php
+$uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+
+if ($uri !== '/' && file_exists(__DIR__ . '/public' . $uri)) {
+    return false; // serve file statis langsung
+}
+
+require_once __DIR__ . '/public/index.php';
+```
+
+```bash
+php -S localhost:8000 -t public public/router.php
+# atau router di root:
+php -S localhost:8000 router.php
+```
+
+- **`-t` / `--docroot`**: set document root — penting untuk proyek yang public folder terpisah.
+- **`0.0.0.0`**: bind semua interface — akses dari device lain di LAN (hati-hati di jaringan publik).
+- **Bukan untuk production**: single-threaded, tidak aman, tidak scalable — hanya development.
+
+<Callout type="warning">
+Jangan pakai `php -S` di production. Gunakan **php-fpm** + Nginx/Apache, atau platform managed (Laravel Forge, Vapor, dll.).
+</Callout>
+
+---
+
+### Opsi Server Lanjutan
+
+```bash
+# Log request ke terminal (default sudah tampil)
+php -S localhost:8000 -t public 2>&1 | tee server.log
+
+# Multiple worker — built-in server TIDAK support; satu proses saja
+# Untuk concurrency, pakai php-fpm atau roadrunner/octane
+
+# Cek port sudah dipakai
+lsof -i :8000
+kill $(lsof -t -i:8000)          # hentikan proses di port 8000
+```
+
+- Server otomatis serve file statis (CSS, JS, gambar) jika ada di docroot.
+- Request ke file `.php` dieksekusi oleh PHP; file lain dikirim apa adanya.
+- **Laravel `artisan serve`**: wrapper di atas `php -S` dengan router khusus framework.
+
+---
+
+## Konfigurasi Runtime
+
+### `php -d` — Override php.ini per Perintah
+
+`php -d` mengatur directive `php.ini` untuk satu eksekusi saja — tanpa mengubah file konfigurasi permanen.
+
+Kapan dipakai: naikkan `memory_limit` sementara, aktifkan `display_errors` untuk debug, atau test setting sebelum commit ke `php.ini`.
+
+```bash
+php -d memory_limit=512M script.php
+php -d display_errors=1 -d error_reporting=E_ALL script.php
+php -d date.timezone=Asia/Jakarta -r "echo date('Y-m-d H:i:s');"
+
+# Aktifkan ekstensi sementara
+php -d extension=mysqli.so -m | grep mysqli
+
+# Kombinasi beberapa directive
+php -d memory_limit=1G -d max_execution_time=0 long-running-job.php
+
+# PHPUnit dengan limit lebih tinggi
+php -d memory_limit=512M vendor/bin/phpunit
+```
+
+Directive umum untuk override:
+
+| Directive | Contoh | Kapan |
+| --- | --- | --- |
+| **memory_limit** | `-d memory_limit=512M` | Import besar, test suite berat |
+| **max_execution_time** | `-d max_execution_time=300` | Script lama (0 = unlimited CLI) |
+| **display_errors** | `-d display_errors=1` | Debug di terminal |
+| **error_reporting** | `-d error_reporting=E_ALL` | Lihat semua notice/warning |
+| **date.timezone** | `-d date.timezone=Asia/Jakarta` | Fix warning timezone |
+| **opcache.enable** | `-d opcache.enable=0` | Debug tanpa cache bytecode |
+
+- Format: `directive=value` tanpa spasi di sekitar `=`.
+- Override ini **tidak persisten** — hilang setelah perintah selesai.
+- Beberapa directive tidak bisa di-override runtime — cek dokumentasi PHP.
+
+---
+
+### `php.ini` — Konfigurasi Permanen
+
+File `php.ini` mengatur perilaku PHP secara global untuk SAPI tertentu (CLI, FPM, dll.).
+
+Kapan dipakai: setup development environment, tuning production FPM, enable ekstensi permanen.
+
+```bash
+# Temukan lokasi
+php --ini
+
+# Edit (contoh Homebrew Mac)
+nano /opt/homebrew/etc/php/8.3/php.ini
+
+# Atau edit snippet di conf.d
+nano /opt/homebrew/etc/php/8.3/conf.d/ext-xdebug.ini
+```
+
+Contoh isi penting di `php.ini`:
+
+```ini
+; Zona waktu default
+date.timezone = Asia/Jakarta
+
+; Memory & waktu eksekusi
+memory_limit = 256M
+max_execution_time = 30
+
+; Error reporting (development)
+display_errors = On
+error_reporting = E_ALL
+
+; Error reporting (production — contoh)
+; display_errors = Off
+; error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+; log_errors = On
+; error_log = /var/log/php/error.log
+
+; Upload (web)
+upload_max_filesize = 64M
+post_max_size = 64M
+
+; Ekstensi
+extension="pdo_mysql"
+extension="intl"
+; extension="xdebug"   ; sering di file terpisah conf.d
+```
+
+Setelah edit `php.ini` (FPM/Apache), restart service:
+
+```bash
+# Homebrew PHP-FPM
+brew services restart php
+
+# Linux systemd
+sudo systemctl restart php8.3-fpm
+```
+
+- **CLI tidak perlu restart**: perubahan `php.ini` langsung berlaku di perintah `php` berikutnya.
+- **Pisahkan CLI vs FPM**: Homebrew punya `php.ini` yang sama, tapi production sering punya file terpisah.
+- **Jangan commit `php.ini`**: ini konfigurasi mesin — dokumentasikan di README tim.
+
+---
+
+## Mode Interaktif
+
+### `php -a` — Interactive Shell (REPL)
+
+`php -a` membuka shell interaktif PHP — ketik kode, langsung dievaluasi, mirip `python` atau `node` tanpa file.
+
+Kapan dipakai: eksperimen cepat API PHP, test regex, atau debug snippet tanpa buat file.
+
+```bash
+php -a
+
+# Di dalam shell:
+Interactive shell
+
+php > echo 2 + 2;
+4
+php > $arr = ['a', 'b', 'c'];
+php > print_r($arr);
+Array
+(
+    [0] => a
+    [1] => b
+    [2] => c
+)
+php > exit
+```
+
+<Callout type="info">
+REPL bawaan `php -a` terbatas — tidak ada syntax highlighting atau history seperti PsySH. Untuk pengalaman lebih baik, pakai **`psysh`** (`composer global require psy/psysh`) lalu jalankan `psysh`.
+</Callout>
+
+Alternatif REPL yang lebih kaya:
+
+```bash
+# PsySH — REPL populer di ekosistem Laravel
+composer global require psy/psysh
+psysh
+
+# Di dalam proyek Laravel
+php artisan tinker
+
+# Symfony
+php bin/console debug:container --parameter=kernel.debug
+```
+
+- **`exit` atau Ctrl+D**: keluar dari shell interaktif.
+- **PsySH**: support autoload Composer, history, reflection — standar de facto untuk debug Laravel.
+- **`artisan tinker`**: wrapper PsySH dengan aplikasi Laravel bootstrapped.
+
+---
+
+## Composer — Package Manager PHP
+
+**Composer** adalah tool standar untuk mengelola dependensi PHP, autoloading PSR-4, dan script project. Perintahnya dijalankan via `composer` di terminal (bukan `php composer` — meski `composer` sendiri ditulis dalam PHP).
+
+### Instalasi & Info Composer
+
+```bash
+composer --version
+composer --version              # sama
+composer help
+composer help install
+composer diagnose               # cek masalah environment
+composer clear-cache
+composer self-update            # update Composer itu sendiri
+```
+
+---
+
+### `composer install` — Instal Dependensi dari Lock
+
+`composer install` membaca `composer.json` dan `composer.lock`, lalu mengunduh dependensi ke `vendor/`.
+
+Kapan dipakai: pertama kali clone proyek, setelah pull yang mengubah lockfile, atau di CI/CD pipeline.
+
+```bash
+composer install                        # instal semua
+composer install --no-dev               # tanpa require-dev (production)
+composer install --prefer-dist          # unduh zip, bukan clone git
+composer install --optimize-autoloader    # autoload classmap (production)
+composer install --no-interaction       # non-interaktif (CI)
+composer install --no-scripts             # skip script post-install
+composer install --ignore-platform-reqs   # abaikan cek PHP/ext versi (hati-hati)
+```
+
+- **`composer.lock`**: mengunci versi exact — commit ke Git agar tim dapat versi sama.
+- **`--no-dev`**: deploy production — tidak instal PHPUnit, PHPStan, dll.
+- **`--optimize-autoloader`**: generate classmap — autoload lebih cepat di production.
+- **`vendor/`**: jangan edit manual — selalu kelola lewat Composer.
+
+---
+
+### `composer require` — Tambah Package
+
+`composer require` menambahkan package ke `composer.json`, mengupdate lockfile, dan menginstalnya.
+
+Kapan dipakai: butuh library baru (Guzzle, Symfony component, Laravel package).
+
+```bash
+composer require guzzlehttp/guzzle
+composer require laravel/sanctum
+composer require --dev phpunit/phpunit     # dev dependency
+composer require symfony/console:^7.0        # constraint versi
+composer require vendor/package --with-all-dependencies   # update dependensi terkait
+
+# Package spesifik versi
+composer require monolog/monolog:3.5.0
+```
+
+Constraint versi umum:
+
+| Syntax | Arti |
+| --- | --- |
+| **`^8.1`** | Compatible dengan 8.1.x, < 9.0 (caret) |
+| **`~8.1.0`** | >= 8.1.0, < 8.2.0 (tilde) |
+| **`8.1.*`** | Semua patch 8.1.x |
+| **`>=8.1 <8.3`** | Range eksplisit |
+
+- **`--dev`**: package hanya untuk development — tidak di-install dengan `--no-dev`.
+- **`composer remove vendor/package`**: hapus dependensi dari proyek.
+- Setelah `require`, autoload di-update otomatis sesuai namespace package.
+
+---
+
+### `composer update` — Update Dependensi
+
+`composer update` meng-resolve ulang versi sesuai constraint di `composer.json` dan menulis `composer.lock` baru.
+
+Kapan dipakai: ingin versi terbaru dalam range semver, atau setelah mengubah constraint di `composer.json`.
+
+```bash
+composer update                         # update semua package
+composer update vendor/package          # update satu package saja
+composer update --with-all-dependencies vendor/package
+composer update --lock                  # regenerate lock tanpa update versi
+composer update --dry-run               # simulasi tanpa mengubah file
+composer update --no-dev                # hanya production dependencies
+```
+
+<Callout type="warning">
+Jangan jalankan `composer update` sembarangan di production deploy. Production harus `composer install` dari lockfile yang sudah ditest — bukan update yang bisa mengubah versi.
+</Callout>
+
+- **`composer update` vs `install`**: `update` mengubah lockfile; `install` mematuhi lockfile existing.
+- **Di CI**: selalu `composer install --no-interaction --prefer-dist --optimize-autoloader`.
+- **`composer outdated`**: lihat package yang punya versi lebih baru.
+
+---
+
+### `composer dump-autoload` — Regenerasi Autoload
+
+`composer dump-autoload` membangun ulang file autoload di `vendor/composer/` — tanpa mengubah dependensi.
+
+Kapan dipakai: setelah menambah class baru di folder autoloaded, refactor namespace, atau optimasi production.
+
+```bash
+composer dump-autoload
+composer dump-autoload -o              # optimize (classmap)
+composer dump-autoload -o --apcu       # + APCu cache (jika tersedia)
+composer dump-autoload --dev           # include dev autoload rules
+```
+
+Contoh `composer.json` autoload:
+
+```json
+{
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/",
+      "App\\Tests\\": "tests/"
+    },
+    "files": [
+      "src/helpers.php"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  }
+}
+```
+
+- **`-o` / `--optimize`**: scan semua class ke classmap — wajib di production.
+- Jalankan setelah menambah file class baru jika autoload tidak langsung dikenali.
+- **`files`**: autoload file PHP procedural (helper functions) di setiap request.
+
+---
+
+### `composer run` / Scripts — Jalankan Script Project
+
+Composer bisa menjalankan script yang didefinisikan di `composer.json` — shortcut untuk command development.
+
+Kapan dipakai: menjalankan test, lint, migrate, atau build tanpa menghafal path `vendor/bin/`.
+
+```bash
+composer run-script test               # jalankan script "test"
+composer test                          # shorthand jika nama script unik
+composer run phpunit
+composer run lint
+composer list-script                   # daftar script tersedia
+```
+
+Contoh di `composer.json`:
+
+```json
+{
+  "scripts": {
+    "test": "phpunit",
+    "test:coverage": "phpunit --coverage-html coverage",
+    "lint": "php -l src",
+    "phpstan": "phpstan analyse",
+    "post-install-cmd": [
+      "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+    ],
+    "post-autoload-dump": [
+      "@php artisan package:discover --ansi"
+    ]
+  },
+  "scripts-descriptions": {
+    "test": "Run PHPUnit test suite"
+  }
+}
+```
+
+Event hook bawaan:
+
+| Hook | Kapan dijalankan |
+| --- | --- |
+| **post-install-cmd** | Setelah `composer install` |
+| **post-update-cmd** | Setelah `composer update` |
+| **post-autoload-dump** | Setelah autoload di-regenerate |
+| **pre-autoload-dump** | Sebelum autoload di-regenerate |
+
+- **`@php`**: jalankan PHP di dalam script Composer.
+- **`@composer`**: panggil command Composer lain (nested).
+- **`--no-scripts`**: skip semua script saat install — berguna di audit keamanan.
+
+---
+
+### Perintah Composer Lain yang Sering Dipakai
+
+```bash
+composer create-project laravel/laravel my-app
+composer create-project symfony/skeleton my-symfony
+composer init                           # buat composer.json interaktif
+composer validate                       # validasi syntax composer.json
+composer show                           # daftar package terinstal
+composer show vendor/package            # detail satu package
+composer why vendor/package             # kenapa package ini terinstal
+composer why-not vendor/package         # kenapa package tidak bisa diinstal
+composer audit                          # cek kerentanan keamanan
+composer config --list                  # lihat konfigurasi
+composer config repos.packagist composer https://packagist.org
+composer global require laravel/installer   # install CLI tool global
+```
+
+- **`create-project`**: scaffold proyek baru dari template (Laravel, Symfony, dll.).
+- **`composer audit`**: laporan CVE — jalankan rutin di CI.
+- **Global packages**: terinstal di `~/.composer/vendor` — pastikan `~/.composer/vendor/bin` di `$PATH`.
+
+---
+
+## PHPUnit — Testing di CLI
+
+**PHPUnit** adalah test runner standar di ekosistem PHP. Biasanya diinstal sebagai dev dependency dan dijalankan lewat `vendor/bin/phpunit`.
+
+Kapan dipakai: menjalankan unit test, integration test, dan CI pipeline.
+
+```bash
+# Instal (dev dependency)
+composer require --dev phpunit/phpunit
+
+# Jalankan
+./vendor/bin/phpunit
+php vendor/bin/phpunit
+composer test                         # jika ada script
+
+# Opsi umum
+./vendor/bin/phpunit --filter UserTest
+./vendor/bin/phpunit tests/Unit/UserServiceTest.php
+./vendor/bin/phpunit --coverage-text
+./vendor/bin/phpunit --testdox          # output readable
+./vendor/bin/phpunit --stop-on-failure
+./vendor/bin/phpunit --group integration
+./vendor/bin/phpunit --exclude-group slow
+```
+
+Konfigurasi via `phpunit.xml` atau `phpunit.xml.dist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+    </php>
+</phpunit>
+```
+
+Framework wrapper:
+
+```bash
+# Laravel
+php artisan test
+php artisan test --filter=UserTest
+php artisan test --parallel
+
+# Symfony
+php bin/phpunit
+./bin/phpunit
+```
+
+- **`--filter`**: jalankan test class atau method tertentu — hemat waktu saat debug satu test.
+- **Coverage**: butuh **Xdebug** atau **PCOV** terinstal untuk laporan coverage.
+- **Parallel**: Laravel 8+ support `php artisan test --parallel` — butuh `brianium/paratest`.
+
+---
+
+## Xdebug — Debugging & Profiling
+
+**Xdebug** adalah ekstensi PHP untuk step debugging, stack trace, profiling, dan code coverage.
+
+Kapan dipakai: debug aplikasi di IDE (VS Code, PhpStorm), generate coverage report, atau profile performa.
+
+### Cek & Instal Xdebug
+
+```bash
+php -m | grep -i xdebug
+php -i | grep xdebug
+
+# Homebrew (Mac)
+pecl install xdebug
+# atau
+brew install php-xdebug
+
+# Ubuntu/Debian
+sudo apt install php8.3-xdebug
+```
+
+Contoh konfigurasi `conf.d/ext-xdebug.ini` (mode debug):
+
+```ini
+zend_extension="xdebug.so"
+
+; Mode: off | develop | coverage | debug | gcstats | profile | trace
+xdebug.mode=debug,coverage
+xdebug.start_with_request=trigger
+xdebug.client_host=127.0.0.1
+xdebug.client_port=9003
+xdebug.idekey=VSCODE
+xdebug.log=/tmp/xdebug.log
+```
+
+Mode Xdebug 3:
+
+| Mode | Fungsi |
+| --- | --- |
+| **debug** | Step debugging dengan IDE |
+| **coverage** | Code coverage untuk PHPUnit |
+| **profile** | Profiling performa (cachegrind) |
+| **develop** | Var dump yang lebih baik (development) |
+| **off** | Nonaktif |
+
+Trigger debug tanpa selalu aktif:
+
+```bash
+# Browser: ?XDEBUG_SESSION_START=VSCODE
+# CLI: set environment variable
+XDEBUG_SESSION=1 php script.php
+XDEBUG_TRIGGER=1 php artisan serve
+```
+
+- **Port 9003**: default Xdebug 3 (bukan 9000 seperti Xdebug 2).
+- **`start_with_request=trigger`**: debug hanya saat trigger — tidak memperlambat setiap request.
+- **Matikan di production**: Xdebug overhead signifikan — jangan load di server produksi.
+
+### Profiling singkat
+
+```ini
+xdebug.mode=profile
+xdebug.output_dir=/tmp
+```
+
+```bash
+XDEBUG_TRIGGER=1 php slow-script.php
+# Hasil: /tmp/cachegrind.out.*
+# Buka dengan QCacheGrind atau KCacheGrind
+```
+
+---
+
+## PECL & PEAR — Ekstensi & Package Legacy
+
+### PECL — PHP Extension Community Library
+
+**PECL** adalah repository ekstensi PHP yang ditulis dalam C — instal via perintah `pecl`.
+
+Kapan dipakai: butuh ekstensi yang tidak tersedia di package manager OS (redis, imagick, apcu).
+
+```bash
+pecl version
+pecl list                    # ekstensi terinstal via PECL
+pecl search redis            # cari ekstensi
+pecl install redis
+pecl install imagick
+pecl install apcu
+pecl uninstall redis
+
+# Setelah install, tambahkan ke php.ini jika belum otomatis:
+# extension=redis.so
+php -m | grep redis
+```
+
+- **Butuh compiler**: PECL compile dari source — Xcode CLI Tools (Mac) atau `build-essential` (Linux) wajib ada.
+- **Homebrew sering lebih mudah**: `brew install php-redis` vs `pecl install redis`.
+- **Versi PHP**: PECL compile untuk PHP CLI aktif — pastikan `which php` benar.
+
+---
+
+### PEAR — PHP Extension and Application Repository
+
+**PEAR** adalah package manager PHP lama (pre-Composer) — masih ada di beberapa sistem legacy, tapi jarang dipakai untuk proyek modern.
+
+Kapan dipakai: maintain aplikasi lama yang masih depend on PEAR packages, atau instal `pecl` itu sendiri.
+
+```bash
+pear version
+pear list
+pear install Package_Name
+pear upgrade-all
+pear uninstall Package_Name
+
+# Channel management
+pear channel-list
+pear channel-discover pear.phpunit.de
+```
+
+<Callout type="info">
+Untuk proyek baru, gunakan **Composer** — bukan PEAR. PEAR/PECL tetap relevan untuk **menginstal ekstensi C** (via PECL) dan tooling sistem PHP.
+</Callout>
+
+- **Composer menggantikan PEAR** untuk aplikasi dan library PHP murni.
+- **`pecl` biasanya datang bersama** instalasi PHP — tidak perlu PEAR untuk PECL.
+- Jika `pear`/`pecl` tidak ditemukan: instal lewat `brew install php` atau package `php-pear` di Linux.
+
+---
+
+## Opsi CLI Lain yang Berguna
+
+### Input, Output & Argument
+
+```bash
+php -q script.php               # quiet mode — tanpa header HTTP (legacy)
+php -n script.php               # tanpa php.ini (--no-php-ini)
+php -e script.php               # generate extended info untuk debugger
+php -h                          # bantuan
+php -w file.php                 # strip comment & whitespace (rare)
+php file.php < input.txt        # stdin redirect
+php file.php > output.txt       # stdout redirect
+```
+
+### Menjalankan dengan environment variable
+
+```bash
+APP_ENV=local php script.php
+APP_DEBUG=true php artisan serve
+export APP_ENV=testing && php artisan test
+
+# Satu baris untuk satu perintah
+env APP_ENV=production php artisan config:cache
+```
+
+### Parallel & process (dengan tool eksternal)
+
+```bash
+# Jalankan banyak worker (contoh sederhana)
+for i in {1..4}; do php worker.php & done
+wait
+
+# GNU parallel
+parallel -j 4 php process.php ::: file1 file2 file3 file4
+```
+
+---
+
+## Troubleshooting Umum
+
+### `php: command not found`
+
+```bash
+which php
+echo $PATH
+
+# Mac Homebrew
+brew install php
+brew link php
+
+# Cek symlink
+ls -la $(which php)
+```
+
+Pastikan path Homebrew (`/opt/homebrew/bin` atau `/usr/local/bin`) ada di `~/.zshrc` atau `~/.bashrc`.
+
+---
+
+### Versi PHP CLI vs Web berbeda
+
+```bash
+php -v                          # versi CLI
+php-fpm -v                      # versi FPM (jika terinstal)
+
+# Cek php.ini masing-masing
+php --ini
+php-fpm -i 2>/dev/null | head -5
+
+# Valet/Herd: pilih versi PHP
+valet use php@8.3
+herd php 8.3
+```
+
+Solusi: selaraskan versi lewat version manager (Valet, Herd, `update-alternatives` di Linux) atau pastikan PATH mengarah ke binary yang sama.
+
+---
+
+### Ekstensi tidak ter-load
+
+```bash
+php -m | grep nama_ekstensi
+php --ini
+ls $(php -i | grep extension_dir | awk '{print $5}')
+
+# Cek file .ini di conf.d
+ls /opt/homebrew/etc/php/8.3/conf.d/
+cat /opt/homebrew/etc/php/8.3/conf.d/ext-redis.ini
+```
+
+```ini
+; Format benar
+extension=redis.so        ; Mac/Linux
+; extension=php_redis.dll  ; Windows
+```
+
+- Typo di nama ekstensi adalah penyebab paling umum.
+- Setelah `pecl install`, pastikan file `.ini` ada di `conf.d/`.
+
+---
+
+### Composer memory limit / timeout
+
+```bash
+php -d memory_limit=-1 $(which composer) install
+COMPOSER_MEMORY_LIMIT=-1 composer update
+
+# Timeout network
+composer config --global process-timeout 2000
+```
+
+- **`-1`**: unlimited memory — aman untuk `composer update` di proyek besar.
+- **`process-timeout`**: default 300 detik — naikkan untuk install lambat.
+
+---
+
+### Permission denied pada `vendor/bin`
+
+```bash
+chmod +x vendor/bin/phpunit
+# atau jalankan dengan php:
+php vendor/bin/phpunit
+```
+
+---
+
+### Built-in server: Address already in use
+
+```bash
+lsof -i :8000
+kill -9 <PID>
+
+# Atau pakai port lain
+php -S localhost:8001 -t public
+```
+
+---
+
+### Class not found / autoload error
+
+```bash
+composer dump-autoload -o
+composer validate
+php -r "require 'vendor/autoload.php'; var_dump(class_exists('App\\Models\\User'));"
+```
+
+- Namespace di `composer.json` harus match struktur folder PSR-4.
+- Jalankan `composer install` jika `vendor/` belum ada.
+
+---
+
+### Xdebug tidak connect ke IDE
+
+```bash
+# Cek config
+php -i | grep xdebug
+
+# Test log
+tail -f /tmp/xdebug.log
+
+# Pastikan port 9003 tidak diblokir firewall
+# VS Code: install "PHP Debug" extension, listen for Xdebug
+```
+
+Checklist:
+
+- `xdebug.mode` include `debug`
+- `xdebug.client_port=9003`
+- IDE listening sebelum trigger request
+- `xdebug.start_with_request=yes` atau gunakan trigger/env `XDEBUG_SESSION`
+
+---
+
+## Workflow Developer: Laravel & Symfony
+
+### Laravel — Perintah Sehari-hari
+
+```bash
+# Setup proyek baru
+composer create-project laravel/laravel my-app
+cd my-app
+cp .env.example .env
+php artisan key:generate
+composer install
+
+# Development server
+php artisan serve
+php artisan serve --host=0.0.0.0 --port=8080
+
+# Database
+php artisan migrate
+php artisan migrate:fresh --seed
+php artisan db:seed
+
+# Cache & config (production)
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+php artisan optimize
+
+# Clear cache (development)
+php artisan config:clear
+php artisan cache:clear
+php artisan route:clear
+php artisan view:clear
+php artisan optimize:clear
+
+# Queue & schedule
+php artisan queue:work
+php artisan queue:listen
+php artisan schedule:run          # dipanggil cron tiap menit
+
+# Debug & REPL
+php artisan tinker
+php artisan route:list
+php artisan about
+
+# Test
+php artisan test
+php artisan test --parallel
+./vendor/bin/phpunit
+```
+
+Workflow tipikal hari development Laravel:
+
+```
+1. git pull
+2. composer install
+3. php artisan migrate
+4. npm install && npm run dev      # asset frontend
+5. php artisan serve               # atau Valet/Herd
+6. php artisan test                # sebelum commit
+```
+
+---
+
+### Symfony — Perintah Sehari-hari
+
+```bash
+# Setup proyek baru
+composer create-project symfony/skeleton my-symfony
+cd my-symfony
+composer require webapp              # full stack (opsional)
+
+# Development server
+symfony server:start                 # Symfony CLI (disarankan)
+symfony server:start -d              # background
+php -S localhost:8000 -t public      # alternatif tanpa Symfony CLI
+
+# Console
+php bin/console list
+php bin/console cache:clear
+php bin/console cache:warmup
+php bin/console doctrine:migrations:migrate
+php bin/console doctrine:fixtures:load
+php bin/console debug:router
+php bin/console debug:container
+php bin/console make:controller HomeController
+
+# Test
+php bin/phpunit
+./vendor/bin/phpunit
+
+# Production
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear --env=prod
+php bin/console cache:warmup --env=prod
+```
+
+Workflow tipikal Symfony:
+
+```
+1. git pull
+2. composer install
+3. php bin/console doctrine:migrations:migrate
+4. symfony server:start
+5. php bin/phpunit
+```
+
+---
+
+### Perbandingan Singkat Laravel vs Symfony CLI
+
+| Aspek | **Laravel** | **Symfony** |
+| --- | --- | --- |
+| **Entry point** | `php artisan` | `php bin/console` |
+| **Dev server** | `artisan serve` / Valet | `symfony server:start` |
+| **REPL** | `artisan tinker` | tidak bawaan (pakai PsySH) |
+| **Scaffold** | `artisan make:*` | `bin/console make:*` (MakerBundle) |
+| **Test** | `artisan test` | `bin/phpunit` |
+| **Cache** | `artisan optimize` | `bin/console cache:warmup` |
+
+---
+
+### Workflow Git + Composer + PHP
+
+```bash
+# Clone & setup
+git clone git@github.com:user/project.git
+cd project
+composer install
+cp .env.example .env
+php artisan key:generate            # Laravel
+
+# Sebelum commit
+php -l app                          # lint cepat (atau phpstan)
+./vendor/bin/phpunit
+composer audit
+
+# CI biasanya:
+composer validate --strict
+composer install --no-interaction --prefer-dist
+vendor/bin/phpunit
+```
+
+---
+
+## Alias & Shell Shortcut Berguna
+
+Tambahkan ke `~/.zshrc` atau `~/.bashrc`:
+
+```bash
+# PHP
+alias phpv='php -v'
+alias phpm='php -m'
+alias phpl='php -l'
+alias phpserve='php -S localhost:8000 -t public'
+
+# Composer
+alias ci='composer install'
+alias cu='composer update'
+alias cr='composer require'
+alias cda='composer dump-autoload -o'
+alias ct='composer test'
+
+# Laravel
+alias art='php artisan'
+alias pas='php artisan serve'
+alias pat='php artisan test'
+
+# Symfony
+alias cons='php bin/console'
+alias sfserve='symfony server:start'
+```
+
+Reload shell:
+
+```bash
+source ~/.zshrc
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Perintah Utama |
+| --- | --- |
+| **Info** | `php -v`, `php -i`, `php -m`, `php --ini` |
+| **Jalankan** | `php file.php`, `php -r "..."`, `php -f script.php` |
+| **Quality** | `php -l` (lint) |
+| **Dev server** | `php -S localhost:8000 -t public` |
+| **Config** | `php -d directive=value`, edit `php.ini` |
+| **Interaktif** | `php -a`, `psysh`, `artisan tinker` |
+| **Composer** | `install`, `require`, `update`, `dump-autoload`, `run` |
+| **Testing** | `vendor/bin/phpunit`, `artisan test` |
+| **Debug** | Xdebug (`xdebug.mode=debug`) |
+| **Ekstensi** | `pecl install`, Homebrew `php-*` |
+| **Laravel** | `artisan serve`, `migrate`, `test` |
+| **Symfony** | `bin/console`, `symfony server:start` |
+
+---
+
+## Penutup
+
+Enam perintah inti PHP CLI: **`php -v`** (cek versi), **`php file.php`** (jalankan script), **`php -l`** (lint syntax), **`php -S`** (dev server), **`composer install`** (dependensi), dan **`vendor/bin/phpunit`** (test). Dengan keenamnya, Anda sudah menutup workflow development PHP sehari-hari.
+
+Langkah berikutnya: kuasai **`php -d`** untuk override runtime, **`composer dump-autoload -o`** untuk production, konfigurasi **Xdebug** dengan IDE, dan perintah framework (`artisan` / `bin/console`). PHP dan Composer punya dokumentasi luas — manfaatkan `php --help`, `composer help <command>`, dan [php.net/manual/en/features.commandline.php](https://www.php.net/manual/en/features.commandline.php) sebagai referensi resmi.

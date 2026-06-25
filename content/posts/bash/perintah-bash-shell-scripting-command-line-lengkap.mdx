@@ -1,0 +1,1697 @@
+---
+title: "Perintah Bash & Shell Scripting Command Line Lengkap"
+description: "Panduan lengkap Bash scripting: variabel, quoting, loops, functions, pipes, redirection, test, arrays, trap, debugging, dan otomasi workflow developer."
+date: "2025-06-24"
+category: bash
+tags: ["bash", "shell", "scripting", "cli", "tutorial"]
+featured: true
+---
+
+**Bash** (Bourne Again Shell) adalah shell default di sebagian besar distribusi Linux dan sering dipakai sebagai interpreter untuk skrip otomasi. Dengan Bash, Anda bisa menggabungkan perintah CLI, variabel, kondisi, loop, dan fungsi menjadi skrip yang dapat dijalankan berulang — tanpa mengetik ulang rangkaian perintah yang sama setiap hari.
+
+<Callout type="tip">
+Cek shell Anda dengan `echo $SHELL` dan versi Bash dengan `bash --version`. Di Mac modern, shell default sering **zsh**, tetapi Bash tetap tersedia (`/bin/bash` atau `brew install bash`). Skrip produksi sebaiknya diawali **shebang** `#!/usr/bin/env bash` agar portabel.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum menulis skrip, pahami komponen inti shell scripting — istilah ini muncul terus di dokumentasi dan saat debugging:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Shell** | Program yang mengeksekusi perintah — Bash, zsh, sh, fish |
+| **Skrip** | File teks berisi rangkaian perintah shell yang bisa dieksekusi |
+| **Shebang** | Baris pertama `#!` yang menentukan interpreter (`#!/bin/bash`) |
+| **Variabel** | Penyimpan nilai string/angka — `$VAR`, `${VAR}` |
+| **Exit code** | Angka 0–255 yang dikembalikan perintah — `0` = sukses |
+| **Pipeline** | Menghubungkan output perintah ke input berikutnya lewat `\|` |
+| **Redirection** | Mengalihkan stdin/stdout/stderr ke file atau perintah lain |
+| **Subshell** | Lingkungan eksekusi terpisah dalam `( )` atau `` ` `` |
+| **Function** | Blok perintah bernama yang bisa dipanggil berulang |
+| **Word splitting** | Shell memecah string menjadi "kata" berdasarkan spasi/tabs |
+| **Globbing** | Ekspansi pola file — `*.txt`, `file?.log` |
+
+### Shell vs skrip vs one-liner
+
+```
+Terminal interaktif  →  ketik perintah satu per satu
+Skrip .sh            →  rangkaian perintah tersimpan, dijalankan berulang
+One-liner            →  perintah panjang di terminal, tanpa file terpisah
+```
+
+### Perintah informasi dasar
+
+```bash
+echo $SHELL              # shell login saat ini
+bash --version           # versi Bash
+which bash               # lokasi binary Bash
+type cd                  # builtin, alias, atau file eksternal
+help                     # bantuan builtin Bash (hanya di Bash)
+man bash                 # manual lengkap
+```
+
+- **`echo $SHELL`**: tahu shell default — penting karena sintaks zsh dan Bash sedikit berbeda.
+- **`which bash`**: lokasi interpreter — berguna saat menulis shebang portabel.
+- **`type`**: membedakan builtin (`cd`), alias, dan perintah eksternal (`/usr/bin/git`).
+
+---
+
+## Shebang — Menentukan Interpreter
+
+**Shebang** (`#!`) adalah baris pertama skrip yang memberitahu sistem interpreter mana yang mengeksekusi file. Tanpa shebang, Anda harus memanggil `bash script.sh` secara eksplisit.
+
+Kapan dipakai: setiap kali membuat skrip executable — CI/CD, deploy script, backup otomatis, atau tool internal tim.
+
+```bash
+#!/bin/bash
+echo "Hello dari Bash"
+
+#!/usr/bin/env bash
+echo "Portabel — cari bash di PATH"
+
+#!/bin/sh
+echo "POSIX shell — lebih portabel, fitur terbatas"
+```
+
+- **`#!/bin/bash`**: langsung ke path Bash — bisa gagal jika Bash di lokasi lain (mis. Mac lama vs Homebrew).
+- **`#!/usr/bin/env bash`**: cari `bash` di `$PATH` — **disarankan** untuk portabilitas.
+- **`#!/bin/sh`**: POSIX shell — cocok untuk skrip minimal yang harus jalan di banyak sistem.
+
+<Callout type="info">
+Di Mac, `/bin/bash` biasanya versi 3.2 (lama). Untuk fitur Bash 5.x, instal lewat Homebrew (`brew install bash`) dan gunakan shebang `#!/usr/bin/env bash` setelah menambahkan Homebrew ke PATH.
+</Callout>
+
+### Membuat skrip executable
+
+```bash
+chmod +x deploy.sh       # beri izin eksekusi
+./deploy.sh              # jalankan langsung (shebang dipakai)
+bash deploy.sh           # jalankan via Bash tanpa chmod +x
+```
+
+- **`chmod +x`**: file bisa dieksekusi sebagai program.
+- **`./deploy.sh`**: `./` wajib — shell tidak mencari file di direktori saat ini tanpa path eksplisit.
+
+---
+
+## Variabel — Menyimpan & Menggunakan Nilai
+
+Variabel Bash menyimpan string (secara default). Tidak ada tipe data eksplisit — angka diperlakukan sebagai teks kecuali dalam konteks aritmetika.
+
+Kapan dipakai: menyimpan path, konfigurasi, hasil perintah, counter loop, atau argumen yang diproses di skrip.
+
+### Deklarasi & assignment
+
+```bash
+NAME="Rahmat"            # tanpa spasi di sekitar =
+VERSION=1.0
+export API_KEY="secret"  # tersedia untuk child process
+
+unset TEMP_VAR           # hapus variabel
+```
+
+- **Tanpa spasi**: `NAME="value"` benar; `NAME = "value"` salah — shell menganggap `NAME` sebagai perintah.
+- **`export`**: variabel terlihat oleh perintah/subskrip yang dipanggil dari skrip ini.
+
+### Membaca variabel: `$VAR` dan `${VAR}`
+
+```bash
+echo $NAME
+echo ${NAME}
+echo "Halo, $NAME!"
+echo "Versi: ${VERSION}_beta"
+
+# Default jika kosong/tidak diset
+echo ${PORT:-3000}       # pakai 3000 jika PORT kosong
+echo ${DEBUG:+verbose}   # "verbose" hanya jika DEBUG diset
+
+# Assign default
+: ${ENV:=production}     # set ENV=production jika belum ada
+```
+
+- **`$VAR`**: bentuk singkat — cukup untuk nama sederhana.
+- **`${VAR}`**: bentuk eksplisit — **wajib** saat concatenation: `${NAME}_suffix` vs `$NAME_suffix` (salah).
+- **`${VAR:-default}`**: nilai default tanpa mengubah variabel.
+- **`${VAR:=default}`**: set variabel ke default jika kosong.
+
+### Variabel khusus shell
+
+```bash
+echo $HOME               # direktori home user
+echo $PWD                # direktori kerja saat ini
+echo $USER               # username
+echo $PATH               # daftar path pencarian perintah
+echo $?                  # exit code perintah terakhir
+echo $$                  # PID shell saat ini
+echo $0                  # nama skrip/perintah
+echo $#                  # jumlah argumen
+echo $@                  # semua argumen sebagai array
+echo $1 $2               # argumen posisional
+```
+
+- **`$?`**: exit code — `0` sukses, non-zero error. Cek setelah perintah kritis.
+- **`$0`**: nama skrip — berguna untuk pesan help (`Usage: $0 [options]`).
+- **`$#` / `$@`**: argumen baris perintah — fondasi CLI tool sederhana.
+
+### Read-only & local
+
+```bash
+readonly CONFIG_DIR="/etc/myapp"
+CONFIG_DIR="/tmp"        # error: readonly
+
+my_func() {
+  local count=0          # hanya di dalam fungsi
+  count=$((count + 1))
+}
+```
+
+- **`readonly`**: variabel tidak bisa diubah — cocok untuk konstanta konfigurasi.
+- **`local`**: variabel scoped ke fungsi — hindari polusi namespace global.
+
+---
+
+## Quoting — Single Quote, Double Quote, dan Tanpa Quote
+
+Quoting mengontrol apakah shell melakukan **variable expansion**, **command substitution**, dan **word splitting**.
+
+Kapan dipakai: setiap kali string berisi spasi, karakter khusus, atau perlu interpolasi variabel — kesalahan quoting adalah sumber bug scripting paling umum.
+
+### Perbandingan singkat
+
+| Quote | Expansion `$VAR` | Command sub `` ` `` / `$()` | Literal `\n` |
+| --- | --- | --- | --- |
+| Tanpa quote | Ya | Ya | Interpretasi shell |
+| `'single'` | Tidak | Tidak | Literal |
+| `"double"` | Ya | Ya | Literal (biasanya) |
+
+### Contoh
+
+```bash
+NAME="World"
+
+echo Hello $NAME         # Hello World
+echo "Hello $NAME"       # Hello World
+echo 'Hello $NAME'       # Hello $NAME (literal)
+
+echo "File: $HOME/file.txt"
+echo 'Path: $HOME/file.txt'   # $HOME tidak diekspansi
+
+# Spasi — wajib quote
+FILE="my document.txt"
+cat "$FILE"              # benar
+cat $FILE                # salah: dianggap dua argumen "my" dan "document.txt"
+```
+
+- **Single quote**: semua literal — tidak ada expansion sama sekali.
+- **Double quote**: expansion variabel dan command substitution tetap jalan — **default aman** untuk string dinamis.
+- **Tanpa quote**: word splitting dan globbing aktif — berbahaya untuk path/nama file.
+
+### Escape karakter
+
+```bash
+echo "She said \"hello\""
+echo 'It'\''s fine'      # single quote di dalam single quote
+echo $'line1\nline2'     # ANSI-C quoting — escape sequences
+```
+
+- **Backslash `\`**: escape karakter berikutnya di dalam double quote atau tanpa quote.
+- **`$'...'`**: Bash-specific — `\n`, `\t`, `\x41` berfungsi.
+
+<Callout type="warning">
+Jangan pakai `` `rm -rf $DIR` `` tanpa quote jika `$DIR` bisa kosong — `rm -rf /` disaster. Selalu `"$DIR"` atau `"${DIR:?DIR must be set}"`.
+</Callout>
+
+---
+
+## Command Substitution — Output Perintah sebagai Nilai
+
+Command substitution menangkap stdout perintah dan menyisipkannya ke string atau variabel.
+
+Kapan dipakai: tanggal dinamis, jumlah file, isi file, versi tool, atau output pipeline sebagai input variabel.
+
+### Sintaks modern: `$()` (disarankan)
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+FILES=$(ls *.mdx 2>/dev/null | wc -l)
+BRANCH=$(git branch --show-current)
+MESSAGE="Deploy pada $TODAY dari branch $BRANCH"
+
+echo "Jumlah file: $(find . -name '*.ts' | wc -l)"
+```
+
+### Sintaks legacy: backtick `` ` ``
+
+```bash
+TODAY=`date +%Y-%m-%d`
+# Hindari — sulit di-nest dan mudah salah parse
+```
+
+- **`$()`**: bisa di-nest — `$(echo $(pwd))` — lebih mudah dibaca.
+- **Backtick**: legacy — masih jalan, tapi `$()` lebih disarankan.
+- **`2>/dev/null`**: sembunyikan stderr jika glob tidak match — hindari pesan error di output.
+
+### Nested substitution
+
+```bash
+# Jumlah baris di file terbesar
+LARGEST=$(wc -l *.log 2>/dev/null | sort -n | tail -1 | awk '{print $1}')
+
+DIR=$(dirname "$(readlink -f "$0")")   # direktori skrip (Linux)
+```
+
+- **Nested `$(...)`**: komposisi perintah bertingkat — fondasi one-liner powerful.
+- **`dirname` + `readlink`**: cari lokasi skrip — berguna untuk load file config relatif.
+
+---
+
+## Aritmetika — Perhitungan Angka
+
+Bash tidak punya tipe integer native, tetapi mendukung aritmetika lewat beberapa mekanisme.
+
+Kapan dipakai: counter loop, kalkulasi sederhana, increment/decrement, modulus, bitwise (jarang).
+
+### `$(( ))` — aritmetika integer (disarankan)
+
+```bash
+A=10
+B=3
+
+echo $((A + B))          # 13
+echo $((A - B))          # 7
+echo $((A * B))          # 30
+echo $((A / B))          # 3 (integer division)
+echo $((A % B))          # 1
+echo $((A ** 2))         # 100 (pangkat)
+
+((count++))              # increment
+((count += 5))           # tambah 5
+((count--))              # decrement
+```
+
+- **`$(( ))`**: aritmetika integer — tidak perlu `$` di dalam untuk assignment `((x=5))`.
+- **Integer division**: `10/3 = 3` — tidak ada float; pakai `bc` atau `awk` untuk desimal.
+
+### `let` dan `expr` (legacy)
+
+```bash
+let "sum = A + B"
+echo $sum
+
+expr $A + $B             # legacy — hindari jika bisa
+```
+
+- **`let`**: alternatif `$(( ))` — kurang umum di skrip modern.
+- **`expr`**: sangat legacy — parsing rumit, hindari.
+
+### Increment dalam loop
+
+```bash
+i=0
+while (( i < 5 )); do
+  echo "Iterasi $i"
+  ((i++))
+done
+```
+
+---
+
+## Kondisi — if / elif / else
+
+Struktur `if` mengeksekusi blok perintah berdasarkan exit code atau hasil test.
+
+Kapan dipakai: validasi argumen, cek file ada/tidak, bandingkan versi, handle error, branching logic.
+
+### Sintaks dasar
+
+```bash
+if [ -f "config.json" ]; then
+  echo "Config ditemukan"
+elif [ -f "config.yaml" ]; then
+  echo "Pakai YAML sebagai fallback"
+else
+  echo "Config tidak ada — buat default"
+  cp config.default.json config.json
+fi
+```
+
+- **`then` / `fi`**: pembuka dan penutup blok `if` — `fi` adalah `if` terbalik.
+- **`elif`**: else-if — rantai kondisi tanpa nested `if` dalam.
+
+### if dengan exit code perintah
+
+```bash
+if git diff --quiet; then
+  echo "Tidak ada perubahan"
+else
+  echo "Ada perubahan uncommitted"
+fi
+
+if npm test; then
+  echo "Tests passed — deploy"
+else
+  echo "Tests failed — abort"
+  exit 1
+fi
+```
+
+- **Perintah langsung di `if`**: exit code `0` = true, non-zero = false.
+- **`exit 1`**: hentikan skrip dengan error — standar untuk skrip yang gagal.
+
+### if dengan `[[ ]]` (Bash)
+
+```bash
+NAME="admin"
+
+if [[ "$NAME" == "admin" ]]; then
+  echo "Akses penuh"
+fi
+
+if [[ -f "$FILE" && -r "$FILE" ]]; then
+  cat "$FILE"
+fi
+
+if [[ "$ENV" =~ ^(dev|staging|prod)$ ]]; then
+  echo "Environment valid: $ENV"
+fi
+```
+
+- **`[[ ]]`**: Bash builtin — mendukung `&&`, `\|\|`, regex `=~` tanpa escape.
+- **Quote variabel**: selalu `"$VAR"` di dalam test — hindari word splitting.
+
+### if satu baris
+
+```bash
+[ -d "dist" ] && rm -rf dist
+[ -f ".env" ] || cp .env.example .env
+```
+
+- **`&&` / `\|\|`**: short-circuit — eksekusi kondisional ringkas tanpa `if`.
+
+---
+
+## case — Pattern Matching
+
+`case` memilih cabang berdasarkan pola string — alternatif bersih untuk banyak `if/elif`.
+
+Kapan dipakai: CLI dengan subcommand (`start|stop|restart`), handle argumen flag, mapping environment, menu interaktif.
+
+```bash
+ACTION=${1:-help}
+
+case "$ACTION" in
+  start)
+    echo "Menjalankan server..."
+    npm run start
+    ;;
+  stop)
+    echo "Menghentikan server..."
+    pkill -f "node server.js"
+    ;;
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+  help|--help|-h)
+    echo "Usage: $0 {start|stop|restart|help}"
+    exit 0
+    ;;
+  *)
+    echo "Aksi tidak dikenal: $ACTION"
+    exit 1
+    ;;
+esac
+```
+
+- **`;;`**: akhiri cabang — wajib (kecuali fall-through sengaja dengan `;&`).
+- **`\*`**: default/wildcard — tangkap input yang tidak cocok.
+- **`${1:-help}`**: argumen pertama, default `help` jika kosong.
+
+### Pattern lanjutan
+
+```bash
+case "$FILE" in
+  *.tar.gz|*.tgz)
+    tar -xzf "$FILE"
+    ;;
+  *.zip)
+    unzip "$FILE"
+    ;;
+  *.sh)
+    bash "$FILE"
+    ;;
+esac
+
+case "$VERSION" in
+  [0-9].[0-9].[0-9])
+    echo "Semver valid"
+    ;;
+esac
+```
+
+- **Multiple pattern**: `pat1|pat2)` — OR dalam satu cabang.
+- **Glob pattern**: `*.sh` — matching nama file.
+
+---
+
+## Loop — for, while, until
+
+Loop mengeksekusi blok perintah berulang — fondasi batch processing dan iterasi file.
+
+### for — iterasi list
+
+```bash
+# List eksplisit
+for fruit in apple banana cherry; do
+  echo "Buah: $fruit"
+done
+
+# Glob file
+for file in src/*.ts; do
+  echo "Processing: $file"
+  npx eslint "$file"
+done
+
+# C-style for (Bash)
+for ((i=0; i<5; i++)); do
+  echo "Index: $i"
+done
+
+# Iterasi baris (hati-hati word splitting)
+while IFS= read -r line; do
+  echo "Baris: $line"
+done < input.txt
+```
+
+- **`for item in list`**: iterasi kata/glob — paling umum.
+- **`for (( ))`**: C-style — counter numerik.
+- **`read -r line`**: baca per baris — `-r` hindari interpretasi backslash.
+
+### while — selama kondisi true
+
+```bash
+count=0
+while [ $count -lt 5 ]; do
+  echo "Count: $count"
+  ((count++))
+done
+
+# Monitor file log
+tail -f app.log | while IFS= read -r line; do
+  echo "$line" | grep -i error && echo "ALERT: $line"
+done
+
+# Retry dengan backoff
+attempt=0
+max=5
+while [ $attempt -lt $max ]; do
+  if curl -sf http://localhost:3000/health; then
+    echo "Service up"
+    break
+  fi
+  ((attempt++))
+  sleep $((attempt * 2))
+done
+```
+
+- **`while`**: cek kondisi di awal — mungkin tidak jalan sama sekali.
+- **`break`**: keluar loop lebih awal.
+- **Pipeline + while**: subshell — variabel di loop tidak persist ke parent (perhatikan ini).
+
+### until — selama kondisi false
+
+```bash
+retries=0
+until curl -sf http://api.local/ready; do
+  echo "Menunggu API siap... ($retries)"
+  ((retries++))
+  [ $retries -ge 30 ] && { echo "Timeout"; exit 1; }
+  sleep 2
+done
+echo "API siap"
+```
+
+- **`until`**: kebalikan `while` — jalan sampai kondisi true.
+- **Berguna**: wait-for-service, polling readiness.
+
+<Callout type="info">
+Saat iterasi file, gunakan `for f in *.ext; do [ -e "$f" ] || continue; ...` jika glob bisa tidak match — tanpa file, glob literal `*.ext` tetap iterasi sekali dengan string literal.
+</Callout>
+
+---
+
+## Functions — Blok Perintah Reusable
+
+Fungsi mengelompokkan perintah dengan nama — menghindari duplikasi dan membuat skrip lebih terstruktur.
+
+Kapan dipakai: operasi berulang (log, validasi, deploy step), modularisasi skrip panjang, library fungsi internal.
+
+### Deklarasi & pemanggilan
+
+```bash
+#!/usr/bin/env bash
+
+greet() {
+  echo "Halo, $1!"
+}
+
+greet "Developer"
+
+# Dengan local variable
+log() {
+  local level="$1"
+  local msg="$2"
+  echo "[$(date +%H:%M:%S)] [$level] $msg"
+}
+
+log "INFO" "Server started"
+log "ERROR" "Connection refused"
+```
+
+- **Nama fungsi**: huruf, angka, underscore — tanpa spasi.
+- **`local`**: variabel hanya di scope fungsi.
+
+### Return value & exit code
+
+```bash
+file_exists() {
+  [ -f "$1" ]
+}
+
+if file_exists "package.json"; then
+  echo "Proyek Node ditemukan"
+fi
+
+# Return angka (0-255)
+is_port_open() {
+  nc -z localhost "$1" 2>/dev/null
+  return $?
+}
+
+# Atau explicit
+check_version() {
+  local ver="$1"
+  if [[ "$ver" < "2.0" ]]; then
+    return 1
+  fi
+  return 0
+}
+```
+
+- **`return N`**: set exit code fungsi — `0` sukses.
+- **Perintah terakhir**: jika tanpa `return`, exit code = perintah terakhir di fungsi.
+
+### Fungsi dengan array argumen
+
+```bash
+run_on_all() {
+  local dirs=("$@")
+  for dir in "${dirs[@]}"; do
+    echo "Build: $dir"
+    (cd "$dir" && npm run build)
+  done
+}
+
+run_on_all apps/web apps/api packages/ui
+```
+
+---
+
+## Argumen — $1, $2, $#, $@
+
+Argumen posisional memungkinkan skrip menerima input dari baris perintah — fondasi CLI tool.
+
+Kapan dipakai: skrip deploy dengan environment, backup dengan target path, wrapper yang meneruskan argumen ke perintah lain.
+
+```bash
+#!/usr/bin/env bash
+# Usage: backup.sh <source_dir> <dest_dir>
+
+SOURCE="${1:?Usage: $0 <source_dir> <dest_dir>}"
+DEST="${2:?Dest directory required}"
+
+echo "Backup $SOURCE → $DEST"
+rsync -av "$SOURCE/" "$DEST/"
+
+echo "Argumen ke-$#: $#"
+echo "Semua argumen: $@"
+echo "Semua (quoted): $*"
+```
+
+- **`$1`, `$2`, ...**: argumen posisional — pertama, kedua, dst.
+- **`$#`**: jumlah argumen.
+- **`$@`**: semua argumen sebagai list terpisah — **pakai saat forward ke perintah lain**.
+- **`$*`**: semua argumen sebagai satu string — jarang dipakai.
+- **`${1:?message}`**: error dan stop jika `$1` kosong/unset.
+
+### Shift — geser argumen
+
+```bash
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v|--verbose) VERBOSE=1; shift ;;
+    -o|--output)  OUTPUT="$2"; shift 2 ;;
+    -h|--help)    show_help; exit 0 ;;
+    --)           shift; break ;;   # end of options
+    *)            FILES+=("$1"); shift ;;
+  esac
+done
+```
+
+- **`shift`**: buang `$1`, geser sisanya — pola parsing flag manual.
+- **`shift 2`**: buang dua argumen — untuk flag yang butuh nilai.
+
+### getopts — parsing flag standar
+
+```bash
+VERBOSE=0
+OUTPUT=""
+
+while getopts "vo:h" opt; do
+  case $opt in
+    v) VERBOSE=1 ;;
+    o) OUTPUT="$OPTARG" ;;
+    h) echo "Usage: $0 [-v] [-o file]"; exit 0 ;;
+    ?) exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))    # sisanya = positional args
+
+echo "Verbose: $VERBOSE, Output: $OUTPUT, Rest: $@"
+```
+
+- **`getopts`**: parsing `-v`, `-o file` — POSIX, terbatas (tidak support long option `--verbose`).
+- **`OPTARG`**: nilai untuk opsi yang butuh argumen.
+- **`OPTIND`**: index argumen berikutnya setelah opsi.
+
+---
+
+## Exit Codes — Sukses & Kegagalan
+
+Setiap perintah mengembalikan **exit code** (0–255). `0` = sukses, non-zero = gagal.
+
+Kapan dipakai: error handling, CI/CD gate, chaining perintah dengan `&&`/`||`, validasi skrip.
+
+```bash
+ls /existing-dir
+echo $?                  # 0
+
+ls /nonexistent
+echo $?                  # 2 (biasanya)
+
+# Set exit code skrip
+exit 0                   # sukses
+exit 1                   # error umum
+exit 2                   # misuse (konvensi)
+
+# Di akhir skrip — forward exit code
+some_command
+exit $?
+```
+
+### Cek exit code eksplisit
+
+```bash
+if ! cp "$SRC" "$DEST"; then
+  echo "Copy gagal" >&2
+  exit 1
+fi
+
+cp "$SRC" "$DEST" || { echo "Gagal"; exit 1; }
+
+# Pipe — cek PIPESTATUS (Bash)
+curl -sf url | jq .
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+  echo "curl gagal"
+fi
+```
+
+- **`$?`**: exit code perintah **langsung sebelumnya** — simpan segera jika ada perintah lain.
+- **`PIPESTATUS`**: array exit code tiap perintah dalam pipeline.
+- **`set -o pipefail`**: pipeline gagal jika salah satu perintah gagal — lihat bagian debugging.
+
+### Kode exit umum
+
+| Code | Arti umum |
+| --- | --- |
+| `0` | Sukses |
+| `1` | Error umum |
+| `2` | Misuse / invalid argument |
+| `126` | Command tidak executable |
+| `127` | Command tidak ditemukan |
+| `128+N` | Dibunuh oleh signal N (mis. 130 = SIGINT/Ctrl+C) |
+
+---
+
+## Pipes & Redirection — Menghubungkan Perintah
+
+Pipeline dan redirection adalah kekuatan utama shell — menggabungkan tool kecil menjadi workflow kompleks.
+
+Kapan dipakai: filter log, aggregasi data, redirect output ke file, suppress error, heredoc input.
+
+### Pipe `|`
+
+```bash
+cat access.log | grep "POST" | wc -l
+ps aux | grep node | grep -v grep
+find . -name "*.ts" | xargs wc -l
+git log --oneline | head -20
+```
+
+- **Pipe**: stdout perintah kiri → stdin perintah kanan.
+- **Tool kecil**: filosofi Unix — `grep`, `awk`, `sed`, `sort` dikombinasikan.
+
+### Redirection dasar
+
+```bash
+command > file.txt       # stdout ke file (overwrite)
+command >> file.txt      # stdout ke file (append)
+command 2> error.log     # stderr ke file
+command &> all.log       # stdout + stderr ke file
+command > /dev/null 2>&1 # buang semua output
+command 2>&1 | tee log   # stderr merge ke stdout, tee ke file
+```
+
+- **`>` vs `>>`**: overwrite vs append.
+- **`2>`**: stderr (file descriptor 2).
+- **`&>`**: Bash shorthand stdout + stderr.
+
+### stdin redirection
+
+```bash
+wc -l < file.txt
+mysql db < schema.sql
+grep "pattern" <<< "inline string here"   # here string
+```
+
+- **`< file`**: baca stdin dari file.
+- **`<<<`**: here string — inline tanpa file.
+
+### File descriptor
+
+```bash
+exec 3< input.txt        # buka fd 3 untuk baca
+read -u 3 line
+exec 3<& -               # tutup fd 3
+
+exec > >(tee -a deploy.log) 2>&1   # log semua output
+```
+
+- **`exec`**: redirect permanen untuk sisa skrip atau buka fd custom.
+
+---
+
+## test, [ ], dan [[ ]] — Conditional Expressions
+
+Perintah `test` (alias `[ ]`) dan builtin `[[ ]]` mengevaluasi kondisi — fondasi `if` dan `while`.
+
+Kapan dipakai: cek file, bandingkan string/angka, test permission, validasi input.
+
+### Test file
+
+```bash
+[ -e "$FILE" ]           # ada (file/dir/link)
+[ -f "$FILE" ]           # file reguler
+[ -d "$DIR" ]            # direktori
+[ -L "$LINK" ]           # symbolic link
+[ -r "$FILE" ]           # readable
+[ -w "$FILE" ]           # writable
+[ -x "$FILE" ]           # executable
+[ -s "$FILE" ]           # tidak kosong
+[ "$FILE" -nt "$OTHER" ] # newer than
+[ "$FILE" -ot "$OTHER" ] # older than
+```
+
+### Test string
+
+```bash
+[ -z "$STR" ]            # string kosong
+[ -n "$STR" ]            # string tidak kosong
+[ "$A" = "$B" ]          # equal
+[ "$A" != "$B" ]         # not equal
+[[ "$A" == "$B" ]]       # equal (Bash)
+[[ "$A" =~ ^[0-9]+$ ]]   # regex match (Bash)
+```
+
+### Test numerik
+
+```bash
+[ "$A" -eq "$B" ]        # equal
+[ "$A" -ne "$B" ]        # not equal
+[ "$A" -lt "$B" ]        # less than
+[ "$A" -le "$B" ]        # less or equal
+[ "$A" -gt "$B" ]        # greater than
+[ "$A" -ge "$B" ]        # greater or equal
+```
+
+- **`[ ]`**: POSIX `test` — butuh spasi: `[ -f file ]`.
+- **`[[ ]]`**: Bash — lebih aman, dukung `&&`, `\|\|`, regex.
+- **Quote**: selalu `"$VAR"` — `[ -n $EMPTY ]` bisa error jika kosong.
+
+### Perbandingan `[ ]` vs `[[ ]]`
+
+| Fitur | `[ ]` | `[[ ]]` |
+| --- | --- | --- |
+| POSIX | Ya | Tidak (Bash) |
+| `&&` / `\|\|` di dalam | Tidak | Ya |
+| Regex `=~` | Tidak | Ya |
+| Word splitting aman | Perlu hati-hati | Lebih aman |
+| Path glob | Tidak | Ya (`[[ $f == *.sh ]]`)
+
+---
+
+## && dan || — Short-Circuit Logic
+
+Operator `&&` dan `||` mengeksekusi perintah berdasarkan exit code perintah sebelumnya — tanpa perlu `if` penuh.
+
+Kapan dipakai: guard clause, chain perintah kondisional, default fallback, skrip ringkas.
+
+```bash
+# && — jalankan jika sebelumnya sukses
+mkdir -p dist && cp build/* dist/
+npm test && npm run deploy
+
+# || — jalankan jika sebelumnya gagal
+cp config.prod.json config.json || cp config.default.json config.json
+
+# Kombinasi
+[ -f .env ] || cp .env.example .env && source .env
+
+# Dengan grouping
+(cd frontend && npm run build) && (cd backend && npm run build)
+```
+
+- **`cmd1 && cmd2`**: `cmd2` hanya jika `cmd1` exit 0.
+- **`cmd1 || cmd2`**: `cmd2` hanya jika `cmd1` exit non-zero.
+- **Urutan evaluasi**: kiri ke kanan, berhenti saat hasil sudah pasti.
+
+### Praktik umum developer
+
+```bash
+# Build hanya jika test lulus
+npm run lint && npm test && npm run build
+
+# Clone jika belum ada
+[ -d "repo" ] || git clone git@github.com:user/repo.git
+
+# Kill process jika running
+pgrep -f "myserver" && pkill -f "myserver"
+
+# Create dir jika belum ada (idempotent)
+install -d ./output/logs
+```
+
+---
+
+## Arrays — Koleksi Nilai (Bash)
+
+Bash mendukung array indexed — menyimpan banyak nilai dalam satu variabel.
+
+Kapan dipakai: daftar file, multiple host deploy, batch argumen, akumulasi hasil loop.
+
+### Deklarasi & akses
+
+```bash
+FRUITS=("apple" "banana" "cherry")
+FILES=(*.mdx)             # array dari glob
+
+echo "${FRUITS[0]}"       # apple (index 0)
+echo "${FRUITS[@]}"       # semua elemen
+echo "${#FRUITS[@]}"      # jumlah elemen
+echo "${!FRUITS[@]}"      # semua index
+
+FRUITS+=("durian")        # tambah elemen
+FRUITS[1]="blueberry"     # ubah index 1
+unset FRUITS[1]           # hapus index 1
+```
+
+- **`${ARRAY[@]}`**: expand semua elemen — preserve spasi per elemen (dengan quote).
+- **`${#ARRAY[@]}`**: panjang array.
+- **Index 0-based**: elemen pertama = `[0]`.
+
+### Iterasi array
+
+```bash
+SERVERS=("web1" "web2" "web3")
+
+for server in "${SERVERS[@]}"; do
+  echo "Deploy ke $server"
+  ssh "$server" "cd /app && git pull && systemctl restart app"
+done
+
+# Dengan index
+for i in "${!SERVERS[@]}"; do
+  echo "$i: ${SERVERS[$i]}"
+done
+```
+
+### Associative arrays (Bash 4+)
+
+```bash
+declare -A CONFIG
+CONFIG[host]="localhost"
+CONFIG[port]=3000
+CONFIG[env]="production"
+
+echo "${CONFIG[host]}:${CONFIG[port]}"
+
+for key in "${!CONFIG[@]}"; do
+  echo "$key = ${CONFIG[$key]}"
+done
+```
+
+- **`declare -A`**: hash map — key string → value.
+- **Butuh Bash 4+**: pastikan `#!/usr/bin/env bash` bukan `/bin/sh`.
+
+---
+
+## Here Documents — Inline Multi-line Input
+
+Heredoc menyediakan input multi-baris ke perintah — berguna untuk generate file, SQL, config, atau email dari skrip.
+
+Kapan dipakai: generate config dinamis, kirim script ke SSH remote, template file, input ke `cat`, `tee`, database CLI.
+
+### Heredoc dasar
+
+```bash
+cat << EOF > config.env
+APP_NAME=myapp
+APP_ENV=production
+PORT=3000
+GENERATED_AT=$(date -Iseconds)
+EOF
+```
+
+- **`<< EOF`**: baca baris sampai `EOF` di awal baris.
+- **Expansion**: variabel dan `$(...)` diekspansi (kecuali quoted delimiter).
+
+### Quote delimiter — tanpa expansion
+
+```bash
+cat << 'EOF'
+Harga: $100 (literal, tidak diekspansi)
+Tanggal: $(date) juga literal
+EOF
+```
+
+- **`<< 'EOF'`**: semua literal — template statis.
+
+### Heredoc ke perintah lain
+
+```bash
+# SQL ke sqlite
+sqlite3 mydb.db << SQL
+CREATE TABLE IF NOT EXISTS logs (
+  id INTEGER PRIMARY KEY,
+  message TEXT,
+  created_at TEXT
+);
+INSERT INTO logs (message, created_at) VALUES ('started', datetime('now'));
+SQL
+
+# SSH remote script
+ssh user@server bash << 'REMOTE'
+set -e
+cd /var/www/app
+git pull origin main
+npm ci --production
+pm2 restart app
+REMOTE
+
+# Indent (<<- strip leading tabs)
+if true; then
+  cat <<- TEMPLATE
+	Hello indented
+	World
+	TEMPLATE
+fi
+```
+
+- **`<<-`**: strip tab di awal baris — heredoc rapi di dalam indentasi.
+- **Quote `REMOTE`**: script remote tidak diekspansi lokal.
+
+---
+
+## trap — Tangkap Signal & Cleanup
+
+`trap` menjalankan perintah saat shell menerima signal atau saat exit — penting untuk cleanup resource.
+
+Kapan dipakai: hapus temp file, release lock, graceful shutdown, log saat skrip di-interrupt.
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+TMPFILE=$(mktemp)
+LOCKFILE="/tmp/myapp.deploy.lock"
+
+cleanup() {
+  rm -f "$TMPFILE"
+  rm -f "$LOCKFILE"
+  echo "Cleanup selesai"
+}
+
+trap cleanup EXIT
+trap 'echo "Interrupted"; exit 130' INT TERM
+
+touch "$LOCKFILE"
+echo "Deploying..." > "$TMPFILE"
+# ... operasi deploy ...
+```
+
+- **`trap cmd EXIT`**: jalan saat skrip selesai (sukses atau gagal).
+- **`INT`**: Ctrl+C — **`TERM`**: kill signal.
+- **`mktemp`**: buat file temp aman — hindari nama predictable.
+
+### Trap lanjutan
+
+```bash
+trap '' HUP          # ignore SIGHUP
+trap - INT           # reset handler INT ke default
+
+on_error() {
+  local line=$1
+  echo "Error di baris $line" >&2
+}
+trap 'on_error $LINENO' ERR   # butuh set -e atau ERR trap manual
+```
+
+<Callout type="warning">
+Dengan `set -e`, trap `ERR` bisa membantu log lokasi error. Kombinasikan `trap cleanup EXIT` agar resource selalu dibersihkan meski skrip gagal di tengah jalan.
+</Callout>
+
+---
+
+## Debugging — set -x dan Opsi Lain
+
+Debugging shell script bisa menantang — Bash menyediakan opsi untuk trace eksekusi dan strict mode.
+
+Kapan dipakai: skrip gagal tanpa pesan jelas, development, CI log verbose, audit eksekusi.
+
+### set options
+
+```bash
+set -x                   # trace — print perintah sebelum eksekusi
+set -e                   # exit jika perintah gagal (non-zero)
+set -u                   # error jika akses variabel unset
+set -o pipefail          # pipeline gagal jika ada perintah gagal
+set -o errexit nounset pipefail  # kombinasi umum
+
+# Shebang strict mode (populer)
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+```
+
+- **`set -x`**: tampilkan `+ command` — matikan dengan `set +x`.
+- **`set -e`**: berhenti di error pertama — hati-hati di `if cmd` (exception ada).
+- **`set -u`**: tangkap typo variabel `$UNSET_VAR`.
+- **`pipefail`**: `false | true` exit 1, bukan 0.
+
+### Debug selektif
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+debug() {
+  if [ "${DEBUG:-0}" = "1" ]; then
+    set -x
+  fi
+}
+
+debug
+risky_operation
+set +x    # matikan trace
+
+# Atau
+DEBUG=1 ./script.sh
+```
+
+### ShellCheck & syntax check
+
+```bash
+bash -n script.sh        # cek syntax tanpa eksekusi
+shellcheck script.sh     # static analysis (install: brew install shellcheck)
+
+# Verbose mode
+bash -x script.sh        # jalankan dengan trace
+```
+
+- **`bash -n`**: parse only — tangkap syntax error cepat.
+- **ShellCheck**: deteksi quoting salah, unused var, portability issue.
+
+---
+
+## One-liner Berguna — Produktivitas Terminal
+
+One-liner menggabungkan perintah tanpa skrip terpisah — cepat untuk tugas ad-hoc.
+
+Kapan dipakai: investigasi server, batch rename, quick filter, monitoring, one-off automation.
+
+### File & teks
+
+```bash
+# Cari string di semua file
+grep -r "TODO" src/ --include="*.ts"
+
+# Ganti string di banyak file (GNU sed)
+find . -name "*.md" -exec sed -i 's/foo/bar/g' {} +
+
+# Hitung baris kode
+find src -name "*.ts" | xargs wc -l | tail -1
+
+# File terbesar di direktori
+du -ah . | sort -rh | head -20
+
+# Rename batch: spasi → underscore
+for f in *\ *; do mv "$f" "${f// /_}"; done
+```
+
+### Proses & sistem
+
+```bash
+# Port yang dipakai
+lsof -i :3000
+ss -tlnp | grep 3000
+
+# Kill by name
+pkill -f "node.*server"
+
+# Monitor perintah setiap 2 detik
+watch -n 2 'df -h /'
+
+# Disk usage per folder
+du -sh */ | sort -h
+```
+
+### Git & developer
+
+```bash
+# Branch merged yang bisa dihapus
+git branch --merged main | grep -v main | xargs git branch -d
+
+# Last commit setiap author
+git shortlog -sn
+
+# Find large file di git history
+git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | awk '/^blob/ {print $3, $4}' | sort -rn | head
+
+# Serve folder cepat
+python3 -m http.server 8080
+```
+
+### Network & download
+
+```bash
+# Download dengan resume
+curl -C - -O https://example.com/large-file.tar.gz
+
+# Test endpoint
+curl -sf -o /dev/null -w "%{http_code}\n" https://api.example.com/health
+
+# JSON pretty print
+curl -s api.local/users | jq .
+```
+
+---
+
+## Menulis Skrip Executable — Struktur & Best Practice
+
+Skrip production membutuhkan struktur, error handling, dan dokumentasi — bukan sekadar rangkaian perintah.
+
+Kapan dipakai: deploy, backup, setup dev environment, CI helper, tool internal tim.
+
+### Template skrip production
+
+```bash
+#!/usr/bin/env bash
+#
+# deploy.sh — Deploy aplikasi ke server staging
+# Usage: ./deploy.sh [-e env] [-v]
+#
+set -euo pipefail
+IFS=$'\n\t'
+
+# ── Konfigurasi ──────────────────────────────
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly APP_NAME="myapp"
+ENV="${ENV:-staging}"
+VERBOSE=0
+
+# ── Fungsi ─────────────────────────────────────
+log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+
+usage() {
+  cat << USAGE
+Usage: $0 [-e env] [-v] [-h]
+  -e  Environment (staging|production) [default: staging]
+  -v  Verbose
+  -h  Help
+USAGE
+}
+
+# ── Parse args ─────────────────────────────────
+while getopts "e:vh" opt; do
+  case $opt in
+    e) ENV="$OPTARG" ;;
+    v) VERBOSE=1 ;;
+    h) usage; exit 0 ;;
+    ?) usage; exit 1 ;;
+  esac
+done
+
+# ── Validasi ───────────────────────────────────
+[[ "$ENV" =~ ^(staging|production)$ ]] || die "Invalid env: $ENV"
+command -v docker >/dev/null || die "docker not found"
+
+# ── Main ───────────────────────────────────────
+main() {
+  log "Deploy $APP_NAME ke $ENV"
+  [ "$VERBOSE" = 1 ] && set -x
+
+  docker build -t "$APP_NAME:$ENV" .
+  docker push "registry.example.com/$APP_NAME:$ENV"
+
+  log "Deploy selesai"
+}
+
+main "$@"
+```
+
+- **`set -euo pipefail`**: strict mode — tangkap error lebih awal.
+- **`SCRIPT_DIR`**: path relatif ke lokasi skrip — portable.
+- **`die` / `log`**: pesan konsisten ke stderr.
+- **`main "$@"`**: entry point jelas.
+
+### Best practice ringkas
+
+| Praktik | Alasan |
+| --- | --- |
+| Quote semua variabel `"$VAR"` | Hindari word splitting |
+| Gunakan `[[ ]]` di Bash | Lebih aman dari `[ ]` |
+| `set -euo pipefail` | Fail fast |
+| `trap cleanup EXIT` | Resource cleanup |
+| `shellcheck` sebelum commit | Tangkap bug umum |
+| Shebang `env bash` | Portabilitas |
+| Dokumentasi `Usage` | Skrip bisa dipakai orang lain |
+
+<Callout type="tip">
+Simpan skrip reusable di `~/bin` atau `~/.local/bin` dan tambahkan ke `$PATH`. Beri nama tanpa ekstensi (`deploy`, `backup-db`) agar terasa seperti perintah native.
+</Callout>
+
+---
+
+## Catatan zsh untuk Pengguna Mac
+
+Di macOS Catalina+, **zsh** adalah shell default — bukan Bash. Sebagian besar perintah interaktif sama, tetapi ada perbedaan saat menulis skrip.
+
+Kapan relevan: development di Mac, `.zshrc` vs `.bashrc`, kompatibilitas skrip, fitur zsh-only.
+
+### Perbedaan utama
+
+| Aspek | Bash | zsh |
+| --- | --- | --- |
+| Config file | `~/.bashrc`, `~/.bash_profile` | `~/.zshrc`, `~/.zprofile` |
+| Array index | 0-based | 1-based (default) |
+| Globbing | basic | advanced (**, extended) |
+| Completion | basic | powerful built-in |
+| Script shebang | `#!/usr/bin/env bash` | `#!/bin/zsh` atau bash |
+
+### zsh — fitur interaktif
+
+```zsh
+# ~/.zshrc
+
+# Plugin manager (opsional: Oh My Zsh, zinit)
+# autocompletion
+autoload -Uz compinit && compinit
+
+# History
+HISTSIZE=10000
+SAVEHIST=10000
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_DUPS
+
+# Glob — ** recursive
+ls **/*.ts
+
+# Extended glob
+setopt EXTENDED_GLOB
+ls ^*.md    # file tanpa ekstensi .md
+```
+
+### Menjalankan skrip Bash di Mac
+
+```bash
+# Skrip tetap pakai shebang bash — tidak terpengaruh shell default
+#!/usr/bin/env bash
+
+# Jalankan explicit
+bash myscript.sh
+
+# Cek versi — Mac /bin/bash = 3.2, Homebrew = 5.x
+/bin/bash --version
+/opt/homebrew/bin/bash --version   # Apple Silicon
+```
+
+- **Shell default zsh**: hanya mempengaruhi terminal interaktif — skrip dengan shebang `bash` tetap pakai Bash.
+- **Bash 3.2 di Mac**: tidak support associative array, beberapa fitur Bash 4+ — instal Homebrew bash untuk skrip modern.
+
+### Compatibility tip
+
+```bash
+# Skrip portabel — hindari fitur Bash-only jika harus jalan di sh
+# Skrip Bash-only — explicit shebang dan dokumentasikan requirement
+
+# Test di CI dengan bash version yang sama
+bash --version
+```
+
+---
+
+## Workflow Otomasi untuk Developer
+
+Contoh skrip nyata yang sering dipakai di workflow development sehari-hari.
+
+### Setup proyek baru
+
+```bash
+#!/usr/bin/env bash
+# init-project.sh <nama-proyek>
+set -euo pipefail
+
+NAME="${1:?Nama proyek required}"
+mkdir -p "$NAME"/{src,tests,docs}
+cd "$NAME"
+
+cat > package.json << EOF
+{
+  "name": "$NAME",
+  "version": "0.1.0",
+  "private": true
+}
+EOF
+
+cat > .gitignore << 'EOF'
+node_modules/
+dist/
+.env
+*.log
+EOF
+
+git init
+git add .
+git commit -m "chore: initial project setup"
+echo "Proyek $NAME siap di ./$NAME"
+```
+
+### Pre-commit check lokal
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== Lint ==="
+npm run lint
+
+echo "=== Type check ==="
+npm run typecheck
+
+echo "=== Test ==="
+npm test
+
+echo "=== Build ==="
+npm run build
+
+echo "Semua check lulus — siap commit"
+```
+
+### Watch & auto-rebuild
+
+```bash
+#!/usr/bin/env bash
+# watch-build.sh — rebuild saat file berubah (butuh fswatch: brew install fswatch)
+
+SRC_DIR="src"
+BUILD_CMD="npm run build"
+
+fswatch -o "$SRC_DIR" | while read -r; do
+  echo "[$(date +%H:%M:%S)] Perubahan terdeteksi — build..."
+  if $BUILD_CMD; then
+    echo "Build sukses"
+  else
+    echo "Build gagal" >&2
+  fi
+done
+```
+
+### Backup database
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+DB_NAME="${DB_NAME:-myapp}"
+BACKUP_DIR="${BACKUP_DIR:-./backups}"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+FILE="$BACKUP_DIR/${DB_NAME}_${TIMESTAMP}.sql.gz"
+
+mkdir -p "$BACKUP_DIR"
+pg_dump "$DB_NAME" | gzip > "$FILE"
+
+# Hapus backup > 7 hari
+find "$BACKUP_DIR" -name "*.sql.gz" -mtime +7 -delete
+
+echo "Backup: $FILE ($(du -h "$FILE" | cut -f1))"
+```
+
+### Deploy dengan health check
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_URL="${APP_URL:-http://localhost:3000}"
+MAX_RETRIES=30
+
+deploy() {
+  echo "Pulling latest..."
+  git pull origin main
+
+  echo "Installing deps..."
+  npm ci --production
+
+  echo "Restarting..."
+  pm2 restart app
+}
+
+wait_healthy() {
+  local i=0
+  until curl -sf "$APP_URL/health" >/dev/null; do
+    ((i++)) || true
+    [ $i -ge $MAX_RETRIES ] && { echo "Health check timeout"; return 1; }
+    sleep 2
+  done
+  echo "App healthy"
+}
+
+deploy
+wait_healthy
+echo "Deploy sukses"
+```
+
+### Batch convert / process
+
+```bash
+#!/usr/bin/env bash
+# convert-images.sh — convert PNG ke WebP
+
+set -euo pipefail
+shopt -s nullglob
+
+for png in images/*.png; do
+  webp="${png%.png}.webp"
+  if [ ! -f "$webp" ] || [ "$png" -nt "$webp" ]; then
+    echo "Convert: $png"
+    cwebp -q 80 "$png" -o "$webp"
+  fi
+done
+
+echo "Selesai"
+```
+
+### Environment switcher
+
+```bash
+#!/usr/bin/env bash
+# use-env.sh dev|staging|prod
+
+ENV="${1:?Usage: $0 dev|staging|prod}"
+ENV_FILE=".env.$ENV"
+
+[ -f "$ENV_FILE" ] || { echo "File tidak ada: $ENV_FILE"; exit 1; }
+
+cp "$ENV_FILE" .env
+echo "Switched to $ENV"
+grep -v "SECRET\|PASSWORD\|KEY" .env   # tampilkan tanpa secret
+```
+
+---
+
+## Alias Berguna
+
+Alias mempersingkat perintah panjang — ideal untuk interaktif, bukan di skrip (gunakan fungsi di skrip).
+
+Tambahkan ke `~/.bashrc` atau `~/.zshrc`:
+
+```bash
+# Navigasi
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ll='ls -lah'
+alias la='ls -A'
+
+# Git singkat
+alias gs='git status -sb'
+alias gd='git diff'
+alias gl='git log --oneline -15'
+alias gp='git push'
+alias gpl='git pull'
+
+# Safety
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Docker
+alias d='docker'
+alias dc='docker compose'
+alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+
+# Dev
+alias ports='lsof -i -P -n | grep LISTEN'
+alias myip='curl -s ifconfig.me'
+
+# Reload config
+alias reload='source ~/.bashrc'    # atau source ~/.zshrc
+```
+
+Atau di `~/.bashrc` sebagai fungsi (lebih fleksibel dari alias):
+
+```bash
+# mkcd — buat folder dan masuk
+mkcd() { mkdir -p "$1" && cd "$1"; }
+
+# extract — ekstrak berbagai format
+extract() {
+  case "$1" in
+    *.tar.gz|*.tgz) tar -xzf "$1" ;;
+    *.zip) unzip "$1" ;;
+    *.tar) tar -xf "$1" ;;
+    *) echo "Format tidak didukung"; return 1 ;;
+  esac
+}
+
+# g — git dengan autocomplete branch (zsh/fzf)
+# gco $(git branch | fzf)
+```
+
+- **Alias**: pengganti string sederhana — tidak menerima argumen dengan mudah.
+- **Fungsi**: lebih powerful — argumen, logic, local variable.
+- **Jangan alias di skrip**: alias tidak expand di non-interactive shell kecuali `shopt -s expand_aliases`.
+
+---
+
+## Troubleshooting Umum
+
+### Permission denied
+
+```bash
+chmod +x script.sh
+# atau
+bash script.sh
+```
+
+### Bad interpreter / ^M (Windows line ending)
+
+```bash
+dos2unix script.sh
+# atau
+sed -i 's/\r$//' script.sh
+```
+
+### Command not found di cron
+
+Cron punya PATH minimal — set eksplisit di skrip:
+
+```bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+```
+
+### Variabel kosong / word splitting
+
+```bash
+# Salah
+rm -rf $DIR
+
+# Benar
+rm -rf "${DIR:?DIR must be set}"
+```
+
+### Loop tidak jalan / glob literal
+
+```bash
+shopt -s nullglob    # glob kosong = array kosong, bukan literal *.ext
+for f in *.mdx; do
+  [ -e "$f" ] || continue
+  process "$f"
+done
+```
+
+### Subshell — variabel tidak persist
+
+```bash
+count=0
+while read -r line; do
+  ((count++))
+done < file.txt
+# count berubah — tidak di pipe
+
+# Pipe creates subshell — count tetap 0:
+# cat file | while read line; do ((count++)); done
+```
+
+---
+
+## Ringkasan Cepat
+
+| Kategori | Sintaks / Perintah Utama |
+| --- | --- |
+| **Shebang** | `#!/usr/bin/env bash` |
+| **Variabel** | `VAR=val`, `$VAR`, `${VAR:-default}`, `export` |
+| **Quoting** | `'literal'`, `"expand $VAR"` |
+| **Substitution** | `$(command)`, `` `command` `` |
+| **Aritmetika** | `$((a + b))`, `((i++))` |
+| **Kondisi** | `if/then/elif/else/fi`, `case/esac` |
+| **Loop** | `for`, `while`, `until` |
+| **Fungsi** | `name() { ... }`, `local`, `return` |
+| **Argumen** | `$1`, `$#`, `$@`, `shift`, `getopts` |
+| **Exit code** | `$?`, `exit N`, `PIPESTATUS` |
+| **Pipe/redirect** | `\|`, `>`, `>>`, `2>`, `&>`, `<`, `<<` |
+| **Test** | `[ ]`, `[[ ]]`, `-f`, `-d`, `-z`, `-eq` |
+| **Logic** | `&&`, `\|\|`, `!` |
+| **Array** | `arr=(a b)`, `${arr[@]}`, `declare -A` |
+| **Heredoc** | `<< EOF`, `<< 'EOF'`, `<<-` |
+| **Trap** | `trap cmd EXIT`, `trap cmd INT TERM` |
+| **Debug** | `set -euxo pipefail`, `bash -x`, `shellcheck` |
+
+---
+
+## Penutup
+
+Enam fondasi Bash scripting: **variabel**, **quoting**, **kondisi**, **loop**, **fungsi**, dan **pipes/redirection**. Dengan keenamnya, Anda sudah bisa menulis skrip otomasi untuk tugas developer sehari-hari — dari backup database hingga deploy pipeline.
+
+Langkah berikutnya: aktifkan **strict mode** (`set -euo pipefail`), biasakan **`shellcheck`** sebelum commit, dan pelajari **`trap`** untuk skrip yang robust. Bash dan shell scripting punya banyak fitur — manfaatkan `help`, `man bash`, dan [Bash Reference Manual](https://www.gnu.org/software/bash/manual/) sebagai referensi resmi. Di Mac, ingat perbedaan **zsh interaktif** vs **Bash di skrip** — keduanya bisa hidup berdampingan tanpa konflik.

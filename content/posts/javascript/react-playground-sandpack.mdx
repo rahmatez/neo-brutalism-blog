@@ -1,0 +1,45 @@
+---
+title: "React Playground Interaktif dengan Sandpack"
+description: "Buat demo kode React yang bisa diedit dan dijalankan langsung di dalam artikel blog menggunakan Sandpack."
+date: "2025-06-18"
+category: javascript
+tags: ["react", "sandpack", "interaktif"]
+featured: true
+---
+
+## Mengapa Sandpack?
+
+**Sandpack** dari CodeSandbox memungkinkan Anda menyematkan editor kode dan preview langsung di artikel. Pembaca bisa bereksperimen tanpa meninggalkan halaman.
+
+<Callout type="info">
+Komponen Sandpack di bawah ini sepenuhnya interaktif — coba edit kodenya!
+</Callout>
+
+## Counter Sederhana
+
+<CounterDemo />
+
+## Animasi dengan React Spring
+
+Contoh lain menggunakan pola animasi:
+
+```tsx
+import { useSpring, animated } from "@react-spring/web";
+
+function FadeIn({ children }: { children: React.ReactNode }) {
+  const spring = useSpring({
+    from: { opacity: 0, transform: "translateY(20px)" },
+    to: { opacity: 1, transform: "translateY(0px)" },
+  });
+
+  return <animated.div style={spring}>{children}</animated.div>;
+}
+```
+
+<Callout type="warning">
+Sandpack berjalan di browser client. Pastikan komponen Anda tidak bergantung pada API server-only.
+</Callout>
+
+## Kesimpulan
+
+Kombinasi MDX + Sandpack membuat artikel tutorial jauh lebih efektif. Pembaca belajar dengan melakukan, bukan hanya membaca.
