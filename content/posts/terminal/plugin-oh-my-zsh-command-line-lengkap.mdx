@@ -179,34 +179,42 @@ Plugin paling populer — menyediakan **alias Git** yang mempersingkat perintah 
 | Alias | Perintah asli | Kegunaan |
 | --- | --- | --- |
 | `g` | `git` | Prefix cepat untuk semua subcommand |
+| `gst` | `git status` | Lihat status working tree |
+| `gss` | `git status --short` | Status ringkas (format pendek) |
 | `ga` | `git add` | Stage file |
 | `gaa` | `git add --all` | Stage semua perubahan |
-| `gc` | `git commit` | Commit |
-| `gcm` | `git commit -m` | Commit dengan pesan |
+| `gcmsg` | `git commit --message` | Commit dengan pesan |
+| `gcam` | `git commit --all --message` | Stage file tracked lalu commit |
+| `gc` | `git commit --verbose` | Commit dengan output detail |
 | `gp` | `git push` | Push ke remote |
 | `gl` | `git pull` | Pull dari remote |
-| `gst` / `gs` | `git status` | Lihat status working tree |
 | `gco` | `git checkout` | Pindah branch / restore file |
+| `gcb` | `git checkout -b` | Buat branch baru dan pindah |
+| `gcm` | `git checkout $(git_main_branch)` | Pindah ke branch main/master |
 | `gb` | `git branch` | Kelola branch |
-| `gba` | `git branch -a` | Semua branch (lokal + remote) |
+| `gba` | `git branch --all` | Semua branch (lokal + remote) |
 | `gd` | `git diff` | Lihat perbedaan |
-| `glog` | `git log` (format grafis) | History commit yang rapi |
-| `gcl` | `git clone` | Clone repository |
+| `glog` | `git log --oneline --decorate --graph` | History commit yang rapi |
+| `gcl` | `git clone --recurse-submodules` | Clone repository beserta submodule |
 
 ### Contoh workflow harian
 
 ```bash
 gst                    # cek status
 gaa                    # stage semua
-gcm "fix: update config"
+gcmsg "fix: update config"
 gp                     # push
 ```
 
 ```bash
-gco -b feature/login   # buat & pindah branch baru
-gco main               # kembali ke main
+gcb feature/login      # buat & pindah branch baru
+gcm                    # kembali ke main/master
 gl                     # pull terbaru
 ```
+
+<Callout type="warning">
+Jangan pakai `gcm` untuk commit — alias itu untuk **pindah ke branch main**. Untuk commit dengan pesan, gunakan `gcmsg` atau `gcam`.
+</Callout>
 
 <Callout type="tip">
 Lihat semua alias Git yang aktif: `alias | grep git` atau buka `~/.oh-my-zsh/plugins/git/git.plugin.zsh`.
