@@ -1,0 +1,682 @@
+---
+title: "Plugin Oh My Zsh Command Line Lengkap"
+description: "Panduan lengkap plugin Oh My Zsh di macOS: instalasi, zsh-autosuggestions, zsh-syntax-highlighting, git, macos, docker, npm, composer, copypath, ssh-agent, dan konfigurasi .zshrc."
+date: "2025-06-26"
+category: terminal
+tags: ["zsh", "oh-my-zsh", "macos", "terminal", "cli", "tutorial"]
+featured: false
+---
+
+**Oh My Zsh** adalah framework populer untuk mengelola konfigurasi **Zsh** — shell default di macOS sejak Catalina. Alih-alih menulis ratusan alias dan fungsi sendiri, Anda cukup mengaktifkan **plugin** yang sudah disiapkan komunitas. Hasilnya: terminal lebih cepat, perintah lebih pendek, dan workflow developer jauh lebih nyaman.
+
+<Callout type="tip">
+Cek shell aktif dengan `echo $SHELL`. Jika output `/bin/zsh`, Anda sudah memakai Zsh. File konfigurasi utama berada di `~/.zshrc`.
+</Callout>
+
+## Konsep Dasar
+
+Sebelum masuk ke plugin, pahami bagaimana Oh My Zsh bekerja di Mac Anda:
+
+| Konsep | Penjelasan |
+| --- | --- |
+| **Zsh** | Shell modern dengan autocomplete, globbing, dan scripting yang lebih kaya dari Bash |
+| **Oh My Zsh** | Framework di atas Zsh — tema, plugin, dan helper siap pakai |
+| **Plugin** | Modul kecil yang menambah alias, fungsi, atau autocomplete |
+| **Tema** | Tampilan prompt (mis. `robbyrussell`, `agnoster`, `powerlevel10k`) |
+| **`.zshrc`** | File konfigurasi utama — tempat `plugins=(...)` dan `ZSH_THEME` didefinisikan |
+| **`$ZSH`** | Path instalasi Oh My Zsh, biasanya `~/.oh-my-zsh` |
+| **Custom plugins** | Plugin pihak ketiga di `~/.oh-my-zsh/custom/plugins/` |
+
+### Struktur folder penting
+
+```bash
+~/.zshrc                              # konfigurasi utama
+~/.oh-my-zsh/                         # instalasi framework
+~/.oh-my-zsh/plugins/                 # plugin bawaan (git, macos, docker, ...)
+~/.oh-my-zsh/custom/plugins/          # plugin pihak ketiga
+~/.oh-my-zsh/themes/                  # tema prompt
+```
+
+### Perintah informasi dasar
+
+```bash
+echo $SHELL                 # shell login saat ini
+zsh --version               # versi Zsh
+echo $ZSH                   # path instalasi Oh My Zsh
+omz version                 # versi Oh My Zsh (jika tersedia)
+omz update                  # update Oh My Zsh ke versi terbaru
+omz reload                  # reload konfigurasi tanpa tutup Terminal
+```
+
+---
+
+## Instalasi Oh My Zsh
+
+Jika Oh My Zsh belum terpasang, instal lewat skrip resmi:
+
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
+
+Setelah instalasi, file `~/.zshrc` dibuat otomatis. Buka dan sesuaikan:
+
+```bash
+nano ~/.zshrc
+# atau
+code ~/.zshrc
+```
+
+Contoh blok dasar di `.zshrc`:
+
+```bash
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  copyfile
+  copybuffer
+  jsontools
+  macos
+  copypath
+  composer
+  npm
+  docker
+  ssh-agent
+)
+
+source $ZSH/oh-my-zsh.sh
+```
+
+<Callout type="warning">
+Plugin `zsh-autosuggestions` dan `zsh-syntax-highlighting` **bukan** bawaan Oh My Zsh. Anda harus mengklonnya manual ke folder custom (lihat bagian berikutnya). Tanpa itu, Zsh akan error saat startup.
+</Callout>
+
+---
+
+## Instalasi Plugin Pihak Ketiga
+
+Dua plugin paling direkomendasikan untuk pengalaman Zsh modern:
+
+### `zsh-autosuggestions`
+
+Menampilkan saran perintah abu-abu berdasarkan **history** — tekan `→` (panah kanan) atau `End` untuk menerima saran.
+
+```bash
+git clone https://github.com/zsh-users/zsh-autosuggestions \
+  ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+```
+
+**Shortcut penting:**
+
+| Tombol | Aksi |
+| --- | --- |
+| `→` | Terima saran satu kata / seluruh saran |
+| `Ctrl + →` | Terima satu kata saja (default) |
+| `Ctrl + Space` | Toggle saran (tergantung konfigurasi) |
+
+Opsi opsional di `.zshrc` (sebelum `source $ZSH/oh-my-zsh.sh`):
+
+```bash
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#666666"
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+```
+
+### `zsh-syntax-highlighting`
+
+Memberi warna pada perintah saat Anda mengetik — hijau jika valid, merah jika perintah tidak ditemukan.
+
+```bash
+git clone https://github.com/zsh-users/zsh-syntax-highlighting \
+  ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+```
+
+<Callout type="info">
+**Urutan plugin penting:** `zsh-syntax-highlighting` harus berada **paling akhir** di array `plugins=(...)`. Konfigurasi di atas sudah benar.
+</Callout>
+
+Setelah menambah plugin, reload:
+
+```bash
+source ~/.zshrc
+# atau
+omz reload
+```
+
+---
+
+## Konfigurasi Plugin yang Direkomendasikan
+
+Berikut penjelasan lengkap setiap plugin dalam daftar konfigurasi produksi:
+
+```bash
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  copyfile
+  copybuffer
+  jsontools
+  macos
+  copypath
+  composer
+  npm
+  docker
+  ssh-agent
+)
+```
+
+---
+
+## Plugin `git`
+
+Plugin paling populer — menyediakan **alias Git** yang mempersingkat perintah sehari-hari.
+
+### Alias yang sering dipakai
+
+| Alias | Perintah asli | Kegunaan |
+| --- | --- | --- |
+| `g` | `git` | Prefix cepat untuk semua subcommand |
+| `ga` | `git add` | Stage file |
+| `gaa` | `git add --all` | Stage semua perubahan |
+| `gc` | `git commit` | Commit |
+| `gcm` | `git commit -m` | Commit dengan pesan |
+| `gp` | `git push` | Push ke remote |
+| `gl` | `git pull` | Pull dari remote |
+| `gst` / `gs` | `git status` | Lihat status working tree |
+| `gco` | `git checkout` | Pindah branch / restore file |
+| `gb` | `git branch` | Kelola branch |
+| `gba` | `git branch -a` | Semua branch (lokal + remote) |
+| `gd` | `git diff` | Lihat perbedaan |
+| `glog` | `git log` (format grafis) | History commit yang rapi |
+| `gcl` | `git clone` | Clone repository |
+
+### Contoh workflow harian
+
+```bash
+gst                    # cek status
+gaa                    # stage semua
+gcm "fix: update config"
+gp                     # push
+```
+
+```bash
+gco -b feature/login   # buat & pindah branch baru
+gco main               # kembali ke main
+gl                     # pull terbaru
+```
+
+<Callout type="tip">
+Lihat semua alias Git yang aktif: `alias | grep git` atau buka `~/.oh-my-zsh/plugins/git/git.plugin.zsh`.
+</Callout>
+
+---
+
+## Plugin `zsh-autosuggestions`
+
+Tidak menambah alias baru — plugin ini meningkatkan **interaktivitas** terminal.
+
+### Cara kerja
+
+1. Anda mulai mengetik perintah
+2. Zsh mencari kecocokan di history (`~/.zsh_history`)
+3. Saran muncul dalam warna abu-abu di ujung baris
+4. Tekan `→` untuk menerima
+
+### Tips produktivitas
+
+```bash
+# History tersimpan lebih banyak baris
+echo 'export HISTSIZE=10000' >> ~/.zshrc
+echo 'export SAVEHIST=10000' >> ~/.zshrc
+
+# Hindari duplikat berurutan di history
+echo 'setopt HIST_IGNORE_DUPS' >> ~/.zshrc
+echo 'setopt HIST_IGNORE_ALL_DUPS' >> ~/.zshrc
+```
+
+Kapan dipakai: saat mengulang perintah `docker compose up`, `npm run dev`, atau `git pull` yang sama setiap hari — cukup ketik beberapa huruf awal, lalu terima saran.
+
+---
+
+## Plugin `zsh-syntax-highlighting`
+
+Memberi umpan balik visual **real-time** saat mengetik di prompt.
+
+| Warna | Arti |
+| --- | --- |
+| **Hijau** | Perintah ditemukan dan valid |
+| **Merah** | Perintah tidak dikenal / typo |
+| **Kuning** | String dalam quotes |
+| **Cyan** | Flag / opsi |
+| **Biru** | Path file/direktori yang ada |
+
+Kapan dipakai: mencegah typo sebelum menekan Enter — misalnya `dcoker` langsung terlihat merah, bukan `docker`.
+
+---
+
+## Plugin `copyfile`
+
+Menyalin **isi file** ke clipboard macOS.
+
+```bash
+copyfile package.json
+# isi package.json sekarang ada di clipboard — paste dengan Cmd+V
+```
+
+| Fungsi | Deskripsi |
+| --- | --- |
+| `copyfile <file>` | Salin seluruh isi file ke clipboard |
+
+Kapan dipakai: berbagi isi config, log, atau snippet file tanpa `cat` + seleksi manual.
+
+---
+
+## Plugin `copybuffer`
+
+Menyalin **baris perintah yang sedang diketik** (belum di-Enter) ke clipboard.
+
+```bash
+# Ketik perintah panjang di prompt, lalu:
+copybuffer
+# baris perintah tersalin — paste ke editor atau dokumentasi
+```
+
+| Fungsi | Deskripsi |
+| --- | --- |
+| `copybuffer` | Salin buffer perintah saat ini ke clipboard |
+
+Kapan dipakai: Anda menulis perintah panjang di terminal dan ingin memindahkannya ke README, Slack, atau tiket tanpa mengetik ulang.
+
+---
+
+## Plugin `copypath`
+
+Menyalin **path absolut** file atau folder ke clipboard.
+
+```bash
+cd ~/Developer/Project/blog-neo
+copypath
+# clipboard: /Users/username/Developer/Project/blog-neo
+
+copypath package.json
+# clipboard: /Users/username/Developer/Project/blog-neo/package.json
+```
+
+| Fungsi | Deskripsi |
+| --- | --- |
+| `copypath` | Salin path working directory saat ini |
+| `copypath <file>` | Salin path absolut file/folder |
+
+Kapan dipakai: drag-drop path ke IDE, share lokasi file ke rekan tim, atau tempel ke perintah lain.
+
+---
+
+## Plugin `jsontools`
+
+Koleksi helper untuk **membaca, memfilter, dan memvalidasi JSON** di terminal.
+
+### Fungsi utama
+
+| Fungsi | Deskripsi |
+| --- | --- |
+| `is_json <string>` | Return 0 jika string valid JSON |
+| `is_json < file.json` | Cek apakah file berisi JSON valid |
+| `json_pp` | Pretty-print JSON dari stdin |
+| `json_pp < file.json` | Pretty-print file JSON |
+
+### Contoh penggunaan
+
+```bash
+# Pretty-print response API
+curl -s https://api.github.com/users/octocat | json_pp
+
+# Validasi file JSON
+is_json < tsconfig.json && echo "valid" || echo "invalid"
+
+# Pretty-print lalu simpan
+cat data.json | json_pp > data-formatted.json
+```
+
+Kapan dipakai: debug API, inspeksi response `curl`, atau memastikan file konfigurasi JSON tidak corrupt sebelum deploy.
+
+<Callout type="tip">
+Untuk manipulasi JSON lebih advanced, pertimbangkan juga `jq` (`brew install jq`). Plugin `jsontools` fokus pada validasi dan pretty-print cepat tanpa dependensi ekstra.
+</Callout>
+
+---
+
+## Plugin `macos`
+
+Fungsi khusus **macOS** — integrasi dengan Finder, clipboard, volume, dan jendela Terminal.
+
+### Fungsi yang paling berguna
+
+| Fungsi | Deskripsi |
+| --- | --- |
+| `tab` | Buka tab Terminal baru |
+| `split_tab` | Buka split pane (jika Terminal mendukung) |
+| `ofd` | Buka Finder di working directory saat ini |
+| `cdf` | `cd` ke folder frontmost Finder |
+| `quick-look <file>` | Preview file dengan Quick Look (spasi) |
+| `showfiles` | Tampilkan file tersembunyi di Finder |
+| `hidefiles` | Sembunyikan file tersembunyi di Finder |
+| `emptytrash` | Kosongkan Trash |
+| `copyfile` | (overlap dengan plugin copyfile) |
+| `osx-rm-dir-metadata` | Hapus metadata .DS_Store di folder |
+
+### Contoh workflow
+
+```bash
+# Buka Finder di folder proyek
+ofd
+
+# Pindah ke folder yang sedang dibuka di Finder
+cdf
+
+# Preview README tanpa buka aplikasi
+quick-look README.md
+
+# Buka tab baru untuk menjalankan server
+tab
+npm run dev
+```
+
+Kapan dipakai: developer Mac yang bolak-balik antara Terminal dan Finder — menghindari klik manual di GUI.
+
+---
+
+## Plugin `composer`
+
+Alias untuk **PHP Composer** — package manager PHP.
+
+### Alias utama
+
+| Alias | Perintah asli |
+| --- | --- |
+| `c` | `composer` |
+| `co` | `composer` |
+| `ci` | `composer install` |
+| `cu` | `composer update` |
+| `cd` | `composer dump-autoload` |
+| `cga` | `composer global require` |
+| `cgau` | `composer global update` |
+| `cso` | `composer show` |
+| `cspf` | `composer self-update` |
+
+### Contoh
+
+```bash
+ci                     # composer install
+cu                     # composer update
+c require laravel/sanctum
+c dump-autoload -o     # optimasi autoload production
+```
+
+Kapan dipakai: proyek PHP/Laravel sehari-hari — mengurangi pengetikan `composer` berulang.
+
+<Callout type="warning">
+Alias `cd` dari plugin composer **bukan** `change directory` shell — itu `composer dump-autoload`. Untuk pindah folder tetap pakai `cd` bawaan Zsh.
+</Callout>
+
+---
+
+## Plugin `npm`
+
+Alias untuk **npm** — package manager Node.js.
+
+### Alias utama
+
+| Alias | Perintah asli |
+| --- | --- |
+| `npm` | `npm` (beberapa wrapper) |
+| `ni` | `npm install` |
+| `nid` | `npm install --save-dev` |
+| `nis` | `npm install --save` |
+| `nu` | `npm uninstall` |
+| `nr` | `npm run` |
+| `nb` | `npm run build` |
+| `ns` | `npm start` |
+| `nt` | `npm test` |
+| `nv` | `npm version` |
+| `npb` | `npm publish` |
+| `nci` | `npm ci` |
+
+### Contoh workflow Node.js
+
+```bash
+ni                     # npm install
+nid typescript -D      # install dev dependency
+nr dev                 # npm run dev
+nr build               # npm run build
+nt                     # npm test
+nci                    # clean install (CI/production)
+```
+
+Kapan dipakai: proyek Next.js, React, atau monorepo JavaScript — perintah sehari-hari jadi 2–3 huruf.
+
+---
+
+## Plugin `docker`
+
+Alias untuk **Docker** dan **Docker Compose**.
+
+### Alias Docker
+
+| Alias | Perintah asli |
+| --- | --- |
+| `d` | `docker` |
+| `dc` | `docker compose` |
+| `dps` | `docker ps` |
+| `dpsa` | `docker ps -a` |
+| `di` | `docker images` |
+| `dex` | `docker exec -it` |
+| `drm` | `docker rm` |
+| `drmi` | `docker rmi` |
+| `dlo` | `docker logs` |
+| `dstop` | `docker stop` |
+| `dstart` | `docker start` |
+
+### Contoh
+
+```bash
+dps                    # container yang berjalan
+dpsa                   # semua container
+dex my-container bash  # masuk ke container
+dc up -d               # docker compose up detached
+dc down                # stop & hapus container compose
+dlo -f api             # tail log container api
+```
+
+Kapan dipakai: development dengan Docker — stack LEMP, database lokal, atau microservices.
+
+---
+
+## Plugin `ssh-agent`
+
+Mengelola **ssh-agent** otomatis saat Terminal dibuka — Anda tidak perlu menjalankan `ssh-add` manual setiap sesi.
+
+### Cara kerja
+
+1. Saat Zsh startup, plugin mengecek apakah `ssh-agent` sudah berjalan
+2. Jika belum, agent dimulai dan environment variable di-set
+3. Kunci SSH di `~/.ssh` (default) ditambahkan ke agent
+
+### Konfigurasi opsional di `.zshrc`
+
+```bash
+# Hanya tambahkan kunci tertentu (bukan semua di ~/.ssh)
+zstyle :omz:plugins:ssh-agent identities id_rsa id_ed25519 github
+
+# Atau path eksplisit
+zstyle :omz:plugins:ssh-agent identities ~/.ssh/id_ed25519 ~/.ssh/id_rsa_work
+
+# Jangan confirm passphrase berulang dalam satu sesi
+zstyle :omz:plugins:ssh-agent quiet yes
+```
+
+### Verifikasi
+
+```bash
+ssh-add -l              # daftar kunci yang dimuat di agent
+ssh -T git@github.com   # tes koneksi GitHub SSH
+```
+
+Kapan dipakai: `git push` via SSH, deploy ke server, atau `scp`/`rsync` tanpa memasukkan passphrase berulang kali.
+
+<Callout type="warning">
+Simpan baris `zstyle` **sebelum** `plugins=(...)` atau sebelum `source $ZSH/oh-my-zsh.sh`. Jangan commit private key ke repository — hanya konfigurasi identity path.
+</Callout>
+
+---
+
+## Tabel Ringkasan Semua Plugin
+
+| Plugin | Tipe | Fungsi utama |
+| --- | --- | --- |
+| `git` | Bawaan | Alias Git (`gst`, `gco`, `gp`, ...) |
+| `zsh-autosuggestions` | Pihak ketiga | Saran perintah dari history |
+| `zsh-syntax-highlighting` | Pihak ketiga | Highlight warna perintah valid/invalid |
+| `copyfile` | Bawaan | Salin isi file ke clipboard |
+| `copybuffer` | Bawaan | Salin baris perintah ke clipboard |
+| `jsontools` | Bawaan | Validasi & pretty-print JSON |
+| `macos` | Bawaan | Integrasi Finder, Quick Look, tab Terminal |
+| `copypath` | Bawaan | Salin path absolut ke clipboard |
+| `composer` | Bawaan | Alias PHP Composer |
+| `npm` | Bawaan | Alias npm |
+| `docker` | Bawaan | Alias Docker & Compose |
+| `ssh-agent` | Bawaan | Auto-start ssh-agent & ssh-add |
+
+---
+
+## Troubleshooting
+
+### Error `plugin 'zsh-autosuggestions' not found`
+
+Plugin belum diklon ke folder custom:
+
+```bash
+git clone https://github.com/zsh-users/zsh-autosuggestions \
+  ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+```
+
+### Syntax highlighting tidak berfungsi
+
+1. Pastikan `zsh-syntax-highlighting` ada di folder custom
+2. Pastikan plugin ini **paling akhir** di array `plugins=(...)`
+3. Reload: `source ~/.zshrc`
+
+### Terminal lambat saat startup
+
+Terlalu banyak plugin memperlambat Zsh. Solusi:
+
+```bash
+# Ukur waktu startup
+time zsh -i -c exit
+
+# Nonaktifkan plugin yang jarang dipakai
+# Misalnya comment plugin composer jika tidak develop PHP
+```
+
+### Alias bentrok
+
+Plugin `composer` mendefinisikan `cd` sebagai `composer dump-autoload`. Jika membingungkan, nonaktifkan plugin atau override:
+
+```bash
+# Setelah source $ZSH/oh-my-zsh.sh
+unalias cd 2>/dev/null
+```
+
+### `ssh-agent` meminta passphrase terus
+
+```bash
+zstyle :omz:plugins:ssh-agent quiet yes
+zstyle :omz:plugins:ssh-agent identities id_ed25519
+```
+
+Pastikan keychain macOS mengingat passphrase (opsional):
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
+
+---
+
+## File `.zshrc` Lengkap (Contoh Produksi)
+
+```bash
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+
+# ssh-agent: kunci mana yang di-load
+zstyle :omz:plugins:ssh-agent identities id_ed25519
+zstyle :omz:plugins:ssh-agent quiet yes
+
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  copyfile
+  copybuffer
+  jsontools
+  macos
+  copypath
+  composer
+  npm
+  docker
+  ssh-agent
+)
+
+# Autosuggestions
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#666666"
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
+# History
+HISTSIZE=10000
+SAVEHIST=10000
+setopt HIST_IGNORE_ALL_DUPS
+setopt SHARE_HISTORY
+
+source $ZSH/oh-my-zsh.sh
+
+# Alias custom (opsional)
+alias ll='ls -lah'
+alias dev='npm run dev'
+```
+
+---
+
+## Plugin Lain yang Patut Dicoba
+
+Jika setup di atas sudah nyaman, pertimbangkan menambah:
+
+| Plugin | Kegunaan |
+| --- | --- |
+| `z` | Lompat cepat ke folder yang sering dikunjungi (`z blog-neo`) |
+| `extract` | Ekstrak arsip apa pun: `extract file.tar.gz` |
+| `sudo` | Tekan `ESC` dua kali untuk prepend `sudo` ke perintah |
+| `colored-man-pages` | Halaman `man` berwarna |
+| `command-not-found` | Saran package Homebrew jika perintah tidak ditemukan |
+| `vscode` | Buka VS Code dari terminal (`code .`) |
+
+Instal plugin bawaan cukup menambah nama ke array `plugins=(...)`. Plugin pihak ketiga perlu diklon ke `~/.oh-my-zsh/custom/plugins/`.
+
+---
+
+## Kesimpulan
+
+Kombinasi 12 plugin Oh My Zsh di atas mencakup workflow developer modern di Mac:
+
+- **Produktivitas shell** — autosuggestions & syntax highlighting
+- **Version control** — alias Git
+- **Clipboard & path** — copyfile, copybuffer, copypath
+- **Stack development** — npm, composer, docker
+- **macOS native** — Finder, Quick Look, tab
+- **Keamanan** — ssh-agent otomatis
+- **Data** — jsontools untuk JSON
+
+Mulai dari konfigurasi minimal, lalu tambah plugin sesuai stack Anda. Jangan aktifkan semua plugin sekaligus — ukur kecepatan startup dengan `time zsh -i -c exit` dan sesuaikan.
+
+Langkah berikutnya: eksplor tema prompt ([Powerlevel10k](https://github.com/romkatv/powerlevel10k)) atau pasangkan dengan [Homebrew](/posts/terminal/perintah-homebrew-command-line-lengkap) dan [perintah Git](/posts/terminal/perintah-git-command-line-lengkap) untuk workflow terminal yang lengkap.

@@ -21,10 +21,10 @@ export function PostCard({ post }: { post: PostSummary }) {
         <span>· {post.readingMinutes} min baca</span>
       </div>
 
-      <h2 className="text-xl font-black leading-tight">{post.meta.title}</h2>
+      <h2 className="line-clamp-3 text-xl font-black leading-tight">{post.meta.title}</h2>
       <p className="mt-2 line-clamp-3 text-sm text-zinc-700">{post.meta.description}</p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex min-h-9 flex-wrap content-start gap-2">
         {post.meta.tags.slice(0, 3).map((tag) => (
           <span
             key={tag}
@@ -36,16 +36,18 @@ export function PostCard({ post }: { post: PostSummary }) {
         ))}
       </div>
 
-      <Link
-        href={href}
-        className="mt-5 inline-flex w-fit rounded-lg border-2 border-black px-3 py-2 text-sm font-bold transition hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none"
-        style={{
-          background: "var(--nb-surface)",
-          boxShadow: "4px 4px 0 var(--nb-shadow)"
-        }}
-      >
-        Baca artikel
-      </Link>
+      <div className="mt-auto pt-5">
+        <Link
+          href={href}
+          className="inline-flex w-fit rounded-lg border-2 border-black px-3 py-2 text-sm font-bold transition hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none"
+          style={{
+            background: "var(--nb-surface)",
+            boxShadow: "4px 4px 0 var(--nb-shadow)"
+          }}
+        >
+          Baca artikel
+        </Link>
+      </div>
     </article>
   );
 }

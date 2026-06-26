@@ -117,10 +117,9 @@ export default async function PostDetailPage({ params }: Props) {
           </div>
         </header>
 
-        <PostToc items={tocItems} />
-
-        <section className="article-page-content neo-shell min-w-0 max-w-full overflow-x-hidden p-4 md:p-8">
-          <div className="prose-neo">
+        <div className="article-page-body">
+          <section className="article-page-content neo-shell min-w-0 max-w-full overflow-x-hidden p-4 md:p-8">
+            <div className="prose-neo">
             <MDXRemote
               source={post.content}
               components={mdxComponents}
@@ -141,13 +140,16 @@ export default async function PostDetailPage({ params }: Props) {
                 }
               }}
             />
-          </div>
+            </div>
 
-          <div className="mt-10 border-t-2 border-black pt-8">
-            <PostNavigation prev={prev} next={next} />
-            <RelatedPosts posts={relatedPosts} />
-          </div>
-        </section>
+            <div className="mt-10 border-t-2 border-black pt-8">
+              <PostNavigation prev={prev} next={next} />
+              <RelatedPosts posts={relatedPosts} />
+            </div>
+          </section>
+
+          <PostToc items={tocItems} />
+        </div>
       </div>
     </article>
   );

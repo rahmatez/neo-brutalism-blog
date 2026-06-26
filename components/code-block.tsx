@@ -79,7 +79,7 @@ export function CodeBlock({ children }: CodeBlockProps) {
             color: "var(--nb-surface)"
           }}
         >
-          {copied ? "COPIED" : "COPIAR"}
+          {copied ? "COPIED" : "COPY"}
         </button>
       </div>
       <div className="px-4 py-4 text-sm leading-relaxed text-zinc-200" style={{ background: "var(--nb-foreground)" }}>

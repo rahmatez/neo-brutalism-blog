@@ -41,7 +41,7 @@ export function PostToc({ items }: { items: TocItem[] }) {
         </details>
       ) : null}
 
-      <aside className="article-page-toc neo-shell hidden flex-col p-4 md:sticky md:top-6 md:flex md:max-h-[calc(100vh-3rem)] md:self-start md:overflow-hidden">
+      <aside className="article-page-toc neo-shell hidden flex-col p-4 md:flex">
         <p className="mb-3 shrink-0 text-sm font-black uppercase tracking-wider">Daftar Isi</p>
         {hasItems ? (
           <nav

@@ -52,11 +52,11 @@ export default function RootLayout({
   const searchPosts = getAllPosts().map(toSearchablePost);
 
   return (
-    <html lang="id">
-      <body className={inter.className}>
+    <html lang="id" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
         <NeoProvider>
           <CommandSearchProvider posts={searchPosts}>
-            <main className="mx-auto w-full min-w-0 max-w-6xl overflow-x-hidden px-3 py-6 sm:px-4 md:px-8 md:py-8">
+            <main className="mx-auto w-full min-w-0 max-w-6xl px-3 py-6 sm:px-4 md:px-8 md:py-8">
               <SiteHeader />
               {children}
               <SiteFooter />

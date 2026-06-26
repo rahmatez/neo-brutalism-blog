@@ -24,7 +24,7 @@ export function NeoMdxTable({
       <Table
         {...props}
         className={cx(
-          "w-max min-w-full border-4 border-black bg-(--nb-surface)",
+          "w-full table-fixed border-4 border-black bg-(--nb-surface)",
           className
         )}
       >
@@ -63,7 +63,7 @@ export function NeoMdxTableHead({
     <TableHead
       {...props}
       className={cx(
-        "border-r-2 border-black px-3 py-2 text-left text-sm font-black uppercase tracking-wide last:border-r-0 md:px-5 md:py-3 md:text-base",
+        "whitespace-normal wrap-break-word border-r-2 border-black px-3 py-2 text-left text-sm font-black uppercase tracking-wide last:border-r-0 md:px-5 md:py-3 md:text-base",
         className
       )}
     />
@@ -78,7 +78,7 @@ export function NeoMdxTableCell({
     <TableCell
       {...props}
       className={cx(
-        "border-r-2 border-black px-3 py-3 text-left align-top text-sm font-semibold leading-6 last:border-r-0 md:px-5 md:py-4 md:text-[1.02rem] md:leading-7",
+        "whitespace-normal wrap-break-word border-r-2 border-black px-3 py-3 text-left text-sm font-semibold leading-6 last:border-r-0 md:px-5 md:py-4 md:text-[1.02rem] md:leading-7",
         className
       )}
     />
