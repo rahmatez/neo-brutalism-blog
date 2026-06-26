@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { getAllPosts, getCategorySummaries, toPostSummary } from "@/lib/posts";
+import { getAllPostSummaries, getCategorySummaries } from "@/lib/posts";
 import { SiteBreadcrumb } from "@/components/site-breadcrumb";
 import { ArticleListExplorer } from "@/components/article-list-explorer";
 
 export default function ArtikelPage() {
-  const posts = getAllPosts().map(toPostSummary);
+  const posts = getAllPostSummaries();
   const categories = getCategorySummaries();
 
   return (

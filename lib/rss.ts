@@ -1,4 +1,4 @@
-import { getAllPosts } from "@/lib/posts";
+import { getAllPostSummaries } from "@/lib/posts";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 
 function escapeXml(value: string) {
@@ -11,7 +11,7 @@ function escapeXml(value: string) {
 }
 
 export function buildRssFeed() {
-  const posts = getAllPosts().slice(0, 50);
+  const posts = getAllPostSummaries().slice(0, 50);
   const updatedAt = posts[0]?.meta.date ?? new Date().toISOString().slice(0, 10);
 
   const items = posts

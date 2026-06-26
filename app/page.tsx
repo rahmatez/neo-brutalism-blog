@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { getAllPosts, getFeaturedPosts } from "@/lib/posts";
+import { getAllPostSummaries, getFeaturedPosts, getCategorySummaries } from "@/lib/posts";
 import { PostCard } from "@/components/post-card";
-import { getCategorySummaries } from "@/lib/posts";
 import {
   clampPage,
   getTotalPages,
@@ -14,9 +13,11 @@ type HomeProps = {
   searchParams: Promise<{ page?: string }>;
 };
 
+export const revalidate = 3600;
+
 export default async function HomePage({ searchParams }: HomeProps) {
   const sp = await searchParams;
-  const posts = getAllPosts();
+  const posts = getAllPostSummaries();
   const featuredPosts = getFeaturedPosts();
   const categorySummaries = getCategorySummaries();
   const heroCategories = [...categorySummaries]

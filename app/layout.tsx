@@ -5,12 +5,11 @@ import { NeoProvider } from "@/components/neo-provider";
 import { CommandSearchProvider } from "@/components/command-search";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { getAllPosts } from "@/lib/posts";
-import { toSearchablePost } from "@/lib/search";
+import { getSearchablePosts } from "@/lib/search-data";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -49,7 +48,7 @@ export default function RootLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
-  const searchPosts = getAllPosts().map(toSearchablePost);
+  const searchPosts = getSearchablePosts();
 
   return (
     <html lang="id" suppressHydrationWarning>

@@ -1,5 +1,5 @@
-import type { Post, PostSummary } from "@/lib/posts";
-import { getAllPosts, toPostSummary } from "@/lib/posts";
+import type { PostSummary } from "@/lib/posts";
+import { getAllPostSummaries, toPostSummary } from "@/lib/posts";
 
 export type AdjacentPosts = {
   prev: PostSummary | null;
@@ -7,7 +7,7 @@ export type AdjacentPosts = {
 };
 
 export function getAdjacentPosts(slug: string): AdjacentPosts {
-  const posts = getAllPosts();
+  const posts = getAllPostSummaries();
   const index = posts.findIndex((post) => post.slug === slug);
 
   if (index === -1) {
@@ -20,7 +20,7 @@ export function getAdjacentPosts(slug: string): AdjacentPosts {
   };
 }
 
-function scoreRelatedPost(current: Post, candidate: Post): number {
+function scoreRelatedPost(current: PostSummary, candidate: PostSummary): number {
   let score = 0;
 
   if (candidate.meta.category === current.meta.category) {
@@ -37,7 +37,7 @@ function scoreRelatedPost(current: Post, candidate: Post): number {
 }
 
 export function getRelatedPosts(slug: string, limit = 4): PostSummary[] {
-  const posts = getAllPosts();
+  const posts = getAllPostSummaries();
   const current = posts.find((post) => post.slug === slug);
 
   if (!current) return [];

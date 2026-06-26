@@ -27,16 +27,14 @@ export type Post = {
 
 export type PostSummary = Pick<Post, "slug" | "slugParts" | "meta" | "readingMinutes">;
 
-export function toPostSummary(post: Post): PostSummary {
-  const { slug, slugParts, meta, readingMinutes } = post;
-  return { slug, slugParts, meta, readingMinutes };
-}
-
 export type CategorySummary = {
   name: string;
   slug: string;
   count: number;
 };
+
+let cachedSummaries: PostSummary[] | null = null;
+const postCache = new Map<string, Post>();
 
 function walkMdxFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -68,48 +66,77 @@ function normalizeMeta(data: Record<string, unknown>): PostMeta {
   };
 }
 
-export function getAllPosts(): Post[] {
-  const files = walkMdxFiles(POSTS_ROOT);
+function parsePostFile(filePath: string): Post {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const { data, content } = matter(raw);
+  const meta = normalizeMeta(data as Record<string, unknown>);
+  const slugPath = path.relative(POSTS_ROOT, filePath).replace(/\.mdx$/, "");
+  const slugParts = slugPath.split(path.sep);
+  const slug = slugParts.join("/");
 
-  const posts = files.map((filePath) => {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const { data, content } = matter(raw);
-    const meta = normalizeMeta(data as Record<string, unknown>);
-    const slugPath = path.relative(POSTS_ROOT, filePath).replace(/\.mdx$/, "");
-    const slugParts = slugPath.split(path.sep);
-    const slug = slugParts.join("/");
-
-    return {
-      slug,
-      slugParts,
-      content,
-      meta,
-      readingMinutes: Math.max(1, Math.round(readingTime(content).minutes))
-    };
-  });
-
-  return posts.sort((a, b) => b.meta.date.localeCompare(a.meta.date));
+  return {
+    slug,
+    slugParts,
+    content,
+    meta,
+    readingMinutes: Math.max(1, Math.round(readingTime(content).minutes))
+  };
 }
 
-export function getFeaturedPosts(limit = 4): Post[] {
-  return getAllPosts()
+function loadPostSummaries(): PostSummary[] {
+  const summaries = walkMdxFiles(POSTS_ROOT).map((filePath) => {
+    const post = parsePostFile(filePath);
+    postCache.set(post.slug, post);
+    return toPostSummary(post);
+  });
+
+  return summaries.sort((a, b) => b.meta.date.localeCompare(a.meta.date));
+}
+
+export function toPostSummary(post: Post | PostSummary): PostSummary {
+  const { slug, slugParts, meta, readingMinutes } = post;
+  return { slug, slugParts, meta, readingMinutes };
+}
+
+export function getAllPostSummaries(): PostSummary[] {
+  if (!cachedSummaries) {
+    cachedSummaries = loadPostSummaries();
+  }
+
+  return cachedSummaries;
+}
+
+/** Loads full post bodies for every article. Prefer getAllPostSummaries() for listings. */
+export function getAllPosts(): Post[] {
+  return getAllPostSummaries().map((summary) => postCache.get(summary.slug)!);
+}
+
+export function getFeaturedPosts(limit = 4): PostSummary[] {
+  return getAllPostSummaries()
     .filter((post) => post.meta.featured)
     .slice(0, limit);
 }
 
 export function getPostBySlug(slugParts: string[]): Post | null {
   const slug = slugParts.join("/");
-  const post = getAllPosts().find((item) => item.slug === slug);
-  return post ?? null;
+  const cached = postCache.get(slug);
+  if (cached) return cached;
+
+  const filePath = path.join(POSTS_ROOT, ...slugParts) + ".mdx";
+  if (!fs.existsSync(filePath)) return null;
+
+  const post = parsePostFile(filePath);
+  postCache.set(post.slug, post);
+  return post;
 }
 
 export function getAllCategories(): string[] {
-  return [...new Set(getAllPosts().map((post) => post.meta.category))].sort();
+  return [...new Set(getAllPostSummaries().map((post) => post.meta.category))].sort();
 }
 
 export function getCategorySummaries(): CategorySummary[] {
   const counts = new Map<string, number>();
-  for (const post of getAllPosts()) {
+  for (const post of getAllPostSummaries()) {
     counts.set(post.meta.category, (counts.get(post.meta.category) ?? 0) + 1);
   }
 
@@ -118,8 +145,10 @@ export function getCategorySummaries(): CategorySummary[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function getPostsByCategorySlug(categorySlug: string): Post[] {
-  return getAllPosts().filter((post) => toCategorySlug(post.meta.category) === categorySlug);
+export function getPostsByCategorySlug(categorySlug: string): PostSummary[] {
+  return getAllPostSummaries().filter(
+    (post) => toCategorySlug(post.meta.category) === categorySlug
+  );
 }
 
 export function getCategoryNameBySlug(categorySlug: string): string | null {

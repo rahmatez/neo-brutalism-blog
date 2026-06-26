@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { format } from "date-fns";
-import { id } from "date-fns/locale";
+import { format } from "date-fns/format";
+import { id } from "date-fns/locale/id";
 import { toCategorySlug } from "@/lib/category";
 import type { PostSummary } from "@/lib/posts";
 

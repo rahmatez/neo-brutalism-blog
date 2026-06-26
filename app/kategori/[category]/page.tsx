@@ -22,6 +22,8 @@ type Props = {
   searchParams: Promise<{ page?: string }>;
 };
 
+export const revalidate = 3600;
+
 export function generateStaticParams() {
   return getCategorySummaries().map((category) => ({
     category: category.slug

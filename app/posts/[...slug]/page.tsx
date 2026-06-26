@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
-import { format } from "date-fns";
-import { id } from "date-fns/locale";
+import { format } from "date-fns/format";
+import { id } from "date-fns/locale/id";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
-import { getAllPosts, getPostBySlug, toCategorySlug } from "@/lib/posts";
+import { getAllPostSummaries, getPostBySlug, toCategorySlug } from "@/lib/posts";
 import { getAdjacentPosts, getRelatedPosts } from "@/lib/post-navigation";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 import { mdxComponents } from "@/components/mdx-components";
@@ -23,7 +23,7 @@ type Props = {
 };
 
 export function generateStaticParams() {
-  return getAllPosts().map((post) => ({
+  return getAllPostSummaries().map((post) => ({
     slug: post.slugParts
   }));
 }
